@@ -97,8 +97,8 @@ const TRADERS = [
   { nick: "Ёжик_в_Ликвидности", profit: -88300, pnl: -14.6, trades: 301, win: 42 }
 ];
 
-// Ссылка на Telegram-канал. Замените на реальную ссылку вашего канала.
-const TELEGRAM_URL = "https://t.me/ruspredict";
+// Ссылка на Telegram-канал RusPredict.
+const TELEGRAM_URL = "https://t.me/RusPredict";
 
 // Примеры идей сообщества (демо). votes — стартовое число голосов.
 const SEED_IDEAS = [
