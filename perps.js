@@ -22,7 +22,7 @@ const PERPS = (() => {
     { sym: "WHEAT", name: "Пшеница",         cls: "commodity", base: 5.6,   sig: 0.00015, maxLev: 10, ccy: "$", dec: 2, fund: 0.00004 }
   ];
   const A = Object.fromEntries(ASSETS.map((a) => [a.sym, a]));
-  const P = { sel: "BTC", cls: "crypto", range: "LIVE", dir: "long", lev: 1, margin: 1000 };
+  const P = { sel: "BTC", cls: "crypto", range: "LIVE", dir: "long", lev: 1, margin: 1000, tp: "", sl: "" };
   let positions = [], closed = [], ticks = 0, chartHover = false, ready = false;
 
   const nf = new Intl.NumberFormat("ru-RU");
@@ -90,6 +90,49 @@ const PERPS = (() => {
     RP.store.set("pclosed", closed.slice(-100));
   }
 
+  // ---------- стоп-лосс и тейк-профит ----------
+  const dsign = (dir) => (dir === "long" ? 1 : -1);
+  const parseP = (s) => { s = String(s ?? "").trim().replace(",", "."); return s === "" ? null : Number(s); };
+  const fmtIn = (a, v) => String(Number(v.toFixed(a.dec + (a.dec < 2 ? 1 : 0))));
+  // Возвращает текст ошибки или пустую строку. ref — текущая цена, liq — цена ликвидации.
+  function tpslError(a, dir, tp, sl, ref, liq) {
+    if (Number.isNaN(tp) || (tp !== null && tp <= 0)) return "Некорректная цена тейк-профита.";
+    if (Number.isNaN(sl) || (sl !== null && sl <= 0)) return "Некорректная цена стоп-лосса.";
+    const long = dir === "long";
+    if (tp !== null && (long ? tp <= ref : tp >= ref)) return `Тейк-профит должен быть ${long ? "выше" : "ниже"} текущей цены (${price(a, ref)}).`;
+    if (sl !== null && (long ? sl >= ref : sl <= ref)) return `Стоп-лосс должен быть ${long ? "ниже" : "выше"} текущей цены (${price(a, ref)}).`;
+    if (sl !== null && (long ? sl <= liq : sl >= liq)) return `Стоп-лосс должен быть ${long ? "выше" : "ниже"} цены ликвидации (${price(a, liq)}), иначе он не сработает.`;
+    return "";
+  }
+  // Цена из процента от маржи (ROE) с учётом плеча: +50% при 10x это движение цены на 5%.
+  const priceFromRoe = (a, dir, lev, ref, roe) => ref * (1 + (dsign(dir) * roe) / 100 / lev);
+  function estResult(dir, entry, notional, exit) {
+    const pnl = notional * dsign(dir) * (exit / entry - 1);
+    return pnl - notional * FEE - notional * (exit / entry) * FEE;
+  }
+  const levTxt = (l) => (l === 1 ? "без плеча" : l + "x");
+  const KIND = { liq: ["Ликвидация", "no"], tp: ["Тейк-профит", "yes"], sl: ["Стоп-лосс", "no"] };
+
+  function settle(pos, kind, exitPrice) {
+    const a = A[pos.sym], s = stats(pos, exitPrice);
+    positions = positions.filter((x) => x !== pos);
+    RP.setBalance(RP.getBalance() + Math.max(0, s.equity));
+    closed.push({ sym: pos.sym, dir: pos.dir, lev: pos.lev, margin: pos.margin, entry: pos.entry, exit: exitPrice, pnl: s.result, kind, ts: Date.now() });
+    persist();
+    const word = { close: "Позиция закрыта", tp: "Сработал тейк-профит", sl: "Сработал стоп-лосс" }[kind];
+    RP.toast(`${word}: ${pos.sym} ${pos.dir === "long" ? "Long" : "Short"} ${levTxt(pos.lev)}. Итог ${sg(s.result, 0)} ₽`);
+    if (RP.route() === "trade") { paintPositions(); paintChart(); }
+  }
+  function checkTpSl() {
+    const hit = [];
+    positions.forEach((pos) => {
+      const p = A[pos.sym].price, long = pos.dir === "long";
+      if (pos.tp && (long ? p >= pos.tp : p <= pos.tp)) hit.push([pos, "tp", p]);
+      else if (pos.sl && (long ? p <= pos.sl : p >= pos.sl)) hit.push([pos, "sl", p]);
+    });
+    hit.forEach(([pos, kind, p]) => settle(pos, kind, p));
+  }
+
   function maxMargin() { return Math.max(0, Math.floor(RP.getBalance() / (1 + P.lev * FEE))); }
 
   function confirmOpen() {
@@ -101,6 +144,9 @@ const PERPS = (() => {
     if (m + fee > RP.getBalance()) return (msg.textContent = "Недостаточно средств. Уменьшите маржу или пополните баланс.");
     msg.textContent = "";
     const entry = a.price, liq = liqPrice(entry, P.lev, P.dir), dir = P.dir, lev = P.lev;
+    const tp = parseP($("#t-tp").value), sl = parseP($("#t-sl").value);
+    const err = tpslError(a, dir, tp, sl, entry, liq);
+    if (err) return (msg.textContent = err);
     RP.askConfirm({
       title: "Подтвердите открытие позиции",
       okText: dir === "long" ? "Открыть Long" : "Открыть Short",
@@ -112,15 +158,17 @@ const PERPS = (() => {
         ["Размер позиции", RP.rub(notional)],
         ["Цена входа", price(a, entry)],
         ["Цена ликвидации", price(a, liq)],
+        ...(tp ? [["Тейк-профит", `${price(a, tp)} (${sg(estResult(dir, entry, notional, tp), 0)} ₽)`, "pos"]] : []),
+        ...(sl ? [["Стоп-лосс", `${price(a, sl)} (${sg(estResult(dir, entry, notional, sl), 0)} ₽)`, "neg"]] : []),
         ["Комиссия 0,05%", fee2(fee)]
       ]
     }, () => {
       if (m + fee > RP.getBalance()) return RP.toast("Недостаточно средств");
       RP.setBalance(RP.getBalance() - m - fee);
-      positions.push({ id: Date.now() + "-" + Math.random().toString(36).slice(2, 6), sym: a.sym, dir, lev, margin: m, notional, entry, liq, feeOpen: fee, ts: Date.now() });
+      positions.push({ id: Date.now() + "-" + Math.random().toString(36).slice(2, 6), sym: a.sym, dir, lev, margin: m, notional, entry, liq, tp, sl, feeOpen: fee, ts: Date.now() });
       persist();
-      RP.toast(`Позиция открыта: ${a.sym} ${dir === "long" ? "Long" : "Short"} ${lev === 1 ? "без плеча" : lev + "x"}`);
-      if (RP.route() === "trade") { paintPositions(); paintSummary(); }
+      RP.toast(`Позиция открыта: ${a.sym} ${dir === "long" ? "Long" : "Short"} ${levTxt(lev)}`);
+      if (RP.route() === "trade") { paintPositions(); paintSummary(); paintChart(); }
     });
   }
 
@@ -144,15 +192,44 @@ const PERPS = (() => {
     }, () => closePosition(id));
   }
   function closePosition(id) {
-    const i = positions.findIndex((x) => x.id === id);
-    if (i < 0) return;
-    const pos = positions[i], a = A[pos.sym], s = stats(pos, a.price);
-    positions.splice(i, 1);
-    RP.setBalance(RP.getBalance() + Math.max(0, s.equity));
-    closed.push({ sym: pos.sym, dir: pos.dir, lev: pos.lev, margin: pos.margin, entry: pos.entry, exit: a.price, pnl: s.result, kind: "close", ts: Date.now() });
-    persist();
-    RP.toast(`Позиция закрыта: ${s.result >= 0 ? "прибыль" : "убыток"} ${sg(s.result, 0)} ₽`);
-    if (RP.route() === "trade") paintPositions();
+    const pos = positions.find((x) => x.id === id);
+    if (pos) settle(pos, "close", A[pos.sym].price);
+  }
+
+  function openEdit(id) {
+    const pos = positions.find((x) => x.id === id);
+    if (!pos) return;
+    const a = A[pos.sym];
+    RP.openSheet(`
+      <h2>Стоп-лосс и тейк-профит</h2>
+      <p>${pos.sym}-PERP, ${pos.dir === "long" ? "Long" : "Short"} ${levTxt(pos.lev)}. Вход ${price(a, pos.entry)}, сейчас <b id="e-cur">${price(a, a.price)}</b>, ликвидация ${price(a, pos.liq)}.</p>
+      <label class="l" for="e-tp">Тейк-профит, цена</label>
+      <input class="field" id="e-tp" type="text" inputmode="decimal" placeholder="Пусто — без тейк-профита" value="${pos.tp ? fmtIn(a, pos.tp) : ""}">
+      <div class="chips" id="e-tpchips" style="margin-top:8px">${[25, 50, 100].map((r) => `<button class="chip" data-roe="${r}">+${r}%</button>`).join("")}<span class="chip-note">от маржи</span></div>
+      <label class="l" for="e-sl">Стоп-лосс, цена</label>
+      <input class="field" id="e-sl" type="text" inputmode="decimal" placeholder="Пусто — без стоп-лосса" value="${pos.sl ? fmtIn(a, pos.sl) : ""}">
+      <div class="chips" id="e-slchips" style="margin:8px 0 14px">${[10, 25, 50].map((r) => `<button class="chip" data-roe="${r}">−${r}%</button>`).join("")}<span class="chip-note">от маржи</span></div>
+      <button class="submit" id="e-save">Сохранить</button>
+      <div class="msg err" id="e-msg"></div>`);
+    const chips = (cid, inp, sign) => {
+      $(cid).onclick = (ev) => {
+        const b = ev.target.closest("[data-roe]");
+        if (b) $(inp).value = fmtIn(a, priceFromRoe(a, pos.dir, pos.lev, a.price, sign * Number(b.dataset.roe)));
+      };
+    };
+    chips("#e-tpchips", "#e-tp", 1);
+    chips("#e-slchips", "#e-sl", -1);
+    $("#e-save").onclick = () => {
+      const tp = parseP($("#e-tp").value), sl = parseP($("#e-sl").value);
+      const err = tpslError(a, pos.dir, tp, sl, a.price, pos.liq);
+      if (err) return ($("#e-msg").textContent = err);
+      pos.tp = tp; pos.sl = sl;
+      persist();
+      RP.closeModal();
+      RP.toast(tp || sl ? "Стоп-лосс и тейк-профит сохранены" : "Стоп-лосс и тейк-профит сняты");
+      paintPositions();
+      paintChart();
+    };
   }
 
   // ---------- графики ----------
@@ -190,7 +267,7 @@ const PERPS = (() => {
     // линии входа и ликвидации открытых позиций по этому активу
     const marks = positions.filter((p) => p.sym === a.sym).map((p) => {
       const mk = (v, cls, txt) => (v > g.lo && v < g.hi ? `<line class="${cls}" x1="${g.L}" x2="${g.W - g.R}" y1="${g.y(v).toFixed(1)}" y2="${g.y(v).toFixed(1)}"/><text class="mk ${cls}" x="${g.W - g.R - 4}" y="${(g.y(v) - 4).toFixed(1)}" text-anchor="end">${txt}</text>` : "");
-      return mk(p.entry, "m-entry", "вход") + mk(p.liq, "m-liq", "ликвидация");
+      return mk(p.entry, "m-entry", "вход") + mk(p.liq, "m-liq", "ликвидация") + (p.tp ? mk(p.tp, "m-tp", "тейк") : "") + (p.sl ? mk(p.sl, "m-sl", "стоп") : "");
     }).join("");
     return `<svg viewBox="0 0 ${g.W} ${g.H}" class="chart-svg ${up ? "up" : "down"}" role="img" aria-label="График цены ${a.sym}">
       ${ticks}${xl}${marks}
@@ -265,6 +342,14 @@ const PERPS = (() => {
       <label class="l" for="t-lev">Плечо: <b id="t-levv"></b></label>
       <input id="t-lev" class="lev" type="range" min="1" max="${a.maxLev}" step="1" value="${P.lev}">
       <div class="chips" id="t-levchips" style="margin-top:8px">${levs.map((l) => `<button class="chip" data-lev="${l}">${l === 1 ? "Без плеча" : l + "x"}</button>`).join("")}</div>
+      <div class="tpsl">
+        <label class="l" for="t-tp">Тейк-профит, цена <span class="opt">необязательно</span></label>
+        <input class="field" id="t-tp" type="text" inputmode="decimal" placeholder="Закрыть с прибылью по цене" value="${esc(P.tp)}">
+        <div class="chips" id="t-tpchips" style="margin-top:8px">${[25, 50, 100].map((r) => `<button class="chip" data-roe="${r}">+${r}%</button>`).join("")}<span class="chip-note">от маржи</span></div>
+        <label class="l" for="t-sl">Стоп-лосс, цена <span class="opt">необязательно</span></label>
+        <input class="field" id="t-sl" type="text" inputmode="decimal" placeholder="Закрыть с убытком по цене" value="${esc(P.sl)}">
+        <div class="chips" id="t-slchips" style="margin-top:8px">${[10, 25, 50].map((r) => `<button class="chip" data-roe="${r}">−${r}%</button>`).join("")}<span class="chip-note">от маржи</span></div>
+      </div>
       <div class="impact" id="t-sum"></div>
       <button class="submit" id="t-open"></button>
       <div class="msg" id="t-msg"></div>
@@ -279,6 +364,13 @@ const PERPS = (() => {
     $("#t-lev").value = P.lev;
     document.querySelectorAll("#t-levchips .chip").forEach((c) => c.classList.toggle("on", Number(c.dataset.lev) === P.lev));
     document.querySelectorAll("#t-dir button").forEach((b) => b.classList.toggle("on", b.dataset.dir === P.dir));
+    const liq = liqPrice(a.price, P.lev, P.dir);
+    const tp = parseP($("#t-tp").value), sl = parseP($("#t-sl").value);
+    const line = (label, v, cls) => (v ? `<div><span>${label}</span><b class="${cls}">${sg(estResult(P.dir, a.price, notional, v), 0)} ₽</b></div>` : "");
+    const okTp = tp && !Number.isNaN(tp) && (P.dir === "long" ? tp > a.price : tp < a.price);
+    const okSl = sl && !Number.isNaN(sl) && (P.dir === "long" ? sl < a.price && sl > liq : sl > a.price && sl < liq);
+    const tpLine = okTp ? line("Итог при тейк-профите", tp, "pos") : "";
+    const slLine = okSl ? line("Итог при стоп-лоссе", sl, "neg") : "";
     const btn = $("#t-open");
     btn.className = "submit " + (P.dir === "long" ? "long" : "short");
     btn.textContent = P.dir === "long" ? `Открыть Long ${a.sym}` : `Открыть Short ${a.sym}`;
@@ -287,10 +379,12 @@ const PERPS = (() => {
          <div><span>Цена входа (рыночная)</span><b>${price(a, a.price)}</b></div>
          <div><span>Цена ликвидации</span><b>${price(a, liqPrice(a.price, P.lev, P.dir))}</b></div>
          <div><span>Комиссия 0,05%</span><b>${fee2(fee)}</b></div>
+         ${tpLine}${slLine}
          <div><span>Доступно</span><b>${RP.rub(RP.getBalance())}</b></div>`
       : "";
   }
 
+  const tpslCell = (a, pos) => (pos.tp || pos.sl ? `${pos.tp ? `<span class="pos">TP ${price(a, pos.tp)}</span>` : ""}${pos.sl ? `<span class="neg">SL ${price(a, pos.sl)}</span>` : ""}` : '<span class="muted">—</span>');
   function posRowHTML(pos) {
     const a = A[pos.sym], s = stats(pos, a.price);
     return `<tr data-pid="${pos.id}">
@@ -299,21 +393,22 @@ const PERPS = (() => {
       <td>${price(a, pos.entry)}</td>
       <td class="pp-cur">${price(a, a.price)}</td>
       <td>${price(a, pos.liq)}</td>
+      <td class="pp-tpsl">${tpslCell(a, pos)}</td>
       <td class="pp-pnl ${s.result >= 0 ? "pos" : "neg"}">${sg(s.result, 0)} ₽<small>${sg(s.roe, 1)}%</small></td>
-      <td><button class="sell" data-close="${pos.id}">Закрыть</button></td>
+      <td><span class="pbtns"><button class="sbtn small" data-edit="${pos.id}">TP/SL</button><button class="sell" data-close="${pos.id}">Закрыть</button></span></td>
     </tr>`;
   }
   function paintPositions() {
     const box = $("#t-pos");
     if (!box) return;
     box.innerHTML = positions.length
-      ? `<div class="table-wrap" style="margin:0"><table class="ptable"><thead><tr><th>Контракт</th><th>Размер</th><th>Вход</th><th>Сейчас</th><th>Ликвидация</th><th>PnL</th><th></th></tr></thead><tbody>${positions.slice().reverse().map(posRowHTML).join("")}</tbody></table></div>`
+      ? `<div class="table-wrap" style="margin:0"><table class="ptable"><thead><tr><th>Контракт</th><th>Размер</th><th>Вход</th><th>Сейчас</th><th>Ликвидация</th><th>TP / SL</th><th>PnL</th><th></th></tr></thead><tbody>${positions.slice().reverse().map(posRowHTML).join("")}</tbody></table></div>`
       : `<p class="empty" style="padding:18px">Открытых позиций нет. Выберите актив и откройте Long или Short.</p>`;
     const h = $("#t-hist");
     h.innerHTML = closed.length
       ? `<div class="table-wrap" style="margin:0"><table class="ptable"><thead><tr><th>Контракт</th><th>Сторона</th><th>Вход → выход</th><th>Итог</th><th>Когда</th></tr></thead><tbody>${closed.slice(-10).reverse().map((c) => {
           const a = A[c.sym], d = new Date(c.ts);
-          return `<tr><td><b>${c.sym}-PERP</b></td><td><span class="tag ${c.dir === "long" ? "yes" : "no"}">${c.dir === "long" ? "Long" : "Short"} ${c.lev === 1 ? "без плеча" : c.lev + "x"}</span>${c.kind === "liq" ? ' <span class="tag no">Ликвидация</span>' : ""}</td><td>${price(a, c.entry)} → ${price(a, c.exit)}</td><td class="${c.pnl >= 0 ? "pos" : "neg"}">${sg(c.pnl, 0)} ₽</td><td>${d.toLocaleDateString("ru-RU", { day: "numeric", month: "short" })}, ${d.toLocaleTimeString("ru-RU", { hour: "2-digit", minute: "2-digit" })}</td></tr>`;
+          return `<tr><td><b>${c.sym}-PERP</b></td><td><span class="tag ${c.dir === "long" ? "yes" : "no"}">${c.dir === "long" ? "Long" : "Short"} ${c.lev === 1 ? "без плеча" : c.lev + "x"}</span>${KIND[c.kind] ? ` <span class="tag ${KIND[c.kind][1]}">${KIND[c.kind][0]}</span>` : ""}</td><td>${price(a, c.entry)} → ${price(a, c.exit)}</td><td class="${c.pnl >= 0 ? "pos" : "neg"}">${sg(c.pnl, 0)} ₽</td><td>${d.toLocaleDateString("ru-RU", { day: "numeric", month: "short" })}, ${d.toLocaleTimeString("ru-RU", { hour: "2-digit", minute: "2-digit" })}</td></tr>`;
         }).join("")}</tbody></table></div>`
       : `<p class="empty" style="padding:18px">Закрытых сделок пока нет.</p>`;
   }
@@ -340,7 +435,7 @@ const PERPS = (() => {
 
   function bind() {
     const root = $("#view");
-    const rebuildMain = () => { $("#t-main").innerHTML = mainHTML(); bindMain(); paintChart(); paintSummary(); };
+    const rebuildMain = () => { P.tp = ""; P.sl = ""; $("#t-main").innerHTML = mainHTML(); bindMain(); paintChart(); paintSummary(); };
     $("#t-tabs").onclick = (ev) => {
       const b = ev.target.closest("[data-tcls]");
       if (!b) return;
@@ -358,7 +453,12 @@ const PERPS = (() => {
       document.querySelectorAll(".arow").forEach((r) => r.classList.toggle("on", r === b));
       rebuildMain();
     };
-    $("#t-pos").onclick = (ev) => { const b = ev.target.closest("[data-close]"); if (b) confirmClose(b.dataset.close); };
+    $("#t-pos").onclick = (ev) => {
+      const c = ev.target.closest("[data-close]");
+      if (c) return confirmClose(c.dataset.close);
+      const e = ev.target.closest("[data-edit]");
+      if (e) openEdit(e.dataset.edit);
+    };
     function bindMain() {
       $("#t-range").onclick = (ev) => {
         const b = ev.target.closest("[data-range]");
@@ -378,6 +478,20 @@ const PERPS = (() => {
       };
       $("#t-lev").oninput = (ev) => { P.lev = Number(ev.target.value); paintSummary(); };
       $("#t-levchips").onclick = (ev) => { const b = ev.target.closest("[data-lev]"); if (b) { P.lev = Number(b.dataset.lev); paintSummary(); } };
+      $("#t-tp").oninput = (ev) => { P.tp = ev.target.value; paintSummary(); };
+      $("#t-sl").oninput = (ev) => { P.sl = ev.target.value; paintSummary(); };
+      const roeChips = (id, field, sign) => {
+        $(id).onclick = (ev) => {
+          const b = ev.target.closest("[data-roe]");
+          if (!b) return;
+          const a = A[P.sel], v = priceFromRoe(a, P.dir, P.lev, a.price, sign * Number(b.dataset.roe));
+          P[field] = fmtIn(a, v);
+          $("#t-" + field).value = P[field];
+          paintSummary();
+        };
+      };
+      roeChips("#t-tpchips", "tp", 1);
+      roeChips("#t-slchips", "sl", -1);
       $("#t-open").onclick = confirmOpen;
     }
     bindMain();
@@ -402,6 +516,7 @@ const PERPS = (() => {
     }
     if (ticks % 5 === 0) savePrices();
     checkLiquidations();
+    checkTpSl();
     if (RP.route() !== "trade" || !$("#t-main")) return;
     ASSETS.forEach((a) => {
       const p = $(`[data-pr="${a.sym}"]`), c = $(`[data-ch="${a.sym}"]`);

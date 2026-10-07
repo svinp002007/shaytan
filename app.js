@@ -909,7 +909,7 @@
   document.addEventListener("keydown", (ev) => { if (ev.key === "Escape") { if (!$("#confirm").hidden) closeConfirm(); else closeModal(); } });
 
   window.RP = {
-    store, rub, toast, askConfirm,
+    store, rub, toast, askConfirm, openSheet, closeModal,
     route: () => state.route,
     getBalance: () => balance,
     setBalance: (v) => { setBalance(v); if (state.route === "account") paintAccountRight(); }

@@ -349,3 +349,15 @@ footer{border-top:1px solid var(--line);padding:22px 0;color:var(--muted);font-s
 @media (max-width:860px){.trade{grid-template-columns:1fr}.promo-trade{grid-template-columns:1fr}}
 @media (max-width:640px){.nav a{padding:6px 5px;font-size:11px}}
 .pt-tile .abadge{justify-self:start}
+
+/* стоп-лосс и тейк-профит */
+.tpsl{margin-top:4px}
+.opt{color:var(--muted);font-size:12px;margin-left:4px}
+.chip-note{align-self:center;font-size:12px;color:var(--muted)}
+.chart-svg .m-tp{stroke:var(--yes);stroke-width:1;stroke-dasharray:6 3}
+.chart-svg .m-sl{stroke:#d97706;stroke-width:1;stroke-dasharray:6 3}
+.chart-svg text.m-tp{fill:var(--yes)}.chart-svg text.m-sl{fill:#d97706}
+.pp-tpsl span{display:block;font-size:12px;font-weight:700;white-space:nowrap}
+.muted{color:var(--muted)}
+.pbtns{display:inline-flex;gap:8px;justify-content:flex-end}
+.ptable{min-width:760px}
