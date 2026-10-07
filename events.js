@@ -1,62 +1,98 @@
-// Sample market data. Edit freely: yes = current "Yes" probability (%), volume in ₽, closes = YYYY-MM-DD.
+// Демо-данные. yes = текущая вероятность «Да» (%), vol = объём пула в ₽, closes = ГГГГ-ММ-ДД.
 const CATEGORIES = [
-  { id: "world",  name: "World Economics" },
-  { id: "russia", name: "Russian Economics" },
-  { id: "sport",  name: "Sport" },
-  { id: "politics", name: "Russian Politics" }
+  { id: "world",    name: "Мировая экономика" },
+  { id: "russia",   name: "Экономика России" },
+  { id: "crypto",   name: "Крипто" },
+  { id: "sport",    name: "Спорт" },
+  { id: "politics", name: "Политика России" }
 ];
 
 const EVENTS = [
-  // ---- World Economics ----
-  { cat: "world", q: "Will Brent crude close above $90 on 31 Dec 2026?", yes: 27, vol: 4200000, closes: "2026-12-31" },
-  { cat: "world", q: "Will the US Fed cut rates at its December 2026 meeting?", yes: 58, vol: 6100000, closes: "2026-12-16" },
-  { cat: "world", q: "Will gold trade above $4,500/oz before 2027?", yes: 41, vol: 3800000, closes: "2026-12-31" },
-  { cat: "world", q: "Will Bitcoin exceed $150,000 by 31 Dec 2026?", yes: 19, vol: 9500000, closes: "2026-12-31" },
-  { cat: "world", q: "Will the S&P 500 end 2026 higher than it started?", yes: 71, vol: 5300000, closes: "2026-12-31" },
-  { cat: "world", q: "Will EUR/USD be above 1.20 on 31 Dec 2026?", yes: 22, vol: 2100000, closes: "2026-12-31" },
-  { cat: "world", q: "Will China's 2026 GDP growth be reported at 5% or higher?", yes: 47, vol: 2700000, closes: "2027-01-20" },
-  { cat: "world", q: "Will the US enter a recession (NBER-declared) by mid-2027?", yes: 24, vol: 3300000, closes: "2027-06-30" },
-  { cat: "world", q: "Will OPEC+ announce a production cut before 1 Jan 2027?", yes: 35, vol: 1900000, closes: "2026-12-31" },
-  { cat: "world", q: "Will global wheat prices hit a 12-month high this winter?", yes: 29, vol: 880000, closes: "2027-02-28" },
-  { cat: "world", q: "Will Nvidia remain the world's most valuable company on 31 Dec 2026?", yes: 52, vol: 4700000, closes: "2026-12-31" },
+  // ---- Мировая экономика ----
+  { cat: "world", q: "Нефть Brent закроется выше $90 на 31 декабря 2026?", yes: 27, vol: 4200000, closes: "2026-12-31" },
+  { cat: "world", q: "ФРС США снизит ставку на декабрьском заседании 2026?", yes: 58, vol: 6100000, closes: "2026-12-16" },
+  { cat: "world", q: "Золото превысит $4 500 за унцию до конца 2026?", yes: 41, vol: 3800000, closes: "2026-12-31" },
+  { cat: "world", q: "Индекс S&P 500 завершит 2026 год выше, чем начал?", yes: 71, vol: 5300000, closes: "2026-12-31" },
+  { cat: "world", q: "Курс EUR/USD будет выше 1,20 на 31 декабря 2026?", yes: 22, vol: 2100000, closes: "2026-12-31" },
+  { cat: "world", q: "Рост ВВП Китая за 2026 год составит 5% или больше?", yes: 47, vol: 2700000, closes: "2027-01-20" },
+  { cat: "world", q: "США войдут в рецессию (по оценке NBER) до середины 2027?", yes: 24, vol: 3300000, closes: "2027-06-30" },
+  { cat: "world", q: "ОПЕК+ объявит о сокращении добычи до 1 января 2027?", yes: 35, vol: 1900000, closes: "2026-12-31" },
+  { cat: "world", q: "Мировые цены на пшеницу обновят 12-месячный максимум этой зимой?", yes: 29, vol: 880000, closes: "2027-02-28" },
+  { cat: "world", q: "Nvidia останется самой дорогой компанией мира на 31 декабря 2026?", yes: 52, vol: 4700000, closes: "2026-12-31" },
 
-  // ---- Russian Economics ----
-  { cat: "russia", q: "Will the Bank of Russia cut its key rate at the next board meeting?", yes: 63, vol: 7200000, closes: "2026-12-18" },
-  { cat: "russia", q: "Will USD/RUB (official CBR rate) be above 100 on 31 Dec 2026?", yes: 46, vol: 6400000, closes: "2026-12-31" },
-  { cat: "russia", q: "Will Russia's annual inflation be below 7% in December 2026?", yes: 38, vol: 3900000, closes: "2027-01-15" },
-  { cat: "russia", q: "Will the MOEX Index close above 3,000 on 31 Dec 2026?", yes: 44, vol: 5100000, closes: "2026-12-31" },
-  { cat: "russia", q: "Will the CBR key rate be at or below 14% on 31 Dec 2026?", yes: 51, vol: 4300000, closes: "2026-12-31" },
-  { cat: "russia", q: "Will Russia's 2026 GDP growth exceed 1.5%?", yes: 33, vol: 2400000, closes: "2027-02-15" },
-  { cat: "russia", q: "Will the Urals oil price average above $60 in Q4 2026?", yes: 49, vol: 2900000, closes: "2027-01-05" },
-  { cat: "russia", q: "Will the unemployment rate stay below 3% through December 2026?", yes: 78, vol: 1500000, closes: "2027-01-31" },
-  { cat: "russia", q: "Will VAT be raised again in the 2027 budget cycle?", yes: 18, vol: 1300000, closes: "2026-12-31" },
-  { cat: "russia", q: "Will Sberbank report record annual net profit for 2026?", yes: 57, vol: 3100000, closes: "2027-02-10" },
-  { cat: "russia", q: "Will average Moscow rent rise more than 10% year-on-year by end of 2026?", yes: 36, vol: 760000, closes: "2026-12-31" },
+  // ---- Экономика России ----
+  { cat: "russia", q: "Банк России снизит ключевую ставку на ближайшем заседании?", yes: 63, vol: 7200000, closes: "2026-12-18" },
+  { cat: "russia", q: "Официальный курс USD/RUB будет выше 100 на 31 декабря 2026?", yes: 46, vol: 6400000, closes: "2026-12-31" },
+  { cat: "russia", q: "Годовая инфляция в России в декабре 2026 будет ниже 7%?", yes: 38, vol: 3900000, closes: "2027-01-15" },
+  { cat: "russia", q: "Индекс Мосбиржи закроется выше 3 000 пунктов на 31 декабря 2026?", yes: 44, vol: 5100000, closes: "2026-12-31" },
+  { cat: "russia", q: "Ключевая ставка ЦБ будет 14% или ниже на 31 декабря 2026?", yes: 51, vol: 4300000, closes: "2026-12-31" },
+  { cat: "russia", q: "Рост ВВП России в 2026 году превысит 1,5%?", yes: 33, vol: 2400000, closes: "2027-02-15" },
+  { cat: "russia", q: "Средняя цена Urals в IV квартале 2026 будет выше $60?", yes: 49, vol: 2900000, closes: "2027-01-05" },
+  { cat: "russia", q: "Безработица в России останется ниже 3% до декабря 2026?", yes: 78, vol: 1500000, closes: "2027-01-31" },
+  { cat: "russia", q: "НДС снова повысят в рамках бюджетного цикла на 2027 год?", yes: 18, vol: 1300000, closes: "2026-12-31" },
+  { cat: "russia", q: "Сбербанк покажет рекордную годовую чистую прибыль за 2026 год?", yes: 57, vol: 3100000, closes: "2027-02-10" },
+  { cat: "russia", q: "Аренда жилья в Москве вырастет более чем на 10% за 2026 год?", yes: 36, vol: 760000, closes: "2026-12-31" },
 
-  // ---- Sport ----
-  { cat: "sport", q: "Will Zenit St. Petersburg win the 2026/27 Russian Premier League?", yes: 34, vol: 2800000, closes: "2027-05-30" },
-  { cat: "sport", q: "Will Spartak Moscow finish in the top 3 of the RPL this season?", yes: 31, vol: 1200000, closes: "2027-05-30" },
-  { cat: "sport", q: "Will CSKA Moscow win the 2026/27 Russian Cup?", yes: 17, vol: 640000, closes: "2027-05-31" },
-  { cat: "sport", q: "Will SKA St. Petersburg reach the KHL Gagarin Cup final?", yes: 26, vol: 1700000, closes: "2027-04-20" },
-  { cat: "sport", q: "Will CSKA Moscow win the KHL Gagarin Cup this season?", yes: 14, vol: 1100000, closes: "2027-04-30" },
-  { cat: "sport", q: "Will a Russian player win the 2027 Australian Open (men's singles)?", yes: 21, vol: 2300000, closes: "2027-01-31" },
-  { cat: "sport", q: "Will Daniil Medvedev reach a Grand Slam final in 2027?", yes: 23, vol: 1900000, closes: "2027-09-15" },
-  { cat: "sport", q: "Will Alexander Ovechkin score 900 career NHL goals this season?", yes: 42, vol: 3400000, closes: "2027-04-15" },
-  { cat: "sport", q: "Will Russia's national football team be allowed back into FIFA competitions by end of 2026?", yes: 12, vol: 4600000, closes: "2026-12-31" },
-  { cat: "sport", q: "Will Russian athletes compete under their national flag at the 2028 Olympics?", yes: 15, vol: 3700000, closes: "2027-12-31" },
-  { cat: "sport", q: "Will Lokomotiv Moscow finish above Dynamo Moscow in the RPL table?", yes: 49, vol: 520000, closes: "2027-05-30" },
+  // ---- Крипто ----
+  { cat: "crypto", q: "Биткоин превысит $150 000 до 31 декабря 2026?", yes: 19, vol: 9500000, closes: "2026-12-31" },
+  { cat: "crypto", q: "Биткоин упадёт ниже $60 000 в любой момент до конца 2026?", yes: 16, vol: 5200000, closes: "2026-12-31" },
+  { cat: "crypto", q: "Эфириум будет стоить выше $6 000 на 31 декабря 2026?", yes: 24, vol: 4100000, closes: "2026-12-31" },
+  { cat: "crypto", q: "Капитализация крипторынка превысит $5 трлн на 31 декабря 2026?", yes: 37, vol: 3600000, closes: "2026-12-31" },
+  { cat: "crypto", q: "Доминирование биткоина будет выше 60% на конец 2026 года?", yes: 55, vol: 1800000, closes: "2026-12-31" },
+  { cat: "crypto", q: "USDT останется крупнейшим стейблкоином по капитализации на конец 2026?", yes: 93, vol: 2200000, closes: "2026-12-31" },
+  { cat: "crypto", q: "Банк России разрешит неквалифицированным инвесторам покупать криптовалюту до 2027?", yes: 21, vol: 2900000, closes: "2026-12-31" },
+  { cat: "crypto", q: "Россия на постоянной основе узаконит крипторасчёты во внешней торговле до 2027?", yes: 48, vol: 3400000, closes: "2026-12-31" },
+  { cat: "crypto", q: "Solana превысит $400 до конца 2026 года?", yes: 14, vol: 1700000, closes: "2026-12-31" },
+  { cat: "crypto", q: "Хешрейт сети биткоина обновит исторический максимум до конца 2026?", yes: 66, vol: 1200000, closes: "2026-12-31" },
 
-  // ---- Russian Politics ----
-  { cat: "politics", q: "Will Putin's annual Direct Line be held in December 2026?", yes: 81, vol: 1600000, closes: "2026-12-31" },
-  { cat: "politics", q: "Will the 2027 federal budget be adopted with a deficit under 2% of GDP?", yes: 45, vol: 1800000, closes: "2026-12-31" },
-  { cat: "politics", q: "Will a new Prime Minister be appointed before 1 Jan 2027?", yes: 9, vol: 2200000, closes: "2026-12-31" },
-  { cat: "politics", q: "Will Russia and Ukraine sign a formal ceasefire agreement by end of 2026?", yes: 13, vol: 8900000, closes: "2026-12-31" },
-  { cat: "politics", q: "Will Putin and Trump hold an in-person meeting before 1 Jan 2027?", yes: 22, vol: 6800000, closes: "2026-12-31" },
-  { cat: "politics", q: "Will the EU adopt a new sanctions package against Russia before 1 Jan 2027?", yes: 83, vol: 5400000, closes: "2026-12-31" },
-  { cat: "politics", q: "Will a major Russian federal minister be replaced before 1 Jan 2027?", yes: 28, vol: 1400000, closes: "2026-12-31" },
-  { cat: "politics", q: "Will Moscow host a BRICS leaders' summit-level event in 2027?", yes: 11, vol: 690000, closes: "2027-12-31" },
-  { cat: "politics", q: "Will Russia hold a nationwide referendum before the end of 2027?", yes: 5, vol: 870000, closes: "2027-12-31" },
-  { cat: "politics", q: "Will Sergey Sobyanin remain Mayor of Moscow through 31 Dec 2026?", yes: 96, vol: 1100000, closes: "2026-12-31" }
+  // ---- Спорт ----
+  { cat: "sport", q: "«Зенит» выиграет РПЛ сезона 2026/27?", yes: 34, vol: 2800000, closes: "2027-05-30" },
+  { cat: "sport", q: "«Спартак» финиширует в первой тройке РПЛ в этом сезоне?", yes: 31, vol: 1200000, closes: "2027-05-30" },
+  { cat: "sport", q: "ЦСКА выиграет Кубок России 2026/27?", yes: 17, vol: 640000, closes: "2027-05-31" },
+  { cat: "sport", q: "СКА дойдёт до финала Кубка Гагарина?", yes: 26, vol: 1700000, closes: "2027-04-20" },
+  { cat: "sport", q: "ЦСКА выиграет Кубок Гагарина в этом сезоне?", yes: 14, vol: 1100000, closes: "2027-04-30" },
+  { cat: "sport", q: "Российский теннисист выиграет Australian Open 2027 (одиночный разряд)?", yes: 21, vol: 2300000, closes: "2027-01-31" },
+  { cat: "sport", q: "Даниил Медведев сыграет в финале турнира Большого шлема в 2027?", yes: 23, vol: 1900000, closes: "2027-09-15" },
+  { cat: "sport", q: "Александр Овечкин забьёт 900-й гол в НХЛ в этом сезоне?", yes: 42, vol: 3400000, closes: "2027-04-15" },
+  { cat: "sport", q: "Сборную России по футболу допустят к соревнованиям ФИФА до конца 2026?", yes: 12, vol: 4600000, closes: "2026-12-31" },
+  { cat: "sport", q: "Российские атлеты выступят под национальным флагом на Олимпиаде-2028?", yes: 15, vol: 3700000, closes: "2027-12-31" },
+  { cat: "sport", q: "«Локомотив» в итоговой таблице РПЛ окажется выше «Динамо»?", yes: 49, vol: 520000, closes: "2027-05-30" },
+
+  // ---- Политика России ----
+  { cat: "politics", q: "«Прямая линия» с президентом пройдёт в декабре 2026?", yes: 81, vol: 1600000, closes: "2026-12-31" },
+  { cat: "politics", q: "Федеральный бюджет на 2027 год примут с дефицитом ниже 2% ВВП?", yes: 45, vol: 1800000, closes: "2026-12-31" },
+  { cat: "politics", q: "Нового премьер-министра назначат до 1 января 2027?", yes: 9, vol: 2200000, closes: "2026-12-31" },
+  { cat: "politics", q: "Россия и Украина подпишут официальное соглашение о прекращении огня до конца 2026?", yes: 13, vol: 8900000, closes: "2026-12-31" },
+  { cat: "politics", q: "Путин и Трамп проведут личную встречу до 1 января 2027?", yes: 22, vol: 6800000, closes: "2026-12-31" },
+  { cat: "politics", q: "ЕС утвердит новый пакет санкций против России до 1 января 2027?", yes: 83, vol: 5400000, closes: "2026-12-31" },
+  { cat: "politics", q: "Один из федеральных министров будет заменён до 1 января 2027?", yes: 28, vol: 1400000, closes: "2026-12-31" },
+  { cat: "politics", q: "Москва примет саммит БРИКС на уровне лидеров в 2027?", yes: 11, vol: 690000, closes: "2027-12-31" },
+  { cat: "politics", q: "В России пройдёт общенациональный референдум до конца 2027?", yes: 5, vol: 870000, closes: "2027-12-31" },
+  { cat: "politics", q: "Сергей Собянин останется мэром Москвы до 31 декабря 2026?", yes: 96, vol: 1100000, closes: "2026-12-31" }
 ];
 
 EVENTS.forEach((e, i) => (e.id = i + 1));
+
+// Вымышленные трейдеры для таблицы лидеров. profit = общая прибыль в ₽, pnl = доходность в %.
+const TRADERS = [
+  { nick: "Оракул_с_Арбата",   profit: 1284500, pnl: 214.8, trades: 312, win: 71 },
+  { nick: "Сибирский_Лис",     profit: 962300,  pnl: 168.2, trades: 254, win: 68 },
+  { nick: "Тихий_Дон",         profit: 871900,  pnl: 143.5, trades: 198, win: 66 },
+  { nick: "Рубль_Рубль",       profit: 734000,  pnl: 121.0, trades: 421, win: 62 },
+  { nick: "Крипто_Баба_Яга",   profit: 688200,  pnl: 205.6, trades: 167, win: 64 },
+  { nick: "Урал_Бык",          profit: 541800,  pnl: 96.3,  trades: 233, win: 61 },
+  { nick: "Волга_Алго",        profit: 497600,  pnl: 88.9,  trades: 509, win: 58 },
+  { nick: "Бульдозер77",       profit: 455100,  pnl: 74.2,  trades: 144, win: 60 },
+  { nick: "Снегирь",           profit: 402700,  pnl: 69.8,  trades: 187, win: 59 },
+  { nick: "KamchatkaBear",     profit: 366400,  pnl: 112.4, trades: 96,  win: 63 },
+  { nick: "матрёшка_капитал",  profit: 318900,  pnl: 52.7,  trades: 276, win: 57 },
+  { nick: "Тундра_Альфа",      profit: 271300,  pnl: 47.1,  trades: 132, win: 56 },
+  { nick: "Ночной_Трейдер",    profit: 224800,  pnl: 38.6,  trades: 388, win: 54 },
+  { nick: "Балтика_Фонд",      profit: 183500,  pnl: 31.9,  trades: 121, win: 55 },
+  { nick: "ставка_на_нефть",   profit: 142200,  pnl: 26.4,  trades: 205, win: 53 },
+  { nick: "Пельмень_Профит",   profit: 96700,   pnl: 18.2,  trades: 174, win: 52 },
+  { nick: "СамоварCapital",    profit: 54100,   pnl: 9.7,   trades: 88,  win: 51 },
+  { nick: "Дядя_Миша_Инвест",  profit: -18400,  pnl: -3.8,  trades: 143, win: 47 },
+  { nick: "ГазпромНеТот",      profit: -46900,  pnl: -8.1,  trades: 219, win: 45 },
+  { nick: "Ёжик_в_Ликвидности", profit: -88300, pnl: -14.6, trades: 301, win: 42 }
+];

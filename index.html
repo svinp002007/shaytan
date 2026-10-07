@@ -1,52 +1,42 @@
 <!doctype html>
-<html lang="en">
+<html lang="ru">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>RusPredict — Prediction Market for Russia</title>
+  <title>RusPredict — рынок прогнозов</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;700&family=Unbounded:wght@500;700&display=swap">
   <link rel="stylesheet" href="styles.css">
 </head>
 <body>
   <header class="topbar">
     <div class="wrap bar">
-      <a class="logo" href="#"><span class="logo-mark">₽</span>Rus<b>Predict</b></a>
-      <input id="search" type="search" placeholder="Search events…" aria-label="Search events">
-      <div class="wallet" title="Demo balance (play money)">Balance: <b id="balance">₽ 10,000</b></div>
+      <a class="logo" href="#home"><span class="logo-mark">₽</span><span>Rus<b>Predict</b></span></a>
+      <nav id="nav" class="nav" aria-label="Разделы">
+        <a href="#home" data-r="home">Главная</a>
+        <a href="#markets" data-r="markets">Рынки</a>
+        <a href="#leaderboard" data-r="leaderboard">Лидеры</a>
+        <a href="#account" data-r="account">Аккаунт</a>
+      </nav>
+      <button class="wallet" id="wallet" title="Пополнить демо-баланс">
+        <span id="balance">₽ 10 000</span><i>+</i>
+      </button>
     </div>
   </header>
 
-  <section class="hero">
-    <div class="wrap">
-      <h1>What will happen next? <span>Trade on the outcome.</span></h1>
-      <p>Forecast Russian and world events. Prices are probabilities: 62¢ = 62% chance.</p>
-      <div class="demo-note">Demo layout — play money only, no backend, no real trading.</div>
-    </div>
-  </section>
+  <main id="view"></main>
 
-  <main class="wrap">
-    <nav id="tabs" class="tabs" aria-label="Categories"></nav>
-    <div class="toolbar">
-      <span id="count"></span>
-      <select id="sort" aria-label="Sort">
-        <option value="volume">Sort: Volume</option>
-        <option value="closing">Sort: Closing soon</option>
-        <option value="chance">Sort: Highest chance</option>
-      </select>
-    </div>
-    <div id="grid" class="grid"></div>
-    <p id="empty" class="empty" hidden>No events match your search.</p>
-  </main>
+  <footer>
+    <div class="wrap">RusPredict · демонстрационный прототип. Все средства игровые, вероятности и трейдеры вымышлены. Не является инвестиционной рекомендацией.</div>
+  </footer>
 
   <div id="modal" class="modal" hidden>
     <div class="sheet" role="dialog" aria-modal="true">
-      <button class="close" id="close" aria-label="Close">×</button>
+      <button class="close" id="close" aria-label="Закрыть">×</button>
       <div id="sheet-body"></div>
     </div>
   </div>
-
-  <footer>
-    <div class="wrap">RusPredict · demo prototype · probabilities are illustrative, not financial advice.</div>
-  </footer>
+  <div id="toast" class="toast" hidden></div>
 
   <script src="events.js"></script>
   <script src="app.js"></script>
