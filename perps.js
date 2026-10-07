@@ -5,21 +5,21 @@ const PERPS = (() => {
   const MMR = 0.005; // поддерживающая маржа 0,5%
   const CLS = { crypto: "Крипто", stock: "Акции", commodity: "Сырьё" };
   const ASSETS = [
-    { sym: "BTC",   name: "Биткоин",         cls: "crypto",    base: 96500, sig: 0.00040, maxLev: 20, ccy: "$", dec: 1, fund: 0.0001 },
-    { sym: "ETH",   name: "Эфириум",         cls: "crypto",    base: 3600,  sig: 0.00045, maxLev: 20, ccy: "$", dec: 2, fund: 0.0001 },
-    { sym: "SOL",   name: "Solana",          cls: "crypto",    base: 210,   sig: 0.00060, maxLev: 20, ccy: "$", dec: 2, fund: 0.00012 },
-    { sym: "SBER",  name: "Сбербанк",        cls: "stock",     base: 305,   sig: 0.00018, maxLev: 10, ccy: "₽", dec: 2, fund: 0.00005 },
-    { sym: "GAZP",  name: "Газпром",         cls: "stock",     base: 135,   sig: 0.00020, maxLev: 10, ccy: "₽", dec: 2, fund: 0.00005 },
-    { sym: "YDEX",  name: "Яндекс",          cls: "stock",     base: 4800,  sig: 0.00022, maxLev: 10, ccy: "₽", dec: 1, fund: 0.00005 },
-    { sym: "LKOH",  name: "Лукойл",          cls: "stock",     base: 7000,  sig: 0.00016, maxLev: 10, ccy: "₽", dec: 0, fund: 0.00005 },
-    { sym: "AAPL",  name: "Apple",           cls: "stock",     base: 230,   sig: 0.00020, maxLev: 10, ccy: "$", dec: 2, fund: 0.00005 },
-    { sym: "NVDA",  name: "Nvidia",          cls: "stock",     base: 180,   sig: 0.00030, maxLev: 10, ccy: "$", dec: 2, fund: 0.00006 },
-    { sym: "TSLA",  name: "Tesla",           cls: "stock",     base: 330,   sig: 0.00038, maxLev: 10, ccy: "$", dec: 2, fund: 0.00006 },
-    { sym: "BRENT", name: "Нефть Brent",     cls: "commodity", base: 72,    sig: 0.00018, maxLev: 10, ccy: "$", dec: 2, fund: 0.00004 },
-    { sym: "XAU",   name: "Золото",          cls: "commodity", base: 4150,  sig: 0.00010, maxLev: 10, ccy: "$", dec: 1, fund: 0.00004 },
-    { sym: "XAG",   name: "Серебро",         cls: "commodity", base: 48,    sig: 0.00018, maxLev: 10, ccy: "$", dec: 2, fund: 0.00004 },
-    { sym: "NG",    name: "Природный газ",   cls: "commodity", base: 3.2,   sig: 0.00030, maxLev: 10, ccy: "$", dec: 3, fund: 0.00004 },
-    { sym: "WHEAT", name: "Пшеница",         cls: "commodity", base: 5.6,   sig: 0.00015, maxLev: 10, ccy: "$", dec: 2, fund: 0.00004 }
+    { sym: "BTC",   name: "Биткоин",         cls: "crypto",    base: 96500, sig: 0.00040, maxLev: 100, ccy: "$", dec: 1, fund: 0.0001 },
+    { sym: "ETH",   name: "Эфириум",         cls: "crypto",    base: 3600,  sig: 0.00045, maxLev: 100, ccy: "$", dec: 2, fund: 0.0001 },
+    { sym: "SOL",   name: "Solana",          cls: "crypto",    base: 210,   sig: 0.00060, maxLev: 100, ccy: "$", dec: 2, fund: 0.00012 },
+    { sym: "SBER",  name: "Сбербанк",        cls: "stock",     base: 305,   sig: 0.00018, maxLev: 50, ccy: "₽", dec: 2, fund: 0.00005 },
+    { sym: "GAZP",  name: "Газпром",         cls: "stock",     base: 135,   sig: 0.00020, maxLev: 50, ccy: "₽", dec: 2, fund: 0.00005 },
+    { sym: "YDEX",  name: "Яндекс",          cls: "stock",     base: 4800,  sig: 0.00022, maxLev: 50, ccy: "₽", dec: 1, fund: 0.00005 },
+    { sym: "LKOH",  name: "Лукойл",          cls: "stock",     base: 7000,  sig: 0.00016, maxLev: 50, ccy: "₽", dec: 0, fund: 0.00005 },
+    { sym: "AAPL",  name: "Apple",           cls: "stock",     base: 230,   sig: 0.00020, maxLev: 50, ccy: "$", dec: 2, fund: 0.00005 },
+    { sym: "NVDA",  name: "Nvidia",          cls: "stock",     base: 180,   sig: 0.00030, maxLev: 50, ccy: "$", dec: 2, fund: 0.00006 },
+    { sym: "TSLA",  name: "Tesla",           cls: "stock",     base: 330,   sig: 0.00038, maxLev: 50, ccy: "$", dec: 2, fund: 0.00006 },
+    { sym: "BRENT", name: "Нефть Brent",     cls: "commodity", base: 72,    sig: 0.00018, maxLev: 50, ccy: "$", dec: 2, fund: 0.00004 },
+    { sym: "XAU",   name: "Золото",          cls: "commodity", base: 4150,  sig: 0.00010, maxLev: 50, ccy: "$", dec: 1, fund: 0.00004 },
+    { sym: "XAG",   name: "Серебро",         cls: "commodity", base: 48,    sig: 0.00018, maxLev: 50, ccy: "$", dec: 2, fund: 0.00004 },
+    { sym: "NG",    name: "Природный газ",   cls: "commodity", base: 3.2,   sig: 0.00030, maxLev: 50, ccy: "$", dec: 3, fund: 0.00004 },
+    { sym: "WHEAT", name: "Пшеница",         cls: "commodity", base: 5.6,   sig: 0.00015, maxLev: 50, ccy: "$", dec: 2, fund: 0.00004 }
   ];
   const A = Object.fromEntries(ASSETS.map((a) => [a.sym, a]));
   const P = { sel: "BTC", cls: "crypto", range: "LIVE", dir: "long", lev: 1, margin: 1000, tp: "", sl: "" };
@@ -316,7 +316,7 @@ const PERPS = (() => {
   function mainHTML() {
     const a = A[P.sel];
     P.lev = clamp(P.lev, 1, a.maxLev);
-    const levs = [1, 2, 3, 5, 10, 20].filter((l) => l <= a.maxLev);
+    const levs = [1, 2, 3, 5, 10, 25, 50, 100].filter((l) => l <= a.maxLev);
     return `
     <div class="panel tchart">
       <div class="th">
@@ -353,6 +353,7 @@ const PERPS = (() => {
       <div class="impact" id="t-sum"></div>
       <button class="submit" id="t-open"></button>
       <div class="msg" id="t-msg"></div>
+      <p class="fee-note warn" id="t-warn" hidden></p>
       <p class="fee-note">Плечо увеличивает и прибыль, и убыток. Если цена дойдёт до цены ликвидации, вся маржа сгорает. Без плеча (1x) ликвидация почти невозможна.</p>
     </div>`;
   }
@@ -371,6 +372,9 @@ const PERPS = (() => {
     const okSl = sl && !Number.isNaN(sl) && (P.dir === "long" ? sl < a.price && sl > liq : sl > a.price && sl < liq);
     const tpLine = okTp ? line("Итог при тейк-профите", tp, "pos") : "";
     const slLine = okSl ? line("Итог при стоп-лоссе", sl, "neg") : "";
+    const w = $("#t-warn");
+    w.hidden = P.lev < 25;
+    w.textContent = P.lev >= 25 ? `Высокое плечо ${P.lev}x: движение цены всего на ${num(Math.abs(liq / a.price - 1) * 100, 2)}% против вас сожжёт всю маржу. Комиссия за открытие уже составляет ${num(P.lev * FEE * 100, 1)}% от маржи.` : "";
     const btn = $("#t-open");
     btn.className = "submit " + (P.dir === "long" ? "long" : "short");
     btn.textContent = P.dir === "long" ? `Открыть Long ${a.sym}` : `Открыть Short ${a.sym}`;
@@ -378,6 +382,7 @@ const PERPS = (() => {
       ? `<div><span>Размер позиции</span><b>${RP.rub(notional)}</b></div>
          <div><span>Цена входа (рыночная)</span><b>${price(a, a.price)}</b></div>
          <div><span>Цена ликвидации</span><b>${price(a, liqPrice(a.price, P.lev, P.dir))}</b></div>
+         <div><span>До ликвидации</span><b class="${P.lev >= 25 ? "neg" : ""}">${num(Math.abs(liqPrice(a.price, P.lev, P.dir) / a.price - 1) * 100, 2)}% от цены</b></div>
          <div><span>Комиссия 0,05%</span><b>${fee2(fee)}</b></div>
          ${tpLine}${slLine}
          <div><span>Доступно</span><b>${RP.rub(RP.getBalance())}</b></div>`
@@ -545,7 +550,7 @@ const PERPS = (() => {
     return `<div class="promo-trade">
       <div class="pt-text">
         <h2>Трейдинг с плечом и без</h2>
-        <p>Бессрочные контракты на крипту, акции и сырьё. Long и Short, плечо до 20x, комиссия 0,05%.</p>
+        <p>Бессрочные контракты на крипту, акции и сырьё. Long и Short, плечо до 100x, комиссия 0,05%.</p>
         <a class="cta primary" href="#trade">Открыть терминал</a>
       </div>
       <div class="pt-tiles">${pick.map((a) => `<a class="pt-tile" href="#trade" data-goasset="${a.sym}">${badge(a)}<b>${a.sym}-PERP</b><span>${price(a, a.price)}</span><small>${chText(a)}</small></a>`).join("")}</div>
