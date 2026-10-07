@@ -296,3 +296,6 @@ footer{border-top:1px solid var(--line);padding:22px 0;color:var(--muted);font-s
 .tx .avatar{width:22px;height:22px;font-size:9px}
 .tx-nick{max-width:95px;display:inline-block;vertical-align:middle;overflow:hidden;text-overflow:ellipsis}
 .tx .tag{font-size:11px}
+
+/* логотип */
+.logo-svg{width:32px;height:32px;flex:none;display:block}
