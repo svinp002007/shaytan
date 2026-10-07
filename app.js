@@ -19,6 +19,8 @@
   let bets = store.get("bets", []);
   let closed = store.get("closed", []);
   bets.forEach((b, i) => { if (!b.id) b.id = b.ts + "-" + i; });
+  let myIdeas = store.get("ideas", []);
+  let voted = store.get("voted", []);
 
   // ---------- утилиты ----------
   const nf = new Intl.NumberFormat("ru-RU");
@@ -67,6 +69,41 @@
     return out.map((v) => Math.round(v * 10) / 10);
   }
   EVENTS.forEach((e) => { e.hist = makeHistory(e.id, e.yes); });
+
+  // ---------- механизм цены (автоматический маркет-мейкер) ----------
+  // В каждом рынке есть два резерва: y (доли «Да») и n (доли «Нет»). Вероятность «Да» = n / (y + n).
+  // Покупка «Да» забирает доли «Да» из резерва и добавляет деньги в оба резерва: вероятность «Да» растёт, «Нет» падает.
+  // Продажа делает обратное. Произведение y·n сохраняется, поэтому крупная ставка двигает цену сильнее мелкой.
+  EVENTS.forEach((e) => {
+    const S = clamp(e.vol * 0.02, 50000, 150000);
+    e.n = (S * e.yes) / 100;
+    e.y = S - e.n;
+    e.p0 = e.yes;
+  });
+  const prob = (e) => (e.n / (e.y + e.n)) * 100;
+  const cents = (e) => clamp(Math.round(e.yes), 1, 99);
+  const priceOf = (e, side) => (side === "yes" ? cents(e) : 100 - cents(e));
+  function syncYes(e) {
+    e.yes = Math.round(prob(e) * 10) / 10;
+    e.hist[e.hist.length - 1] = e.yes;
+  }
+  function quoteBuy(e, side, amt) {
+    if (!(amt > 0)) return { shares: 0, avg: 0, y: e.y, n: e.n, after: prob(e) };
+    const k = e.y * e.n;
+    let y = e.y, n = e.n, shares;
+    if (side === "yes") { n = e.n + amt; y = k / n; shares = e.y + amt - y; }
+    else { y = e.y + amt; n = k / y; shares = e.n + amt - n; }
+    return { shares, avg: (amt / shares) * 100, y, n, after: (n / (y + n)) * 100 };
+  }
+  function quoteSell(e, side, s) {
+    const A = side === "yes" ? e.y : e.n, B = side === "yes" ? e.n : e.y;
+    const t = A + s + B;
+    const r = (t - Math.sqrt(t * t - 4 * s * B)) / 2;
+    const nA = A + s - r, nB = B - r;
+    const y = side === "yes" ? nA : nB, n = side === "yes" ? nB : nA;
+    return { gross: r, y, n, after: (n / (y + n)) * 100 };
+  }
+  bets.forEach((b) => { if (!b.shares) b.shares = (b.amt / b.price) * 100; });
 
   // ---------- графики ----------
   function downsample(vals, max) {
@@ -157,13 +194,11 @@
   function closeConfirm() { $("#confirm").hidden = true; onConfirm = null; }
 
   // ---------- позиции и продажа ----------
-  const curPrice = (e, side) => (side === "yes" ? e.yes : 100 - e.yes);
   function valueOf(b) {
     const e = byId(b.eid);
-    const shares = (b.amt / b.price) * 100;
-    const gross = (shares * curPrice(e, b.side)) / 100;
-    const fee = gross * FEE;
-    return { shares, gross, fee, net: gross - fee, pnl: gross - fee - b.amt };
+    const q = quoteSell(e, b.side, b.shares);
+    const fee = q.gross * FEE;
+    return { gross: q.gross, fee, net: q.gross - fee, pnl: q.gross - fee - b.amt, q };
   }
   function confirmSell(id) {
     const b = bets.find((x) => x.id === id);
@@ -175,25 +210,28 @@
       danger: true,
       rows: [
         ["Рынок", esc(e.q)],
-        ["Позиция", `«${b.side === "yes" ? "Да" : "Нет"}», вложено ${rub(b.amt)} по ${b.price}¢`],
-        ["Текущая стоимость", rub(v.gross)],
+        ["Позиция", `«${b.side === "yes" ? "Да" : "Нет"}», ${pct1(b.shares)} долей, вложено ${rub(b.amt)}`],
+        ["Стоимость по рынку", rub(v.gross)],
         ["Комиссия 2%", "− " + rub(v.fee)],
         ["Вы получите", `<b>${rub(v.net)}</b>`],
-        ["Итог по сделке", `${signed(v.pnl)} ₽`, v.pnl >= 0 ? "pos" : "neg"]
+        ["Итог по сделке", `${signed(v.pnl)} ₽`, v.pnl >= 0 ? "pos" : "neg"],
+        ["«Да» после продажи", `${pct1(prob(e))}% → ${pct1(v.q.after)}%`]
       ]
     }, () => sellBet(id));
   }
   function sellBet(id) {
     const i = bets.findIndex((b) => b.id === id);
     if (i < 0) return;
-    const b = bets[i], v = valueOf(b);
+    const b = bets[i], v = valueOf(b), e = byId(b.eid);
     bets.splice(i, 1);
+    e.y = v.q.y; e.n = v.q.n; syncYes(e);
     closed.push({ eid: b.eid, side: b.side, amt: b.amt, net: v.net, fee: v.fee, ts: Date.now() });
     store.set("bets", bets);
     store.set("closed", closed);
     setBalance(balance + v.net);
+    refreshPrices();
     toast(`Продано за ${rub(v.net)} (комиссия ${rub(v.fee)}). ${v.pnl >= 0 ? "Прибыль" : "Убыток"}: ${signed(v.pnl)} ₽`);
-    if (modalEvent) paintModalLive();
+    if (modalEvent) { paintChart(); paintModalLive(); }
     if (state.route === "account") paintAccountRight();
   }
   const realized = () => closed.reduce((s, c) => s + (c.net - c.amt), 0);
@@ -201,15 +239,15 @@
 
   function positionsHTML(list) {
     return list.map((b) => {
-      const e = byId(b.eid), v = valueOf(b);
+      const v = valueOf(b);
       return `<div class="pos-row">
         <div class="pos-main">
           <span class="tag ${b.side}">${b.side === "yes" ? "Да" : "Нет"}</span>
-          <span>${rub(b.amt)} по ${b.price}¢</span>
+          <span>${rub(b.amt)} · ${pct1(b.shares)} долей · ср. ${pct1(b.price)}¢</span>
           <span class="${v.pnl >= 0 ? "pos" : "neg"}">${signed(v.pnl)} ₽</span>
         </div>
         <button class="sell" data-sell="${b.id}">Продать за ${rub(v.net)}</button>
-        <div class="pos-note">Сейчас ${rub(v.gross)} − комиссия 2% (${rub(v.fee)})</div>
+        <div class="pos-note">По рынку ${rub(v.gross)} − комиссия 2% (${rub(v.fee)})</div>
       </div>`;
     }).join("");
   }
@@ -217,17 +255,18 @@
   // ---------- карточка рынка ----------
   const cardHTML = (e) => `
     <article class="card" data-open="${e.id}">
+      ${banner(e)}
       <div class="cat">${catName(e.cat)}</div>
       <h3>${esc(e.q)}</h3>
       <div class="meter">
-        <div class="pct">${e.yes}%</div>
+        <div class="pct">${Math.round(e.yes)}%</div>
         <div class="spark-host">${spark(e.hist)}</div>
       </div>
       <div class="btns">
-        <button class="btn yes" data-open="${e.id}" data-side="yes">Да ${e.yes}¢</button>
-        <button class="btn no" data-open="${e.id}" data-side="no">Нет ${100 - e.yes}¢</button>
+        <button class="btn yes" data-open="${e.id}" data-side="yes">Да ${cents(e)}¢</button>
+        <button class="btn no" data-open="${e.id}" data-side="no">Нет ${100 - cents(e)}¢</button>
       </div>
-      <div class="meta"><span>Пул ${short(e.vol)} ₽</span><span>до ${fmtDate(e.closes)}</span></div>
+      <div class="meta"><span class="vol">Пул ${short(e.vol)} ₽</span><span>до ${fmtDate(e.closes)}</span></div>
     </article>`;
 
   // ---------- страницы ----------
@@ -250,13 +289,14 @@
           <div class="demo-note">Демо-режим: игровые рубли, реальные деньги не принимаются.</div>
         </div>
         <div class="hero-card" data-open="${featured.id}" style="cursor:pointer">
+          ${banner(featured, "in-hero", 460, 96)}
           <div class="eyebrow">Самый большой пул · ${catName(featured.cat)}</div>
           <div class="q">${esc(featured.q)}</div>
-          <div class="big"><span class="pct">${featured.yes}%</span> <small>вероятность «Да»</small></div>
+          <div class="big"><span class="pct">${Math.round(featured.yes)}%</span> <small>вероятность «Да»</small></div>
           <div class="spark-host hero-spark">${spark(featured.hist)}</div>
           <div class="btns">
-            <button class="btn yes" data-open="${featured.id}" data-side="yes">Да ${featured.yes}¢</button>
-            <button class="btn no" data-open="${featured.id}" data-side="no">Нет ${100 - featured.yes}¢</button>
+            <button class="btn yes" data-open="${featured.id}" data-side="yes">Да ${cents(featured)}¢</button>
+            <button class="btn no" data-open="${featured.id}" data-side="no">Нет ${100 - cents(featured)}¢</button>
           </div>
         </div>
       </div>
@@ -296,6 +336,8 @@
         <div class="block-head"><h2>Лучшие трейдеры</h2><a href="#leaderboard">Весь рейтинг →</a></div>
         ${leaderTable(topTraders, false)}
       </section>
+
+      <section class="block">${tgCard()}</section>
 
       <div class="final">
         <h2>Начните с ₽10 000 игровых денег и проверьте свой прогноз.</h2>
@@ -439,8 +481,94 @@
     </div>`;
   }
 
+  // ---------- сообщество ----------
+  const planeIcon = '<svg viewBox="0 0 64 64" width="56" height="56" fill="none" stroke="#fff" stroke-width="3" stroke-linejoin="round" stroke-linecap="round" aria-hidden="true"><path d="M58 8 6 29l15 6 6 19 9-10 13 10z"/><path d="M21 35 58 8 28 40"/></svg>';
+  function tgCard() {
+    return `<div class="tg">
+      <div class="tg-icon">${planeIcon}</div>
+      <div class="tg-text">
+        <h2>Канал RusPredict в Telegram</h2>
+        <p>Новые рынки, итоги, разборы прогнозов и конкурсы для трейдеров. Подпишитесь и предложите свою тему.</p>
+      </div>
+      <div class="tg-actions">
+        <a class="cta primary" href="${TELEGRAM_URL}" target="_blank" rel="noopener">Открыть канал</a>
+        <a class="cta ghost" href="#community">Предложить рынок</a>
+      </div>
+    </div>`;
+  }
+  const ideaList = () => [...myIdeas.map((i) => ({ ...i, own: true })), ...SEED_IDEAS].map((i) => ({ ...i, count: i.votes + (voted.includes(i.id) ? 1 : 0) })).sort((x, y) => y.count - x.count);
+  function ideasHTML() {
+    return ideaList().map((i) => `
+      <article class="idea">
+        <button class="vote ${voted.includes(i.id) ? "on" : ""}" data-vote="${i.id}" aria-label="Голос за идею" aria-pressed="${voted.includes(i.id)}"><span>▲</span><b>${i.count}</b></button>
+        <div class="idea-body">
+          <h3>${esc(i.title)}</h3>
+          <div class="idea-meta"><span class="tag-cat">${i.cat === "other" ? "Другое" : catName(i.cat)}</span>${i.own ? '<span class="tag-own">Ваша идея</span>' : ""}${i.src ? `<span>Источник: ${esc(i.src)}</span>` : ""}</div>
+          ${i.desc ? `<p>${esc(i.desc)}</p>` : ""}
+          ${i.own ? `<button class="sbtn small" data-copyidea="${i.id}">Скопировать для Telegram</button>` : ""}
+        </div>
+      </article>`).join("");
+  }
+  const ideaText = (i) => `Идея рынка для RusPredict\nТема: ${i.title}\nКатегория: ${i.cat === "other" ? "Другое" : catName(i.cat)}${i.src ? "\nИсточник проверки: " + i.src : ""}${i.desc ? "\nОписание: " + i.desc : ""}`;
+  async function copyText(text) {
+    try { await navigator.clipboard.writeText(text); return true; } catch {}
+    try {
+      const ta = document.createElement("textarea");
+      ta.value = text; ta.style.position = "fixed"; ta.style.opacity = "0";
+      document.body.appendChild(ta); ta.select();
+      const ok = document.execCommand("copy");
+      ta.remove();
+      return ok;
+    } catch { return false; }
+  }
+  function viewCommunity() {
+    return `<div class="wrap">
+      <h1 class="page-title">Сообщество</h1>
+      <p class="page-sub">Подписывайтесь на канал и предлагайте темы для новых рынков. Самые популярные идеи мы запускаем первыми.</p>
+      <div style="margin-top:20px">${tgCard()}</div>
+      <div class="acc" style="grid-template-columns:1fr 1.3fr">
+        <div class="panel">
+          <h3>Предложить тему рынка</h3>
+          <form id="idea-form">
+            <label class="l" for="i-title">Вопрос для рынка</label>
+            <input class="field" id="i-title" maxlength="140" required placeholder="Например: Курс доллара превысит 100 ₽ в марте?">
+            <label class="l" for="i-cat">Категория</label>
+            <select class="field" id="i-cat">${CATEGORIES.map((c) => `<option value="${c.id}">${c.name}</option>`).join("")}<option value="other">Другое</option></select>
+            <label class="l" for="i-src">Чем проверить результат</label>
+            <input class="field" id="i-src" maxlength="140" placeholder="Например: официальный курс Банка России">
+            <label class="l" for="i-desc">Пояснение (необязательно)</label>
+            <textarea class="field" id="i-desc" maxlength="400" placeholder="Почему это интересно и когда должен закрыться рынок"></textarea>
+            <div class="row-actions"><button class="pbtn" type="submit">Предложить</button></div>
+            <div class="msg" id="i-msg"></div>
+          </form>
+          <p class="fee-note">Демо: идеи сохраняются в вашем браузере и не уходят на сервер. Чтобы команда увидела идею, скопируйте её кнопкой «Скопировать для Telegram» и отправьте в чат канала.</p>
+        </div>
+        <div class="panel">
+          <h3>Идеи сообщества</h3>
+          <div class="ideas" id="ideas">${ideasHTML()}</div>
+        </div>
+      </div>
+    </div>`;
+  }
+  function bindCommunity() {
+    $("#idea-form").onsubmit = (ev) => {
+      ev.preventDefault();
+      const idea = { id: "u" + Date.now(), title: $("#i-title").value.trim(), cat: $("#i-cat").value, src: $("#i-src").value.trim(), desc: $("#i-desc").value.trim(), votes: 0, ts: Date.now() };
+      if (!idea.title) return;
+      myIdeas.unshift(idea);
+      voted.push(idea.id);
+      store.set("ideas", myIdeas);
+      store.set("voted", voted);
+      ev.target.reset();
+      $("#ideas").innerHTML = ideasHTML();
+      const m = $("#i-msg");
+      m.className = "msg";
+      m.textContent = "Идея добавлена в список. Скопируйте её для Telegram кнопкой под идеей.";
+    };
+  }
+
   // ---------- роутер ----------
-  const routes = { home: viewHome, markets: viewMarkets, leaderboard: viewLeaderboard, account: viewAccount };
+  const routes = { home: viewHome, markets: viewMarkets, leaderboard: viewLeaderboard, community: viewCommunity, account: viewAccount };
   function render() {
     const r = (location.hash || "#home").slice(1);
     state.route = routes[r] ? r : "home";
@@ -448,6 +576,7 @@
     document.querySelectorAll("#nav a").forEach((a) => a.classList.toggle("on", a.dataset.r === state.route));
     if (state.route === "markets") paintGrid();
     if (state.route === "account") bindAccount();
+    if (state.route === "community") bindCommunity();
     window.scrollTo(0, 0);
   }
   window.addEventListener("hashchange", render);
@@ -501,23 +630,25 @@
     modalEvent = e;
     chosenSide = side || "yes";
     openSheet(`
+      ${banner(e, "in-modal", 560, 120)}
       <div class="cat">${catName(e.cat)}</div>
       <h2>${esc(e.q)}</h2>
-      <p>Закрытие ${fmtDate(e.closes)} · пул ${short(e.vol)} ₽</p>
+      <p>Закрытие ${fmtDate(e.closes)} · <span id="m-vol"></span></p>
       <div class="chart-head">
         <div><span class="chart-now" id="m-now"></span> <span class="chart-delta" id="m-delta"></span></div>
         <div class="range" id="m-range">${Object.keys(RANGES).map((k) => `<button data-range="${k}" class="${k === modalRange ? "on" : ""}">${k}</button>`).join("")}</div>
       </div>
       <div class="chart" id="m-chart"></div>
+      <div class="probbar" id="m-bar"></div>
       <div class="seg">
         <button class="yes" data-side="yes"></button>
         <button class="no" data-side="no"></button>
       </div>
       <input class="field" id="amt" type="number" min="1" step="100" value="500" aria-label="Сумма ставки в рублях">
-      <div class="calc"><span id="shares"></span><span id="payout"></span></div>
+      <div class="impact" id="impact"></div>
       <button class="submit" id="buy">Вложить в пул</button>
       <div class="msg" id="msg"></div>
-      <p class="fee-note">Продать позицию можно в любой момент по текущей цене. Комиссия за продажу — 2%.</p>
+      <p class="fee-note">Цену определяет поток денег: чем больше ставок на «Да», тем выше вероятность «Да» и ниже «Нет». Продать позицию можно в любой момент, комиссия 2%.</p>
       <div id="m-pos"></div>`);
     $(".seg").onclick = (ev) => { const b = ev.target.closest("button"); if (b) { chosenSide = b.dataset.side; paintModalLive(); } };
     $("#m-range").onclick = (ev) => {
@@ -534,25 +665,29 @@
       msg.className = "msg err";
       if (!(amt > 0)) return (msg.textContent = "Введите сумму.");
       if (amt > balance) return (msg.textContent = "Недостаточно средств. Пополните пул.");
-      const side = chosenSide, price = curPrice(e, side), shares = (amt / price) * 100;
+      const side = chosenSide, q = quoteBuy(e, side, amt);
       askConfirm({
         title: "Подтвердите покупку",
         okText: "Купить",
         rows: [
           ["Рынок", esc(e.q)],
-          ["Исход", `«${side === "yes" ? "Да" : "Нет"}» по ${price}¢`],
+          ["Исход", `«${side === "yes" ? "Да" : "Нет"}», средняя цена ${pct1(q.avg)}¢`],
           ["Сумма", rub(amt)],
-          ["Долей", pct1(shares)],
-          ["Выплата при успехе", `<b>${rub(shares)}</b>`],
+          ["Долей", pct1(q.shares)],
+          ["Выплата при успехе", `<b>${rub(q.shares)}</b>`],
+          ["«Да» после ставки", `${pct1(prob(e))}% → ${pct1(q.after)}%`],
           ["Комиссия при продаже", "2%"]
         ]
       }, () => {
         if (amt > balance) return toast("Недостаточно средств");
         setBalance(balance - amt);
-        bets.push({ id: Date.now() + "-" + Math.random().toString(36).slice(2, 6), eid: e.id, side, amt, price, ts: Date.now() });
+        e.y = q.y; e.n = q.n; e.vol += amt; syncYes(e);
+        bets.push({ id: Date.now() + "-" + Math.random().toString(36).slice(2, 6), eid: e.id, side, amt, shares: q.shares, price: q.avg, ts: Date.now() });
         store.set("bets", bets);
         msg.className = "msg";
-        msg.textContent = `Ставка принята: ${rub(amt)} на «${side === "yes" ? "Да" : "Нет"}».`;
+        msg.textContent = `Ставка принята: ${rub(amt)} на «${side === "yes" ? "Да" : "Нет"}». Вероятность «Да» теперь ${pct1(e.yes)}%.`;
+        refreshPrices();
+        paintChart();
         paintModalLive();
         if (state.route === "account") paintAccountRight();
       });
@@ -578,13 +713,19 @@
     const e = modalEvent;
     if (!e || !$("#m-now")) return;
     $("#m-now").textContent = `${pct1(e.yes)}% «Да»`;
+    $("#m-vol").textContent = `пул ${short(e.vol)} ₽`;
+    $("#m-bar").innerHTML = `<div class="pbar"><div style="width:${e.yes}%"></div></div><div class="pleg"><span>Да ${pct1(e.yes)}%</span><span>Нет ${pct1(100 - e.yes)}%</span></div>`;
     const yb = $(".seg .yes"), nb = $(".seg .no");
-    yb.textContent = `Да ${e.yes}¢`; nb.textContent = `Нет ${100 - e.yes}¢`;
+    yb.textContent = `Да ${cents(e)}¢`; nb.textContent = `Нет ${100 - cents(e)}¢`;
     yb.classList.toggle("on", chosenSide === "yes"); nb.classList.toggle("on", chosenSide === "no");
     const amt = Number($("#amt").value) || 0;
-    const shares = (amt / curPrice(e, chosenSide)) * 100;
-    $("#shares").textContent = `Долей: ${pct1(shares)}`;
-    $("#payout").textContent = `Выплата при «${chosenSide === "yes" ? "Да" : "Нет"}»: ${rub(shares)}`;
+    const q = quoteBuy(e, chosenSide, amt);
+    const word = chosenSide === "yes" ? "Да" : "Нет";
+    $("#impact").innerHTML = amt > 0
+      ? `<div><span>Долей · средняя цена</span><b>${pct1(q.shares)} · ${pct1(q.avg)}¢</b></div>
+         <div><span>Выплата при «${word}»</span><b>${rub(q.shares)}</b></div>
+         <div><span>Вероятность после ставки</span><b>Да ${pct1(prob(e))}% → ${pct1(q.after)}% · Нет ${pct1(100 - prob(e))}% → ${pct1(100 - q.after)}%</b></div>`
+      : "";
     const mine = bets.filter((b) => b.eid === e.id);
     $("#m-pos").innerHTML = mine.length ? `<h3 class="pos-title">Ваши позиции на этом рынке</h3>${positionsHTML(mine)}` : "";
   }
@@ -610,25 +751,34 @@
     };
   }
 
-  // ---------- «живые» цены (демо) ----------
-  function tick() {
-    if (!$("#confirm").hidden) return; // цены стоят, пока открыто подтверждение
-    EVENTS.forEach((e) => {
-      if (Math.random() > 0.4) return;
-      const step = (Math.random() < 0.2 ? 2 : 1) * (Math.random() < 0.5 ? -1 : 1);
-      e.yes = clamp(e.yes + step, 2, 98);
-      e.hist[e.hist.length - 1] = e.yes;
-    });
+  // ---------- «живые» цены ----------
+  // Обновляет цены на карточках и в открытом окне после любой сделки.
+  function refreshPrices() {
     document.querySelectorAll(".card[data-open], .hero-card[data-open]").forEach((c) => {
       const e = byId(Number(c.dataset.open));
       const p = $(".pct", c);
-      if (p) p.textContent = e.yes + "%";
+      if (p) p.textContent = Math.round(e.yes) + "%";
       const y = $(".btn.yes", c), n = $(".btn.no", c);
-      if (y) y.textContent = `Да ${e.yes}¢`;
-      if (n) n.textContent = `Нет ${100 - e.yes}¢`;
+      if (y) y.textContent = `Да ${cents(e)}¢`;
+      if (n) n.textContent = `Нет ${100 - cents(e)}¢`;
+      const v = $(".vol", c);
+      if (v) v.textContent = `Пул ${short(e.vol)} ₽`;
       const s = $(".spark-host", c);
       if (s) s.innerHTML = spark(e.hist);
     });
+  }
+  // Демо: другие трейдеры тоже делают небольшие ставки, поэтому цены двигаются сами, по тем же правилам.
+  function tick() {
+    if (!$("#confirm").hidden) return; // цены стоят, пока открыто подтверждение
+    EVENTS.forEach((e) => {
+      if (Math.random() > 0.15) return;
+      const pYes = clamp(0.5 + (e.p0 - e.yes) / 40, 0.1, 0.9); // лёгкая тяга к исходной цене
+      const side = Math.random() < pYes ? "yes" : "no";
+      const amt = 100 + Math.floor(Math.random() * 700);
+      const q = quoteBuy(e, side, amt);
+      e.y = q.y; e.n = q.n; e.vol += amt; syncYes(e);
+    });
+    refreshPrices();
     if (modalEvent && $("#m-chart")) { paintChart(); paintModalLive(); }
     if (state.route === "account" && $("#modal").hidden) paintAccountRight();
   }
@@ -637,6 +787,18 @@
   // ---------- общие обработчики ----------
   document.addEventListener("click", (ev) => {
     const t = ev.target;
+    const vote = t.closest("[data-vote]");
+    if (vote) {
+      const id = vote.dataset.vote;
+      voted = voted.includes(id) ? voted.filter((x) => x !== id) : [...voted, id];
+      store.set("voted", voted);
+      return ($("#ideas").innerHTML = ideasHTML());
+    }
+    const cp = t.closest("[data-copyidea]");
+    if (cp) {
+      const idea = myIdeas.find((x) => x.id === cp.dataset.copyidea);
+      return copyText(ideaText(idea)).then((ok) => toast(ok ? "Скопировано. Вставьте в чат канала." : "Не удалось скопировать. Выделите текст вручную."));
+    }
     const sell = t.closest("[data-sell]");
     if (sell) return confirmSell(sell.dataset.sell);
     if (t.closest("[data-deposit]") || t.closest("#wallet")) return openDeposit();

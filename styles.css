@@ -239,3 +239,46 @@ footer{border-top:1px solid var(--line);padding:22px 0;color:var(--muted);font-s
 .c-actions{display:flex;gap:10px}
 .c-actions .sbtn,.c-actions .pbtn{flex:1}
 .pbtn.danger-fill{background:var(--no);color:#fff}
+
+/* баннеры */
+.banner{height:110px;overflow:hidden;position:relative;flex:none}
+.banner svg{width:100%;height:100%;display:block}
+.card{overflow:hidden}
+.card .banner{margin:-16px -16px 0;width:calc(100% + 32px)}
+.hero-card .banner{margin:-18px -18px 14px;width:calc(100% + 36px);border-radius:18px 18px 0 0;height:96px}
+.sheet .banner.in-modal{margin:-24px -24px 16px;width:calc(100% + 48px);height:120px}
+.sheet .close{z-index:2;color:#fff;background:#0006;border-radius:50%;width:32px;height:32px;top:12px;right:12px;line-height:1;font-size:22px;padding:0}
+
+/* вероятность и влияние ставки */
+.probbar{margin:0 0 12px}
+.pbar{height:8px;border-radius:99px;background:color-mix(in srgb,var(--no) 40%,var(--line));overflow:hidden}
+.pbar div{height:100%;background:var(--yes);transition:width .3s}
+.pleg{display:flex;justify-content:space-between;font-size:12px;font-weight:700;margin-top:5px}
+.pleg span:first-child{color:var(--yes)}.pleg span:last-child{color:var(--no)}
+.impact{display:flex;flex-direction:column;gap:6px;margin:12px 0 14px;font-size:13px;min-height:0}
+.impact div{display:flex;justify-content:space-between;gap:14px}
+.impact span{color:var(--muted)}
+.impact b{text-align:right;font-variant-numeric:tabular-nums}
+
+/* сообщество */
+.tg{background:linear-gradient(115deg,#1b6fb0,#2aabee);color:#fff;border-radius:18px;padding:24px 28px;display:flex;align-items:center;gap:22px;flex-wrap:wrap}
+.tg-icon{flex:none;display:grid;place-items:center;width:84px;height:84px;border-radius:22px;background:#ffffff26}
+.tg-text{flex:1;min-width:220px}
+.tg-text h2{font-size:clamp(18px,2.6vw,24px);margin-bottom:6px}
+.tg-text p{margin:0;opacity:.92;max-width:520px}
+.tg-actions{display:flex;gap:10px;flex-wrap:wrap}
+.ideas{display:flex;flex-direction:column;gap:10px}
+.idea{display:flex;gap:14px;border:1px solid var(--line);border-radius:12px;padding:12px 14px}
+.vote{flex:none;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;width:52px;border:1px solid var(--line);background:var(--soft);color:var(--ink);border-radius:10px;cursor:pointer;font:700 14px var(--body)}
+.vote span{font-size:11px;color:var(--muted)}
+.vote.on{border-color:var(--brand);background:color-mix(in srgb,var(--brand) 14%,var(--card))}
+.vote.on span{color:var(--brand)}
+.idea-body{min-width:0;display:flex;flex-direction:column;gap:6px}
+.idea-body h3{font:700 15px/1.35 var(--body)}
+.idea-body p{margin:0;font-size:13px;color:var(--muted)}
+.idea-meta{display:flex;gap:8px;flex-wrap:wrap;align-items:center;font-size:12px;color:var(--muted)}
+.tag-cat{background:var(--soft);padding:2px 9px;border-radius:99px}
+.tag-own{background:color-mix(in srgb,var(--brand) 16%,transparent);color:var(--brand);font-weight:700;padding:2px 9px;border-radius:99px}
+.sbtn.small{padding:6px 12px;font-size:13px;align-self:flex-start}
+@media (max-width:860px){.acc[style]{grid-template-columns:1fr !important}}
+@media (max-width:640px){.nav a{padding:6px 7px;font-size:12px}}
