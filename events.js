@@ -122,3 +122,7 @@ const LIVE_KEYS = { finnhub: "", twelvedata: "" };
 // Пример записи (подставьте настоящий slug): 12: "slug-rynka-na-polymarket",
 const POLY_SLUGS = {
 };
+
+// Адрес вашего Cloudflare Worker с ценами Yahoo Finance (файл worker/yahoo-proxy.js). Даёт цены без ключей для акций США,
+// золота, серебра, нефти Brent, газа и пшеницы. Пример: "https://ruspredict-prices.ВАШ-АККАУНТ.workers.dev/"
+const LIVE_PROXY = "";

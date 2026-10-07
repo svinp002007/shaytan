@@ -27,11 +27,13 @@ const PERPS = (() => {
   const SRC = {
     BTC: { bn: "BTCUSDT", cb: "BTC-USD" }, ETH: { bn: "ETHUSDT", cb: "ETH-USD" }, SOL: { bn: "SOLUSDT", cb: "SOL-USD" },
     SBER: { moex: "SBER" }, GAZP: { moex: "GAZP" }, YDEX: { moex: "YDEX" }, LKOH: { moex: "LKOH" },
-    AAPL: { fh: "AAPL" }, NVDA: { fh: "NVDA" }, TSLA: { fh: "TSLA" },
-    XAU: { td: "XAU/USD" }, XAG: { td: "XAG/USD" }
+    AAPL: { fh: "AAPL", yf: "AAPL" }, NVDA: { fh: "NVDA", yf: "NVDA" }, TSLA: { fh: "TSLA", yf: "TSLA" },
+    XAU: { td: "XAU/USD", yf: "GC=F" }, XAG: { td: "XAG/USD", yf: "SI=F" },
+    BRENT: { yf: "BZ=F" }, NG: { yf: "NG=F" }, WHEAT: { yf: "ZW=F" }
   };
-  const SRC_NAME = { bn: "Binance, обновление каждые 2 с", cb: "Coinbase, обновление каждые 2 с", moex: "Мосбиржа (ISS), бесплатные данные с задержкой ~15 мин", fh: "Finnhub, обновление каждые 15 с", td: "Twelve Data, обновление раз в минуту" };
-  const SRC_TTL = { bn: 15000, cb: 15000, moex: 45000, fh: 60000, td: 180000 }; // через сколько цена считается устаревшей
+  const YF_SCALE = { "ZW=F": 0.01 }; // пшеница на Yahoo в центах за бушель, у нас в долларах
+  const SRC_NAME = { bn: "Binance, обновление каждые 2 с", cb: "Coinbase, обновление каждые 2 с", moex: "Мосбиржа (ISS), бесплатные данные с задержкой ~15 мин", fh: "Finnhub, обновление каждые 15 с", td: "Twelve Data, обновление раз в минуту", yf: "Yahoo Finance через ваш прокси, обновление каждые 15 с (у некоторых бирж задержка до 15 мин)" };
+  const SRC_TTL = { bn: 15000, cb: 15000, moex: 45000, fh: 60000, td: 180000, yf: 90000 }; // через сколько цена считается устаревшей
   const P = { sel: "BTC", cls: "crypto", range: "LIVE", dir: "long", lev: 1, margin: 1000, tp: "", sl: "" };
   let positions = [], closed = [], plog = [], ticks = 0, chartHover = false, ready = false;
 
@@ -72,6 +74,7 @@ const PERPS = (() => {
   const savePrices = () => RP.store.set("prices", Object.fromEntries(ASSETS.map((a) => [a.sym, a.price])));
 
   // ---------- живые цены ----------
+  const PRI = { bn: 3, moex: 3, fh: 3, td: 3, yf: 2, cb: 1 }; // при двух источниках побеждает более надёжный
   const fresh = (a) => a.isLive && Date.now() - a.lastReal < (SRC_TTL[a.srcKey] || 45000);
   function adopt(a, p) {
     // Первая настоящая цена: подгоняем симулированную историю и открытые позиции, чтобы PnL в процентах не менялся.
@@ -90,6 +93,7 @@ const PERPS = (() => {
   function setReal(sym, p, ch, srcKey) {
     const a = A[sym];
     if (!a || !(p > 0) || !isFinite(p)) return;
+    if (a.srcKey && a.srcKey !== srcKey && fresh(a) && PRI[a.srcKey] > PRI[srcKey]) return;
     a.srcKey = srcKey;
     a.lastReal = Date.now();
     if (Number.isFinite(ch)) a.liveChange = ch;
@@ -173,12 +177,22 @@ const PERPS = (() => {
       if (o && Number(o.close) > 0) setReal(a.sym, Number(o.close), Number(o.percent_change), "td");
     });
   }
+  async function pollYahoo(base) {
+    const list = ASSETS.filter((a) => SRC[a.sym] && SRC[a.sym].yf);
+    const d = await getJSON(`${base}${base.includes("?") ? "&" : "?"}symbols=${encodeURIComponent(list.map((a) => SRC[a.sym].yf).join(","))}`);
+    list.forEach((a) => {
+      const o = d[SRC[a.sym].yf];
+      if (!o || !(o.price > 0)) return;
+      setReal(a.sym, o.price * (YF_SCALE[SRC[a.sym].yf] || 1), o.prev > 0 ? (o.price / o.prev - 1) * 100 : NaN, "yf");
+    });
+  }
   function startFeeds() {
     if (typeof fetch !== "function") return;
     const keys = typeof LIVE_KEYS !== "undefined" ? LIVE_KEYS : {};
     schedule(pollCrypto, 2000);
     schedule(pollMoex, 10000);
     if (keys.finnhub) schedule(() => pollFinnhub(keys.finnhub), 15000);
+    if (typeof LIVE_PROXY !== "undefined" && LIVE_PROXY) schedule(() => pollYahoo(LIVE_PROXY), 15000);
     if (keys.twelvedata) schedule(() => pollTwelve(keys.twelvedata), 60000);
   }
   const liveBadge = (a) => (fresh(a) ? '<span class="lv on">Live</span>' : '<span class="lv">Демо</span>');
