@@ -105,6 +105,71 @@
   }
   bets.forEach((b) => { if (!b.shares) b.shares = (b.amt / b.price) * 100; });
 
+  // ---------- история сделок по рынку ----------
+  const EXTRA_NICKS = ["user_4821", "Алекс_М", "Катя_Прогноз", "vlad_trader", "Миша_Б", "Anna_K", "Сергей_74", "Тимур_Р", "nkr_91", "Лена_Инвест"];
+  const NICKS = [...TRADERS.map((t) => t.nick), ...EXTRA_NICKS];
+  let myTx = store.get("mytx", []);
+  let txSeq = 0;
+  const txId = () => "t" + Date.now().toString(36) + "-" + txSeq++;
+  // Демо: сделки других трейдеров за последние трое суток (цена берётся из графика на тот момент).
+  function seedTrades(e) {
+    const rnd = mulberry(e.id * 7717 + 3);
+    const n = 22 + Math.floor(rnd() * 10);
+    const out = [];
+    for (let i = 0; i < n; i++) {
+      const hrs = Math.pow(rnd(), 2.2) * 72;
+      const t = Date.now() - hrs * 3600e3 - rnd() * 1800e3;
+      const idx = clamp(HOURS - 1 - Math.floor(hrs), 0, HOURS - 1);
+      const yesPrice = e.hist[idx];
+      const side = rnd() < yesPrice / 100 ? "yes" : "no";
+      let amt = 100 * Math.exp(rnd() * 4.6);
+      if (rnd() < 0.1) amt *= 8;
+      out.push({
+        id: `s${e.id}-${i}`, t, nick: NICKS[Math.floor(rnd() * NICKS.length)], side,
+        kind: rnd() < 0.18 ? "sell" : "buy", amt: Math.round(amt / 50) * 50 || 50,
+        price: clamp((side === "yes" ? yesPrice : 100 - yesPrice) + (rnd() - 0.5) * 2, 1, 99)
+      });
+    }
+    return out;
+  }
+  EVENTS.forEach((e) => { e.trades = seedTrades(e); });
+  myTx.forEach((tr) => { const e = byId(tr.eid); if (e) e.trades.push(tr); });
+  EVENTS.forEach((e) => e.trades.sort((x, y) => y.t - x.t));
+  function addTrade(e, tr) {
+    const full = { id: txId(), t: Date.now(), ...tr };
+    e.trades.unshift(full);
+    if (e.trades.length > 80) e.trades.length = 80;
+    if (tr.own) {
+      myTx.push({ eid: e.id, ...full });
+      if (myTx.length > 200) myTx.shift();
+      store.set("mytx", myTx);
+    }
+  }
+  const MONTHS = ["янв", "фев", "мар", "апр", "мая", "июн", "июл", "авг", "сен", "окт", "ноя", "дек"];
+  function when(t) {
+    const d = new Date(t), two = (n) => String(n).padStart(2, "0");
+    const abs = `${d.getDate()} ${MONTHS[d.getMonth()]}, ${two(d.getHours())}:${two(d.getMinutes())}`;
+    const s = Math.max(0, Math.round((Date.now() - t) / 1000));
+    const rel = s < 60 ? "только что" : s < 3600 ? Math.floor(s / 60) + " мин назад" : s < 86400 ? Math.floor(s / 3600) + " ч назад" : Math.floor(s / 86400) + " дн назад";
+    return { abs, rel };
+  }
+  function txHTML(e) {
+    const day = e.trades.filter((x) => x.t > Date.now() - 86400e3).reduce((s, x) => s + x.amt, 0);
+    const rows = e.trades.slice(0, 30).map((x) => {
+      const w = when(x.t);
+      return `<tr class="${x.own ? "me" : ""}">
+        <td><span class="tx-when">${w.abs}</span><small>${w.rel}</small></td>
+        <td><span class="who">${avatar(x.nick, x.own ? profile.color : traderColor(x.nick))}<span class="tx-nick">${esc(x.nick)}${x.own ? " (вы)" : ""}</span></span></td>
+        <td><span class="tag ${x.side}">${x.kind === "sell" ? "Продажа" : "Покупка"} · ${x.side === "yes" ? "Да" : "Нет"}</span></td>
+        <td>${rub(x.amt)}</td>
+        <td>${pct1(x.price)}¢</td>
+      </tr>`;
+    }).join("");
+    return `<h3 class="pos-title">История сделок</h3>
+      <p class="tx-sum">${e.trades.length} сделок · за 24 часа ${rub(day)}</p>
+      <div class="tx-scroll"><table class="tx"><thead><tr><th>Когда</th><th>Трейдер</th><th>Сделка</th><th>Сумма</th><th>Цена</th></tr></thead><tbody>${rows}</tbody></table></div>`;
+  }
+
   // ---------- графики ----------
   function downsample(vals, max) {
     if (vals.length <= max) return vals.map((v, i) => [i, v]);
@@ -225,6 +290,7 @@
     const b = bets[i], v = valueOf(b), e = byId(b.eid);
     bets.splice(i, 1);
     e.y = v.q.y; e.n = v.q.n; syncYes(e);
+    addTrade(e, { nick: profile.nick, own: true, side: b.side, kind: "sell", amt: v.net, price: (v.gross / b.shares) * 100 });
     closed.push({ eid: b.eid, side: b.side, amt: b.amt, net: v.net, fee: v.fee, ts: Date.now() });
     store.set("bets", bets);
     store.set("closed", closed);
@@ -649,7 +715,8 @@
       <button class="submit" id="buy">Вложить в пул</button>
       <div class="msg" id="msg"></div>
       <p class="fee-note">Цену определяет поток денег: чем больше ставок на «Да», тем выше вероятность «Да» и ниже «Нет». Продать позицию можно в любой момент, комиссия 2%.</p>
-      <div id="m-pos"></div>`);
+      <div id="m-pos"></div>
+      <div id="m-tx"></div>`);
     $(".seg").onclick = (ev) => { const b = ev.target.closest("button"); if (b) { chosenSide = b.dataset.side; paintModalLive(); } };
     $("#m-range").onclick = (ev) => {
       const b = ev.target.closest("button");
@@ -682,6 +749,7 @@
         if (amt > balance) return toast("Недостаточно средств");
         setBalance(balance - amt);
         e.y = q.y; e.n = q.n; e.vol += amt; syncYes(e);
+        addTrade(e, { nick: profile.nick, own: true, side, kind: "buy", amt, price: q.avg });
         bets.push({ id: Date.now() + "-" + Math.random().toString(36).slice(2, 6), eid: e.id, side, amt, shares: q.shares, price: q.avg, ts: Date.now() });
         store.set("bets", bets);
         msg.className = "msg";
@@ -726,6 +794,9 @@
          <div><span>Выплата при «${word}»</span><b>${rub(q.shares)}</b></div>
          <div><span>Вероятность после ставки</span><b>Да ${pct1(prob(e))}% → ${pct1(q.after)}% · Нет ${pct1(100 - prob(e))}% → ${pct1(100 - q.after)}%</b></div>`
       : "";
+    const tx = $("#m-tx"), box = $(".tx-scroll", tx), top = box ? box.scrollTop : 0;
+    tx.innerHTML = txHTML(e);
+    if (top) $(".tx-scroll", tx).scrollTop = top;
     const mine = bets.filter((b) => b.eid === e.id);
     $("#m-pos").innerHTML = mine.length ? `<h3 class="pos-title">Ваши позиции на этом рынке</h3>${positionsHTML(mine)}` : "";
   }
@@ -777,6 +848,7 @@
       const amt = 100 + Math.floor(Math.random() * 700);
       const q = quoteBuy(e, side, amt);
       e.y = q.y; e.n = q.n; e.vol += amt; syncYes(e);
+      addTrade(e, { nick: NICKS[Math.floor(Math.random() * NICKS.length)], side, kind: "buy", amt, price: q.avg });
     });
     refreshPrices();
     if (modalEvent && $("#m-chart")) { paintChart(); paintModalLive(); }

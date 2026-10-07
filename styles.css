@@ -282,3 +282,17 @@ footer{border-top:1px solid var(--line);padding:22px 0;color:var(--muted);font-s
 .sbtn.small{padding:6px 12px;font-size:13px;align-self:flex-start}
 @media (max-width:860px){.acc[style]{grid-template-columns:1fr !important}}
 @media (max-width:640px){.nav a{padding:6px 7px;font-size:12px}}
+
+/* история сделок */
+.tx-sum{margin:0 0 8px;font-size:13px}
+.tx-scroll{max-height:280px;overflow:auto;border:1px solid var(--line);border-radius:12px}
+.tx{width:100%;min-width:400px;border-collapse:collapse;font-size:13px}
+.tx th,.tx td{padding:8px 10px;border-bottom:1px solid var(--line);text-align:right;white-space:nowrap;font-variant-numeric:tabular-nums}
+.tx th:nth-child(-n+3),.tx td:nth-child(-n+3){text-align:left}
+.tx th{position:sticky;top:0;background:var(--card);font-size:11px;letter-spacing:.05em;text-transform:uppercase;color:var(--muted);font-weight:500}
+.tx tr:last-child td{border-bottom:0}
+.tx td small{display:block;color:var(--muted);font-size:11px}
+.tx-when{display:block}
+.tx .avatar{width:22px;height:22px;font-size:9px}
+.tx-nick{max-width:95px;display:inline-block;vertical-align:middle;overflow:hidden;text-overflow:ellipsis}
+.tx .tag{font-size:11px}
