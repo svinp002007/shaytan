@@ -370,3 +370,8 @@ footer{border-top:1px solid var(--line);padding:22px 0;color:var(--muted);font-s
 .acc-tx td small{display:block;color:var(--muted);font-size:11px}
 .acc-tx td.ev{white-space:normal;min-width:220px;max-width:340px}
 .acc-tx .tag{font-size:11px}
+
+/* бейдж источника цены */
+.lv{display:inline-block;font:700 10px var(--body);padding:1px 6px;border-radius:99px;background:var(--soft);color:var(--muted);vertical-align:middle;letter-spacing:.03em}
+.lv.on{background:color-mix(in srgb,var(--yes) 18%,transparent);color:var(--yes)}
+.t-src{margin-top:8px;font-size:12px;color:var(--muted)}

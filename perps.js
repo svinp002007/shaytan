@@ -1,4 +1,5 @@
-// Трейдинг: бессрочные контракты (perps) на крипту, акции и сырьё. Демо на игровые рубли, цены симулируются.
+// Трейдинг: бессрочные контракты (perps) на крипту, акции и сырьё. Демо на игровые рубли.
+// Цены живые, если открыт доступ к источнику (бейдж Live); иначе актив торгуется по симулированной цене (бейдж Демо).
 // Использует общие функции приложения через window.RP (баланс, подтверждение, уведомления, хранилище).
 const PERPS = (() => {
   const FEE = 0.0005; // комиссия 0,05% от размера позиции при открытии и при закрытии
@@ -22,6 +23,15 @@ const PERPS = (() => {
     { sym: "WHEAT", name: "Пшеница",         cls: "commodity", base: 5.6,   sig: 0.00015, maxLev: 50, ccy: "$", dec: 2, fund: 0.00004 }
   ];
   const A = Object.fromEntries(ASSETS.map((a) => [a.sym, a]));
+  // Откуда берутся живые цены. Нет источника или ключа: актив остаётся на симуляции.
+  const SRC = {
+    BTC: { bn: "BTCUSDT", cb: "BTC-USD" }, ETH: { bn: "ETHUSDT", cb: "ETH-USD" }, SOL: { bn: "SOLUSDT", cb: "SOL-USD" },
+    SBER: { moex: "SBER" }, GAZP: { moex: "GAZP" }, YDEX: { moex: "YDEX" }, LKOH: { moex: "LKOH" },
+    AAPL: { fh: "AAPL" }, NVDA: { fh: "NVDA" }, TSLA: { fh: "TSLA" },
+    XAU: { td: "XAU/USD" }, XAG: { td: "XAG/USD" }
+  };
+  const SRC_NAME = { bn: "Binance, обновление каждые 2 с", cb: "Coinbase, обновление каждые 2 с", moex: "Мосбиржа (ISS), бесплатные данные с задержкой ~15 мин", fh: "Finnhub, обновление каждые 15 с", td: "Twelve Data, обновление раз в минуту" };
+  const SRC_TTL = { bn: 15000, cb: 15000, moex: 45000, fh: 60000, td: 180000 }; // через сколько цена считается устаревшей
   const P = { sel: "BTC", cls: "crypto", range: "LIVE", dir: "long", lev: 1, margin: 1000, tp: "", sl: "" };
   let positions = [], closed = [], plog = [], ticks = 0, chartHover = false, ready = false;
 
@@ -56,9 +66,125 @@ const PERPS = (() => {
     plog = RP.store.get("plog", []);
     ready = true;
     checkLiquidations();
+    startFeeds();
   }
-  const change24 = (a) => (a.price / a.hh[a.hh.length - 25] - 1) * 100;
+  const change24 = (a) => (a.isLive && typeof a.liveChange === "number" ? a.liveChange : (a.price / a.hh[a.hh.length - 25] - 1) * 100);
   const savePrices = () => RP.store.set("prices", Object.fromEntries(ASSETS.map((a) => [a.sym, a.price])));
+
+  // ---------- живые цены ----------
+  const fresh = (a) => a.isLive && Date.now() - a.lastReal < (SRC_TTL[a.srcKey] || 45000);
+  function adopt(a, p) {
+    // Первая настоящая цена: подгоняем симулированную историю и открытые позиции, чтобы PnL в процентах не менялся.
+    const ratio = p / a.price;
+    positions.forEach((pos) => {
+      if (pos.sym === a.sym) ["entry", "liq", "tp", "sl"].forEach((k) => { if (pos[k]) pos[k] *= ratio; });
+    });
+    a.hh = a.hh.map((v) => v * ratio);
+    a.live = Array(30).fill(p);
+    a.price = p;
+    a.base = p;
+    a.adopted = true;
+    persist();
+    if (RP.route() === "trade" && $("#t-pos")) paintPositions();
+  }
+  function setReal(sym, p, ch, srcKey) {
+    const a = A[sym];
+    if (!a || !(p > 0) || !isFinite(p)) return;
+    a.srcKey = srcKey;
+    a.lastReal = Date.now();
+    if (Number.isFinite(ch)) a.liveChange = ch;
+    if (!a.adopted) adopt(a, p);
+    else a.price = p;
+    a.isLive = true;
+  }
+  async function getJSON(url, ms = 6000) {
+    const ctl = new AbortController(), t = setTimeout(() => ctl.abort(), ms);
+    try {
+      const r = await fetch(url, { signal: ctl.signal, cache: "no-store" });
+      if (!r.ok) throw new Error("HTTP " + r.status);
+      return await r.json();
+    } finally { clearTimeout(t); }
+  }
+  // Повторяет запрос по расписанию; при ошибках делает паузы длиннее (до минуты).
+  function schedule(fn, every) {
+    let fails = 0;
+    const run = async () => {
+      try { await fn(); fails = 0; } catch { fails++; }
+      setTimeout(run, fails ? Math.min(60000, every * 2 ** Math.min(fails, 4)) : every);
+    };
+    run();
+  }
+  async function loadKlines(a) {
+    try {
+      const k = await getJSON(`https://api.binance.com/api/v3/klines?symbol=${SRC[a.sym].bn}&interval=1h&limit=168`);
+      const closes = k.map((x) => Number(x[4])).filter((v) => v > 0);
+      if (closes.length < 30) return;
+      while (closes.length < 168) closes.unshift(closes[0]);
+      closes[167] = a.price;
+      a.hh = closes;
+      a.realHist = true;
+    } catch {}
+  }
+  async function pollCrypto() {
+    const list = ASSETS.filter((a) => SRC[a.sym] && SRC[a.sym].bn);
+    try {
+      const syms = encodeURIComponent(JSON.stringify(list.map((a) => SRC[a.sym].bn)));
+      const data = await getJSON(`https://api.binance.com/api/v3/ticker/24hr?symbols=${syms}`);
+      data.forEach((d) => {
+        const a = list.find((x) => SRC[x.sym].bn === d.symbol);
+        if (!a) return;
+        const first = !a.adopted;
+        setReal(a.sym, Number(d.lastPrice), Number(d.priceChangePercent), "bn");
+        if (first && a.adopted) loadKlines(a);
+      });
+      return;
+    } catch {}
+    // запасной источник
+    let ok = 0;
+    await Promise.all(list.map(async (a) => {
+      try {
+        const d = await getJSON(`https://api.coinbase.com/v2/prices/${SRC[a.sym].cb}/spot`);
+        setReal(a.sym, Number(d.data.amount), NaN, "cb");
+        ok++;
+      } catch {}
+    }));
+    if (!ok) throw new Error("crypto feed unavailable");
+  }
+  async function pollMoex() {
+    const ids = ASSETS.filter((a) => SRC[a.sym] && SRC[a.sym].moex).map((a) => SRC[a.sym].moex);
+    const d = await getJSON(`https://iss.moex.com/iss/engines/stock/markets/shares/boards/TQBR/securities.json?iss.meta=off&iss.only=marketdata&marketdata.columns=SECID,LAST,LASTTOPREVPRICE&securities=${ids.join(",")}`);
+    const cols = d.marketdata.columns, iS = cols.indexOf("SECID"), iL = cols.indexOf("LAST"), iC = cols.indexOf("LASTTOPREVPRICE");
+    d.marketdata.data.forEach((r) => {
+      const a = ASSETS.find((x) => SRC[x.sym] && SRC[x.sym].moex === r[iS]);
+      if (a && r[iL] > 0) setReal(a.sym, Number(r[iL]), r[iC] === null ? NaN : Number(r[iC]), "moex");
+    });
+  }
+  async function pollFinnhub(key) {
+    for (const a of ASSETS.filter((x) => SRC[x.sym] && SRC[x.sym].fh)) {
+      const d = await getJSON(`https://finnhub.io/api/v1/quote?symbol=${SRC[a.sym].fh}&token=${encodeURIComponent(key)}`);
+      if (d && d.c > 0) setReal(a.sym, Number(d.c), Number(d.dp), "fh");
+    }
+  }
+  async function pollTwelve(key) {
+    const list = ASSETS.filter((x) => SRC[x.sym] && SRC[x.sym].td);
+    const d = await getJSON(`https://api.twelvedata.com/quote?symbol=${list.map((a) => SRC[a.sym].td).join(",")}&apikey=${encodeURIComponent(key)}`);
+    list.forEach((a) => {
+      const o = d[SRC[a.sym].td] || (list.length === 1 ? d : null);
+      if (o && Number(o.close) > 0) setReal(a.sym, Number(o.close), Number(o.percent_change), "td");
+    });
+  }
+  function startFeeds() {
+    if (typeof fetch !== "function") return;
+    const keys = typeof LIVE_KEYS !== "undefined" ? LIVE_KEYS : {};
+    schedule(pollCrypto, 2000);
+    schedule(pollMoex, 10000);
+    if (keys.finnhub) schedule(() => pollFinnhub(keys.finnhub), 15000);
+    if (keys.twelvedata) schedule(() => pollTwelve(keys.twelvedata), 60000);
+  }
+  const liveBadge = (a) => (fresh(a) ? '<span class="lv on">Live</span>' : '<span class="lv">Демо</span>');
+  const srcText = (a) => (fresh(a) ? "Источник цены: " + SRC_NAME[a.srcKey] : "Источник цены: симуляция (живой источник недоступен или не подключён)");
+  const rangesFor = (a) => (fresh(a) && !a.realHist ? ["LIVE"] : ["LIVE", "1Д", "1Н"]);
+  const rangeHTML = (a) => { if (!rangesFor(a).includes(P.range)) P.range = "LIVE"; return rangesFor(a).map((k) => `<button data-range="${k}" class="${k === P.range ? "on" : ""}">${k === "LIVE" ? "Live" : k}</button>`).join(""); };
 
   // ---------- позиции ----------
   const liqPrice = (entry, lev, dir) => (dir === "long" ? entry * (1 - 1 / lev + MMR) : entry * (1 + 1 / lev - MMR));
@@ -317,7 +443,7 @@ const PERPS = (() => {
     return ASSETS.filter((a) => a.cls === P.cls).map((a) => `
       <button class="arow ${a.sym === P.sel ? "on" : ""}" data-asset="${a.sym}">
         ${badge(a)}
-        <span class="ainfo"><b>${a.sym}-PERP</b><small>${esc(a.name)}</small></span>
+        <span class="ainfo"><b>${a.sym}-PERP <span data-lv="${a.sym}">${liveBadge(a)}</span></b><small>${esc(a.name)}</small></span>
         <span class="aprice"><b data-pr="${a.sym}">${price(a, a.price)}</b><small data-ch="${a.sym}">${chText(a)}</small></span>
       </button>`).join("");
   }
@@ -329,14 +455,15 @@ const PERPS = (() => {
     <div class="panel tchart">
       <div class="th">
         <div class="th-l">
-          <div class="th-sym">${badge(a)}<h2>${a.sym}-PERP</h2><span class="tag-cat">${CLS[a.cls]}</span></div>
+          <div class="th-sym">${badge(a)}<h2>${a.sym}-PERP</h2><span class="tag-cat">${CLS[a.cls]}</span><span id="t-lv">${liveBadge(a)}</span></div>
           <div class="th-name">${esc(a.name)} · бессрочный контракт</div>
         </div>
         <div class="th-r"><b id="t-price">${price(a, a.price)}</b><span id="t-ch">${chText(a)} за 24 ч</span></div>
       </div>
-      <div class="range" id="t-range">${["LIVE", "1Д", "1Н"].map((k) => `<button data-range="${k}" class="${k === P.range ? "on" : ""}">${k === "LIVE" ? "Live" : k}</button>`).join("")}</div>
+      <div class="range" id="t-range">${rangeHTML(a)}</div>
       <div class="chart" id="t-chart"></div>
       <div class="t-stats"><span>Макс. плечо <b>${a.maxLev}x</b></span><span>Комиссия <b>0,05%</b></span><span>Фандинг <b>${num(a.fund * 100, 3)}% / 8 ч</b></span></div>
+      <div class="t-src" id="t-src">${srcText(a)}</div>
     </div>
     <div class="panel torder">
       <h3>Открыть позицию</h3>
@@ -429,7 +556,7 @@ const PERPS = (() => {
   function view() {
     return `<div class="wrap">
       <h1 class="page-title">Трейдинг</h1>
-      <p class="page-sub">Бессрочные контракты на крипту, акции и сырьё. Торгуйте без плеча или с плечом, в рост (Long) и в падение (Short). Демо: игровые рубли и симулированные цены.</p>
+      <p class="page-sub">Бессрочные контракты на крипту, акции и сырьё. Торгуйте без плеча или с плечом, в рост (Long) и в падение (Short). Демо: игровые рубли. Цены живые там, где виден бейдж Live, остальные симулируются.</p>
       <div class="trade">
         <aside class="panel assets">
           <div class="tabs" id="t-tabs" style="padding:0 0 10px">${Object.entries(CLS).map(([id, n]) => `<button class="tab ${id === P.cls ? "active" : ""}" data-tcls="${id}">${n}</button>`).join("")}</div>
@@ -518,8 +645,11 @@ const PERPS = (() => {
     if (!ready) return;
     if (!$("#confirm").hidden) return; // цены стоят, пока открыто подтверждение
     ASSETS.forEach((a) => {
-      const pull = ((a.base - a.price) / a.base) * 0.0005; // слабая тяга к базовой цене
-      a.price = a.price * Math.exp(a.sig * gauss() + pull);
+      if (a.isLive && !fresh(a)) a.isLive = false; // источник замолчал: возвращаемся к симуляции
+      if (!a.isLive) {
+        const pull = ((a.base - a.price) / a.base) * 0.0005; // слабая тяга к базовой цене
+        a.price = a.price * Math.exp(a.sig * gauss() + pull);
+      }
       a.live.push(a.price);
       if (a.live.length > 120) a.live.shift();
       a.hh[a.hh.length - 1] = a.price;
@@ -536,7 +666,12 @@ const PERPS = (() => {
       if (p) p.textContent = price(a, a.price);
       if (c) c.innerHTML = chText(a);
     });
+    ASSETS.forEach((x) => { const b = $(`[data-lv="${x.sym}"]`); if (b) b.innerHTML = liveBadge(x); });
     const a = A[P.sel];
+    $("#t-lv").innerHTML = liveBadge(a);
+    $("#t-src").textContent = srcText(a);
+    const rk = rangesFor(a).join();
+    if ($("#t-range").dataset.k !== rk) { $("#t-range").dataset.k = rk; $("#t-range").innerHTML = rangeHTML(a); }
     $("#t-price").textContent = price(a, a.price);
     $("#t-ch").innerHTML = chText(a) + " за 24 ч";
     if (!chartHover) paintChart();
