@@ -228,3 +228,14 @@ footer{border-top:1px solid var(--line);padding:22px 0;color:var(--muted);font-s
 .sell:hover{background:color-mix(in srgb,var(--no) 12%,transparent)}
 .kpis{grid-template-columns:repeat(auto-fit,minmax(130px,1fr))}
 .hero-card .track{display:none}
+
+/* подтверждение */
+.modal.over{z-index:50}
+.sheet.small{max-width:420px}
+.c-rows{margin:0 0 18px;display:flex;flex-direction:column;gap:2px}
+.c-rows div{display:flex;justify-content:space-between;gap:16px;padding:8px 0;border-bottom:1px solid var(--line);font-size:14px}
+.c-rows dt{color:var(--muted);flex:none}
+.c-rows dd{margin:0;text-align:right;min-width:0;overflow-wrap:anywhere}
+.c-actions{display:flex;gap:10px}
+.c-actions .sbtn,.c-actions .pbtn{flex:1}
+.pbtn.danger-fill{background:var(--no);color:#fff}

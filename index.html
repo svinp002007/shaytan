@@ -36,6 +36,16 @@
       <div id="sheet-body"></div>
     </div>
   </div>
+  <div id="confirm" class="modal over" hidden>
+    <div class="sheet small" role="alertdialog" aria-modal="true" aria-labelledby="c-title">
+      <h2 id="c-title"></h2>
+      <dl id="c-rows" class="c-rows"></dl>
+      <div class="c-actions">
+        <button class="sbtn" id="c-no">Отмена</button>
+        <button class="pbtn" id="c-yes">Подтвердить</button>
+      </div>
+    </div>
+  </div>
   <div id="toast" class="toast" hidden></div>
 
   <script src="events.js"></script>

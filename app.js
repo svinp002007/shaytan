@@ -142,6 +142,20 @@
     };
   }
 
+  // ---------- подтверждение действий ----------
+  let onConfirm = null;
+  function askConfirm({ title, rows, okText, danger }, ok) {
+    $("#c-title").textContent = title;
+    $("#c-rows").innerHTML = rows.map(([k, v, cls]) => `<div><dt>${k}</dt><dd class="${cls || ""}">${v}</dd></div>`).join("");
+    const y = $("#c-yes");
+    y.textContent = okText;
+    y.className = danger ? "pbtn danger-fill" : "pbtn";
+    onConfirm = ok;
+    $("#confirm").hidden = false;
+    y.focus();
+  }
+  function closeConfirm() { $("#confirm").hidden = true; onConfirm = null; }
+
   // ---------- позиции и продажа ----------
   const curPrice = (e, side) => (side === "yes" ? e.yes : 100 - e.yes);
   function valueOf(b) {
@@ -150,6 +164,24 @@
     const gross = (shares * curPrice(e, b.side)) / 100;
     const fee = gross * FEE;
     return { shares, gross, fee, net: gross - fee, pnl: gross - fee - b.amt };
+  }
+  function confirmSell(id) {
+    const b = bets.find((x) => x.id === id);
+    if (!b) return;
+    const v = valueOf(b), e = byId(b.eid);
+    askConfirm({
+      title: "Подтвердите продажу",
+      okText: "Продать",
+      danger: true,
+      rows: [
+        ["Рынок", esc(e.q)],
+        ["Позиция", `«${b.side === "yes" ? "Да" : "Нет"}», вложено ${rub(b.amt)} по ${b.price}¢`],
+        ["Текущая стоимость", rub(v.gross)],
+        ["Комиссия 2%", "− " + rub(v.fee)],
+        ["Вы получите", `<b>${rub(v.net)}</b>`],
+        ["Итог по сделке", `${signed(v.pnl)} ₽`, v.pnl >= 0 ? "pos" : "neg"]
+      ]
+    }, () => sellBet(id));
   }
   function sellBet(id) {
     const i = bets.findIndex((b) => b.id === id);
@@ -502,13 +534,28 @@
       msg.className = "msg err";
       if (!(amt > 0)) return (msg.textContent = "Введите сумму.");
       if (amt > balance) return (msg.textContent = "Недостаточно средств. Пополните пул.");
-      setBalance(balance - amt);
-      bets.push({ id: Date.now() + "-" + Math.random().toString(36).slice(2, 6), eid: e.id, side: chosenSide, amt, price: curPrice(e, chosenSide), ts: Date.now() });
-      store.set("bets", bets);
-      msg.className = "msg";
-      msg.textContent = `Ставка принята: ${rub(amt)} на «${chosenSide === "yes" ? "Да" : "Нет"}».`;
-      paintModalLive();
-      if (state.route === "account") paintAccountRight();
+      const side = chosenSide, price = curPrice(e, side), shares = (amt / price) * 100;
+      askConfirm({
+        title: "Подтвердите покупку",
+        okText: "Купить",
+        rows: [
+          ["Рынок", esc(e.q)],
+          ["Исход", `«${side === "yes" ? "Да" : "Нет"}» по ${price}¢`],
+          ["Сумма", rub(amt)],
+          ["Долей", pct1(shares)],
+          ["Выплата при успехе", `<b>${rub(shares)}</b>`],
+          ["Комиссия при продаже", "2%"]
+        ]
+      }, () => {
+        if (amt > balance) return toast("Недостаточно средств");
+        setBalance(balance - amt);
+        bets.push({ id: Date.now() + "-" + Math.random().toString(36).slice(2, 6), eid: e.id, side, amt, price, ts: Date.now() });
+        store.set("bets", bets);
+        msg.className = "msg";
+        msg.textContent = `Ставка принята: ${rub(amt)} на «${side === "yes" ? "Да" : "Нет"}».`;
+        paintModalLive();
+        if (state.route === "account") paintAccountRight();
+      });
     };
     paintChart();
     paintModalLive();
@@ -565,6 +612,7 @@
 
   // ---------- «живые» цены (демо) ----------
   function tick() {
+    if (!$("#confirm").hidden) return; // цены стоят, пока открыто подтверждение
     EVENTS.forEach((e) => {
       if (Math.random() > 0.4) return;
       const step = (Math.random() < 0.2 ? 2 : 1) * (Math.random() < 0.5 ? -1 : 1);
@@ -590,7 +638,7 @@
   document.addEventListener("click", (ev) => {
     const t = ev.target;
     const sell = t.closest("[data-sell]");
-    if (sell) return sellBet(sell.dataset.sell);
+    if (sell) return confirmSell(sell.dataset.sell);
     if (t.closest("[data-deposit]") || t.closest("#wallet")) return openDeposit();
     const pick = t.closest("[data-pick]");
     if (pick) state.cat = pick.dataset.pick;
@@ -612,9 +660,12 @@
   document.addEventListener("change", (ev) => {
     if (ev.target.id === "sort") { state.sort = ev.target.value; paintGrid(); }
   });
+  $("#c-no").onclick = closeConfirm;
+  $("#c-yes").onclick = () => { const f = onConfirm; closeConfirm(); if (f) f(); };
+  $("#confirm").onclick = (ev) => { if (ev.target.id === "confirm") closeConfirm(); };
   $("#close").onclick = closeModal;
   $("#modal").onclick = (ev) => { if (ev.target.id === "modal") closeModal(); };
-  document.addEventListener("keydown", (ev) => { if (ev.key === "Escape") closeModal(); });
+  document.addEventListener("keydown", (ev) => { if (ev.key === "Escape") { if (!$("#confirm").hidden) closeConfirm(); else closeModal(); } });
 
   setBalance(balance);
   render();
