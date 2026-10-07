@@ -375,3 +375,9 @@ footer{border-top:1px solid var(--line);padding:22px 0;color:var(--muted);font-s
 .lv{display:inline-block;font:700 10px var(--body);padding:1px 6px;border-radius:99px;background:var(--soft);color:var(--muted);vertical-align:middle;letter-spacing:.03em}
 .lv.on{background:color-mix(in srgb,var(--yes) 18%,transparent);color:var(--yes)}
 .t-src{margin-top:8px;font-size:12px;color:var(--muted)}
+
+/* Polymarket */
+.cat{display:flex;justify-content:space-between;align-items:center;gap:8px}
+.pm{font:700 10px var(--body);letter-spacing:.02em;text-transform:none;padding:2px 8px;border-radius:99px;background:color-mix(in srgb,var(--brand) 14%,transparent);color:var(--brand)}
+.poly-note{font-size:12px;color:var(--muted);margin:-4px 0 12px}
+.poly-note a{color:var(--brand)}

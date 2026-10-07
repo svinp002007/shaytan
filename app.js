@@ -318,11 +318,58 @@
     }).join("");
   }
 
+  // ---------- Polymarket (ориентир для цены) ----------
+  const polyFresh = (e) => e.poly != null && Date.now() - e.polyAt < 300000;
+  const polyChip = (e) => (POLY_SLUGS[e.id] ? `<span class="pm" data-pm="${e.id}" title="Вероятность «Да» на Polymarket">Polymarket ${polyFresh(e) ? Math.round(e.poly) + "%" : "…"}</span>` : "");
+  const polyUrl = (e) => `https://polymarket.com/market/${encodeURIComponent(POLY_SLUGS[e.id])}`;
+  // Разбор ответа Polymarket Gamma API: outcomes и outcomePrices приходят JSON-строками. Возвращает вероятность «Да» в процентах.
+  function parsePoly(m) {
+    if (!m || m.closed) return null;
+    try {
+      const names = typeof m.outcomes === "string" ? JSON.parse(m.outcomes) : m.outcomes;
+      const prices = typeof m.outcomePrices === "string" ? JSON.parse(m.outcomePrices) : m.outcomePrices;
+      const i = names.findIndex((n) => String(n).toLowerCase() === "yes");
+      if (i < 0 || names.length !== 2) return null; // только рынки «Да/Нет»
+      const v = Number(prices[i]);
+      return v > 0 && v < 1 ? clamp(v * 100, 1, 99) : null;
+    } catch { return null; }
+  }
+  async function pollPoly(e) {
+    const ctl = new AbortController(), t = setTimeout(() => ctl.abort(), 7000);
+    try {
+      const r = await fetch(`https://gamma-api.polymarket.com/markets?slug=${encodeURIComponent(POLY_SLUGS[e.id])}`, { signal: ctl.signal, cache: "no-store" });
+      if (!r.ok) throw new Error("HTTP " + r.status);
+      const list = await r.json();
+      const pct = parsePoly(Array.isArray(list) ? list[0] : list);
+      if (pct === null) throw new Error("нет цены");
+      if (e.poly == null) { // первая цена: переносим рынок на эту вероятность и перерисовываем историю
+        const S = e.y + e.n;
+        e.n = (S * pct) / 100; e.y = S - e.n;
+        e.hist = makeHistory(e.id, Math.round(pct * 10) / 10);
+        syncYes(e);
+      }
+      e.poly = pct; e.polyAt = Date.now(); e.p0 = pct;
+      refreshPrices();
+      if (modalEvent === e) paintModalLive();
+    } finally { clearTimeout(t); }
+  }
+  function startPoly() {
+    if (typeof fetch !== "function" || typeof POLY_SLUGS === "undefined") return;
+    EVENTS.filter((e) => POLY_SLUGS[e.id]).forEach((e, i) => {
+      let fails = 0;
+      const run = async () => {
+        try { await pollPoly(e); fails = 0; } catch { fails++; }
+        setTimeout(run, fails ? Math.min(300000, 60000 * 2 ** Math.min(fails - 1, 3)) : 60000);
+      };
+      setTimeout(run, 500 + i * 400); // запросы идут не разом
+    });
+  }
+
   // ---------- карточка рынка ----------
   const cardHTML = (e) => `
     <article class="card" data-open="${e.id}">
       ${banner(e)}
-      <div class="cat">${catName(e.cat)}</div>
+      <div class="cat"><span>${catName(e.cat)}</span>${polyChip(e)}</div>
       <h3>${esc(e.q)}</h3>
       <div class="meter">
         <div class="pct">${Math.round(e.yes)}%</div>
@@ -759,6 +806,7 @@
       </div>
       <div class="chart" id="m-chart"></div>
       <div class="probbar" id="m-bar"></div>
+      <div class="poly-note" id="m-poly"></div>
       <div class="seg">
         <button class="yes" data-side="yes"></button>
         <button class="no" data-side="no"></button>
@@ -836,6 +884,11 @@
     $("#m-now").textContent = `${pct1(e.yes)}% «Да»`;
     $("#m-vol").textContent = `пул ${short(e.vol)} ₽`;
     $("#m-bar").innerHTML = `<div class="pbar"><div style="width:${e.yes}%"></div></div><div class="pleg"><span>Да ${pct1(e.yes)}%</span><span>Нет ${pct1(100 - e.yes)}%</span></div>`;
+    $("#m-poly").innerHTML = e.poly != null
+      ? (polyFresh(e)
+          ? `Polymarket: <b>${pct1(e.poly)}%</b> · у нас ${pct1(e.yes)}% (${e.yes - e.poly >= 0 ? "+" : "−"}${pct1(Math.abs(e.yes - e.poly))} п.п.) · <a href="${polyUrl(e)}" target="_blank" rel="noopener">источник</a>`
+          : `Polymarket: данные устарели · <a href="${polyUrl(e)}" target="_blank" rel="noopener">источник</a>`)
+      : "";
     const yb = $(".seg .yes"), nb = $(".seg .no");
     yb.textContent = `Да ${cents(e)}¢`; nb.textContent = `Нет ${100 - cents(e)}¢`;
     yb.classList.toggle("on", chosenSide === "yes"); nb.classList.toggle("on", chosenSide === "no");
@@ -887,6 +940,8 @@
       if (n) n.textContent = `Нет ${100 - cents(e)}¢`;
       const v = $(".vol", c);
       if (v) v.textContent = `Пул ${short(e.vol)} ₽`;
+      const pm = $(".pm", c);
+      if (pm) pm.textContent = `Polymarket ${polyFresh(e) ? Math.round(e.poly) + "%" : "…"}`;
       const s = $(".spark-host", c);
       if (s) s.innerHTML = spark(e.hist);
     });
@@ -895,6 +950,10 @@
   function tick() {
     if (!$("#confirm").hidden) return; // цены стоят, пока открыто подтверждение
     EVENTS.forEach((e) => {
+      if (polyFresh(e)) { // мягко возвращаем цену к Polymarket: после ставки отклонение гаснет примерно за пару минут
+        const S = e.y + e.n, next = prob(e) + (e.poly - prob(e)) * 0.03;
+        e.n = (S * next) / 100; e.y = S - e.n; syncYes(e);
+      }
       if (Math.random() > 0.15) return;
       const pYes = clamp(0.5 + (e.p0 - e.yes) / 40, 0.1, 0.9); // лёгкая тяга к исходной цене
       const side = Math.random() < pYes ? "yes" : "no";
@@ -967,6 +1026,7 @@
     setBalance: (v) => { setBalance(v); if (state.route === "account") paintAccountRight(); }
   };
   PERPS.init();
+  startPoly();
   setBalance(balance);
   render();
 })();
