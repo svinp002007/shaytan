@@ -23,7 +23,7 @@ const PERPS = (() => {
   ];
   const A = Object.fromEntries(ASSETS.map((a) => [a.sym, a]));
   const P = { sel: "BTC", cls: "crypto", range: "LIVE", dir: "long", lev: 1, margin: 1000, tp: "", sl: "" };
-  let positions = [], closed = [], ticks = 0, chartHover = false, ready = false;
+  let positions = [], closed = [], plog = [], ticks = 0, chartHover = false, ready = false;
 
   const nf = new Intl.NumberFormat("ru-RU");
   const clamp = (v, a, b) => Math.min(b, Math.max(a, v));
@@ -53,6 +53,7 @@ const PERPS = (() => {
     });
     positions = RP.store.get("ppos", []);
     closed = RP.store.get("pclosed", []);
+    plog = RP.store.get("plog", []);
     ready = true;
     checkLiquidations();
   }
@@ -71,6 +72,9 @@ const PERPS = (() => {
   }
   const sideTag = (pos) => `<span class="tag ${pos.dir === "long" ? "yes" : "no"}">${pos.dir === "long" ? "Long" : "Short"} ${pos.lev === 1 ? "без плеча" : pos.lev + "x"}</span>`;
 
+  let logSeq = 0;
+  function logEvent(e) { plog.push({ id: Date.now().toString(36) + "-" + logSeq++, t: Date.now(), ...e }); }
+
   function checkLiquidations() {
     const hit = positions.filter((pos) => {
       const p = A[pos.sym].price;
@@ -79,6 +83,7 @@ const PERPS = (() => {
     if (!hit.length) return;
     hit.forEach((pos) => {
       closed.push({ sym: pos.sym, dir: pos.dir, lev: pos.lev, margin: pos.margin, entry: pos.entry, exit: pos.liq, pnl: -pos.margin - pos.feeOpen, kind: "liq", ts: Date.now() });
+      logEvent({ kind: "liq", sym: pos.sym, dir: pos.dir, lev: pos.lev, amt: 0, price: pos.liq, pnl: -pos.margin - pos.feeOpen });
       RP.toast(`Ликвидация: ${pos.sym} ${pos.dir === "long" ? "Long" : "Short"} ${pos.lev}x. Маржа ${RP.rub(pos.margin)} потеряна.`);
     });
     positions = positions.filter((p) => !hit.includes(p));
@@ -88,6 +93,7 @@ const PERPS = (() => {
   function persist() {
     RP.store.set("ppos", positions);
     RP.store.set("pclosed", closed.slice(-100));
+    RP.store.set("plog", plog.slice(-300));
   }
 
   // ---------- стоп-лосс и тейк-профит ----------
@@ -118,6 +124,7 @@ const PERPS = (() => {
     positions = positions.filter((x) => x !== pos);
     RP.setBalance(RP.getBalance() + Math.max(0, s.equity));
     closed.push({ sym: pos.sym, dir: pos.dir, lev: pos.lev, margin: pos.margin, entry: pos.entry, exit: exitPrice, pnl: s.result, kind, ts: Date.now() });
+    logEvent({ kind, sym: pos.sym, dir: pos.dir, lev: pos.lev, amt: Math.max(0, s.equity), price: exitPrice, pnl: s.result });
     persist();
     const word = { close: "Позиция закрыта", tp: "Сработал тейк-профит", sl: "Сработал стоп-лосс" }[kind];
     RP.toast(`${word}: ${pos.sym} ${pos.dir === "long" ? "Long" : "Short"} ${levTxt(pos.lev)}. Итог ${sg(s.result, 0)} ₽`);
@@ -166,6 +173,7 @@ const PERPS = (() => {
       if (m + fee > RP.getBalance()) return RP.toast("Недостаточно средств");
       RP.setBalance(RP.getBalance() - m - fee);
       positions.push({ id: Date.now() + "-" + Math.random().toString(36).slice(2, 6), sym: a.sym, dir, lev, margin: m, notional, entry, liq, tp, sl, feeOpen: fee, ts: Date.now() });
+      logEvent({ kind: "open", sym: a.sym, dir, lev, amt: m, price: entry });
       persist();
       RP.toast(`Позиция открыта: ${a.sym} ${dir === "long" ? "Long" : "Short"} ${levTxt(lev)}`);
       if (RP.route() === "trade") { paintPositions(); paintSummary(); paintChart(); }
@@ -561,7 +569,15 @@ const PERPS = (() => {
   const realized = () => closed.reduce((s, c) => s + c.pnl, 0);
   const closedMargin = () => closed.reduce((s, c) => s + c.margin, 0);
   const count = () => closed.length + positions.length;
-  function reset() { positions = []; closed = []; persist(); }
+  function reset() { positions = []; closed = []; plog = []; persist(); }
+  // Все сделки в виде строк для истории аккаунта.
+  function rows() {
+    return plog.map((x) => {
+      const a = A[x.sym], side = `${x.dir === "long" ? "Long" : "Short"} ${levTxt(x.lev)}`;
+      const action = { open: "Открытие", close: "Закрытие", tp: "Тейк-профит", sl: "Стоп-лосс", liq: "Ликвидация" }[x.kind] + " · " + side;
+      return { t: x.t, sec: "perp", title: x.sym + "-PERP", action, cls: x.kind === "open" ? (x.dir === "long" ? "yes" : "no") : (x.pnl >= 0 ? "yes" : "no"), amt: x.amt, priceText: price(a, x.price), pnl: x.kind === "open" ? null : x.pnl };
+    });
+  }
 
-  return { init, view, bind, tick, promo, select, realized, closedMargin, count, reset };
+  return { init, view, bind, tick, promo, select, realized, closedMargin, count, reset, rows };
 })();

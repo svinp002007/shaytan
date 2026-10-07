@@ -290,7 +290,7 @@
     const b = bets[i], v = valueOf(b), e = byId(b.eid);
     bets.splice(i, 1);
     e.y = v.q.y; e.n = v.q.n; syncYes(e);
-    addTrade(e, { nick: profile.nick, own: true, side: b.side, kind: "sell", amt: v.net, price: (v.gross / b.shares) * 100 });
+    addTrade(e, { nick: profile.nick, own: true, side: b.side, kind: "sell", amt: v.net, price: (v.gross / b.shares) * 100, pnl: v.pnl });
     closed.push({ eid: b.eid, side: b.side, amt: b.amt, net: v.net, fee: v.fee, ts: Date.now() });
     store.set("bets", bets);
     store.set("closed", closed);
@@ -511,7 +511,48 @@
       <div class="row-actions" style="margin:0 0 18px"><button class="pbtn" data-deposit>Пополнить пул</button></div>
       <div class="bets">${open}</div>${hist}`;
   }
-  const paintAccountRight = () => { const el = $("#acc-right"); if (el) el.innerHTML = accountRight(); };
+  const paintAccountRight = () => {
+    const el = $("#acc-right");
+    if (el) el.innerHTML = accountRight();
+    paintAccountTx();
+  };
+
+  // ---------- все сделки аккаунта (рынки прогнозов и трейдинг) ----------
+  let accFilter = "all", accLimit = 15;
+  function allTrades() {
+    const rows = [];
+    myTx.forEach((x) => {
+      const e = byId(x.eid);
+      if (!e) return;
+      rows.push({ t: x.t, sec: "pred", title: e.q, action: `${x.kind === "sell" ? "Продажа" : "Покупка"} · ${x.side === "yes" ? "Да" : "Нет"}`, cls: x.side, amt: x.amt, priceText: pct1(x.price) + "¢", pnl: x.pnl === undefined ? null : x.pnl });
+    });
+    PERPS.rows().forEach((r) => rows.push(r));
+    return rows.sort((a, b) => b.t - a.t);
+  }
+  function paintAccountTx() {
+    const box = $("#acc-tx");
+    if (!box) return;
+    const all = allTrades();
+    const list = all.filter((r) => accFilter === "all" || r.sec === accFilter);
+    const tabs = [["all", "Все"], ["pred", "Рынки прогнозов"], ["perp", "Трейдинг"]];
+    $("#acc-txf").innerHTML = tabs.map(([id, n]) => `<button class="chip ${id === accFilter ? "on" : ""}" data-txf="${id}">${n} · ${id === "all" ? all.length : all.filter((r) => r.sec === id).length}</button>`).join("");
+    if (!list.length) {
+      box.innerHTML = `<p class="empty" style="padding:18px">Сделок пока нет. Откройте <a href="#markets" style="color:var(--brand)">рынки</a> или <a href="#trade" style="color:var(--brand)">трейдинг</a>.</p>`;
+      return;
+    }
+    box.innerHTML = `<div class="table-wrap" style="margin:0"><table class="acc-tx"><thead><tr><th>Когда</th><th>Раздел</th><th>Событие</th><th>Сделка</th><th>Сумма</th><th>Цена</th><th>Результат</th></tr></thead><tbody>${list.slice(0, accLimit).map((r) => {
+      const w = when(r.t);
+      return `<tr>
+        <td><span class="tx-when">${w.abs}</span><small>${w.rel}</small></td>
+        <td>${r.sec === "pred" ? "Прогноз" : "Трейдинг"}</td>
+        <td class="ev">${esc(r.title)}</td>
+        <td><span class="tag ${r.cls}">${esc(r.action)}</span></td>
+        <td>${rub(r.amt)}</td>
+        <td>${r.priceText}</td>
+        <td class="${r.pnl === null ? "" : r.pnl >= 0 ? "pos" : "neg"}">${r.pnl === null ? "—" : signed(r.pnl) + " ₽"}</td>
+      </tr>`;
+    }).join("")}</tbody></table></div>${list.length > accLimit ? `<button class="sbtn" style="margin-top:12px" data-txmore>Показать ещё (${list.length - accLimit})</button>` : ""}`;
+  }
 
   function viewAccount() {
     return `<div class="wrap">
@@ -545,6 +586,11 @@
           </form>
         </div>
         <div class="panel" id="acc-right">${accountRight()}</div>
+      </div>
+      <div class="panel" style="margin-bottom:40px">
+        <h3>Все сделки</h3>
+        <div id="acc-txf" class="chips" style="margin-bottom:12px"></div>
+        <div id="acc-tx"></div>
       </div>
     </div>`;
   }
@@ -643,7 +689,7 @@
     $("#view").innerHTML = routes[state.route]();
     document.querySelectorAll("#nav a").forEach((a) => a.classList.toggle("on", a.dataset.r === state.route));
     if (state.route === "markets") paintGrid();
-    if (state.route === "account") bindAccount();
+    if (state.route === "account") { bindAccount(); paintAccountTx(); }
     if (state.route === "community") bindCommunity();
     if (state.route === "trade") PERPS.bind();
     window.scrollTo(0, 0);
@@ -681,6 +727,9 @@
       bets = [];
       closed = [];
       PERPS.reset();
+      myTx = [];
+      store.set("mytx", myTx);
+      EVENTS.forEach((e) => { e.trades = e.trades.filter((t) => !t.own); });
       store.set("profile", profile);
       store.set("bets", bets);
       store.set("closed", closed);
@@ -864,6 +913,9 @@
   // ---------- общие обработчики ----------
   document.addEventListener("click", (ev) => {
     const t = ev.target;
+    const txf = t.closest("[data-txf]");
+    if (txf) { accFilter = txf.dataset.txf; accLimit = 15; return paintAccountTx(); }
+    if (t.closest("[data-txmore]")) { accLimit += 15; return paintAccountTx(); }
     const go = t.closest("[data-goasset]");
     if (go) PERPS.select(go.dataset.goasset);
     const vote = t.closest("[data-vote]");

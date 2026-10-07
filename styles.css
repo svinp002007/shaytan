@@ -362,3 +362,11 @@ footer{border-top:1px solid var(--line);padding:22px 0;color:var(--muted);font-s
 .pbtns{display:inline-flex;gap:8px;justify-content:flex-end}
 .ptable{min-width:760px}
 .fee-note.warn{color:var(--no);font-weight:700}
+
+/* все сделки аккаунта */
+.acc-tx{min-width:760px}
+.acc-tx th,.acc-tx td{text-align:left;white-space:nowrap}
+.acc-tx th:nth-child(n+5),.acc-tx td:nth-child(n+5){text-align:right}
+.acc-tx td small{display:block;color:var(--muted);font-size:11px}
+.acc-tx td.ev{white-space:normal;min-width:220px;max-width:340px}
+.acc-tx .tag{font-size:11px}
