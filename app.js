@@ -300,8 +300,8 @@
     if (modalEvent) { paintChart(); paintModalLive(); }
     if (state.route === "account") paintAccountRight();
   }
-  const realized = () => closed.reduce((s, c) => s + (c.net - c.amt), 0);
-  const closedStake = () => closed.reduce((s, c) => s + c.amt, 0);
+  const realized = () => closed.reduce((s, c) => s + (c.net - c.amt), 0) + PERPS.realized();
+  const closedStake = () => closed.reduce((s, c) => s + c.amt, 0) + PERPS.closedMargin();
 
   function positionsHTML(list) {
     return list.map((b) => {
@@ -403,6 +403,8 @@
         ${leaderTable(topTraders, false)}
       </section>
 
+      <section class="block">${PERPS.promo()}</section>
+
       <section class="block">${tgCard()}</section>
 
       <div class="final">
@@ -458,7 +460,7 @@
     let list = rows.map((t) => ({ ...t }));
     if (withMe) {
       const profit = realized(), stake = closedStake();
-      list.push({ nick: profile.nick, profit, pnl: stake ? (profit / stake) * 100 : 0, trades: closed.length + bets.length, me: true, color: profile.color });
+      list.push({ nick: profile.nick, profit, pnl: stake ? (profit / stake) * 100 : 0, trades: closed.length + bets.length + PERPS.count(), me: true, color: profile.color });
       list.sort((a, b) => b.profit - a.profit);
     }
     return `<div class="table-wrap"><table>
@@ -634,7 +636,7 @@
   }
 
   // ---------- роутер ----------
-  const routes = { home: viewHome, markets: viewMarkets, leaderboard: viewLeaderboard, community: viewCommunity, account: viewAccount };
+  const routes = { home: viewHome, markets: viewMarkets, trade: () => PERPS.view(), leaderboard: viewLeaderboard, community: viewCommunity, account: viewAccount };
   function render() {
     const r = (location.hash || "#home").slice(1);
     state.route = routes[r] ? r : "home";
@@ -643,6 +645,7 @@
     if (state.route === "markets") paintGrid();
     if (state.route === "account") bindAccount();
     if (state.route === "community") bindCommunity();
+    if (state.route === "trade") PERPS.bind();
     window.scrollTo(0, 0);
   }
   window.addEventListener("hashchange", render);
@@ -677,6 +680,7 @@
       profile = { ...DEFAULT_PROFILE };
       bets = [];
       closed = [];
+      PERPS.reset();
       store.set("profile", profile);
       store.set("bets", bets);
       store.set("closed", closed);
@@ -855,10 +859,13 @@
     if (state.route === "account" && $("#modal").hidden) paintAccountRight();
   }
   setInterval(tick, 5000);
+  setInterval(() => PERPS.tick(), 1000);
 
   // ---------- общие обработчики ----------
   document.addEventListener("click", (ev) => {
     const t = ev.target;
+    const go = t.closest("[data-goasset]");
+    if (go) PERPS.select(go.dataset.goasset);
     const vote = t.closest("[data-vote]");
     if (vote) {
       const id = vote.dataset.vote;
@@ -876,7 +883,7 @@
     if (t.closest("[data-deposit]") || t.closest("#wallet")) return openDeposit();
     const pick = t.closest("[data-pick]");
     if (pick) state.cat = pick.dataset.pick;
-    const tab = t.closest(".tab");
+    const tab = t.closest(".tab[data-cat]");
     if (tab) {
       state.cat = tab.dataset.cat;
       document.querySelectorAll(".tab").forEach((x) => x.classList.toggle("active", x === tab));
@@ -901,6 +908,13 @@
   $("#modal").onclick = (ev) => { if (ev.target.id === "modal") closeModal(); };
   document.addEventListener("keydown", (ev) => { if (ev.key === "Escape") { if (!$("#confirm").hidden) closeConfirm(); else closeModal(); } });
 
+  window.RP = {
+    store, rub, toast, askConfirm,
+    route: () => state.route,
+    getBalance: () => balance,
+    setBalance: (v) => { setBalance(v); if (state.route === "account") paintAccountRight(); }
+  };
+  PERPS.init();
   setBalance(balance);
   render();
 })();
