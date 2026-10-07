@@ -359,7 +359,7 @@
       let fails = 0;
       const run = async () => {
         try { await pollPoly(e); fails = 0; } catch { fails++; }
-        setTimeout(run, fails ? Math.min(300000, 60000 * 2 ** Math.min(fails - 1, 3)) : 60000);
+        setTimeout(run, fails ? Math.min(300000, 30000 * 2 ** Math.min(fails - 1, 4)) : 30000);
       };
       setTimeout(run, 500 + i * 400); // запросы идут не разом
     });

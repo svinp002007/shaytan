@@ -1,0 +1,122 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>RusPredict — подбор рынков Polymarket</title>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;700&family=Unbounded:wght@500;700&display=swap">
+  <link rel="stylesheet" href="styles.css">
+  <style>
+    .row{display:grid;grid-template-columns:48px 1.3fr 1.2fr auto;gap:10px;align-items:start;padding:12px 0;border-bottom:1px solid var(--line)}
+    .row .id{color:var(--muted);font-weight:700}
+    .res{grid-column:2/-1;display:flex;flex-direction:column;gap:6px}
+    .opt{display:flex;gap:10px;align-items:flex-start;border:1px solid var(--line);border-radius:10px;padding:8px 10px;font-size:13px;cursor:pointer}
+    .opt.on{border-color:var(--brand);background:color-mix(in srgb,var(--brand) 10%,var(--card))}
+    .opt small{color:var(--muted);display:block}
+    textarea.out{width:100%;min-height:160px;font:12px/1.5 ui-monospace,Menlo,Consolas,monospace}
+    .bar2{display:flex;gap:10px;flex-wrap:wrap;margin:14px 0}
+    @media (max-width:760px){.row{grid-template-columns:1fr}.res{grid-column:1}}
+  </style>
+</head>
+<body>
+  <div class="wrap" style="padding-bottom:60px">
+    <h1 class="page-title">Подбор рынков Polymarket</h1>
+    <p class="page-sub">Для каждого вашего рынка найдите такой же вопрос на Polymarket и выберите его. В конце скопируйте готовый блок <b>POLY_SLUGS</b> в файл <code>events.js</code>. Откройте страницу с сайта на обычном хостинге: на claude.ai внешние запросы запрещены.</p>
+    <div class="panel" style="margin-top:16px">
+      <b>Важно проверять вручную:</b> совпадает ли пороговое значение (например, 150 000 долларов) и дата закрытия. Если нет, рынок выбирать нельзя: сайт покажет чужую вероятность под вашим вопросом.
+    </div>
+    <div class="bar2">
+      <button class="pbtn" id="all">Найти для всех</button>
+      <span id="status" class="muted" style="align-self:center"></span>
+    </div>
+    <div class="panel" id="list"></div>
+    <h3 style="margin:24px 0 10px">Готовый блок для events.js</h3>
+    <textarea class="field out" id="out" readonly></textarea>
+    <div class="bar2"><button class="sbtn" id="copy">Скопировать</button></div>
+  </div>
+  <script src="events.js"></script>
+  <script>
+    // Поисковые запросы на английском, по одному на рынок (в порядке EVENTS).
+    const QUERIES = ["brent crude oil price", "fed rate cut december", "gold price", "s&p 500 2026", "eur usd", "china gdp 2026", "us recession 2027", "opec production cut", "wheat price", "nvidia largest company",
+      "russia central bank key rate", "usd rub", "russia inflation", "moex index", "russia key rate", "russia gdp 2026", "urals oil price", "russia unemployment", "russia vat", "sberbank profit", "moscow rent",
+      "bitcoin 150000", "bitcoin 60000", "ethereum 6000", "crypto market cap 5 trillion", "bitcoin dominance", "tether usdt largest stablecoin", "russia crypto retail investors", "russia crypto foreign trade", "solana 400", "bitcoin hashrate",
+      "zenit russian premier league", "spartak russian premier league", "cska russian cup", "ska khl", "cska gagarin cup", "australian open 2027 winner", "medvedev grand slam final", "ovechkin 900 goals", "russia fifa ban", "russia olympics 2028", "lokomotiv dynamo",
+      "putin direct line", "russia budget deficit", "russia prime minister", "russia ukraine ceasefire", "putin trump meeting", "eu sanctions russia package", "russia minister replaced", "brics summit moscow", "russia referendum", "sobyanin mayor"];
+    const chosen = Object.assign({}, typeof POLY_SLUGS !== "undefined" ? POLY_SLUGS : {});
+    const $ = (s, r = document) => r.querySelector(s);
+    const esc = (s) => String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+
+    function yesPct(m) {
+      try {
+        const n = typeof m.outcomes === "string" ? JSON.parse(m.outcomes) : m.outcomes;
+        const p = typeof m.outcomePrices === "string" ? JSON.parse(m.outcomePrices) : m.outcomePrices;
+        const i = n.findIndex((x) => String(x).toLowerCase() === "yes");
+        return n.length === 2 && i >= 0 ? Number(p[i]) * 100 : null;
+      } catch { return null; }
+    }
+    async function search(q) {
+      const r = await fetch("https://gamma-api.polymarket.com/public-search?limit_per_type=8&q=" + encodeURIComponent(q));
+      if (!r.ok) throw new Error("HTTP " + r.status);
+      const d = await r.json();
+      const out = [];
+      (d.events || []).forEach((ev) => (ev.markets || []).forEach((m) => {
+        const y = yesPct(m);
+        if (y !== null && !m.closed && m.slug) out.push({ slug: m.slug, q: m.question || ev.title, y, end: m.endDate, vol: Number(m.volumeNum || m.volume || 0) });
+      }));
+      return out.sort((a, b) => b.vol - a.vol).slice(0, 8);
+    }
+    function paintOut() {
+      const keys = Object.keys(chosen).filter((k) => chosen[k]).sort((a, b) => a - b);
+      $("#out").value = "const POLY_SLUGS = {\n" + keys.map((k) => `  ${k}: ${JSON.stringify(chosen[k])},`).join("\n") + "\n};";
+    }
+    function render() {
+      $("#list").innerHTML = EVENTS.map((e, i) => `
+        <div class="row" data-id="${e.id}">
+          <div class="id">${e.id}</div>
+          <div>${esc(e.q)}<br><small class="muted">до ${esc(e.closes)}</small></div>
+          <input class="field" value="${esc(QUERIES[i] || "")}" aria-label="Запрос для рынка ${e.id}">
+          <button class="sbtn" data-find="${e.id}">Найти</button>
+          <div class="res" id="res${e.id}">${chosen[e.id] ? `<div class="opt on">Выбрано: ${esc(chosen[e.id])}</div>` : ""}</div>
+        </div>`).join("");
+    }
+    async function find(id) {
+      const row = $(`.row[data-id="${id}"]`), box = $("#res" + id);
+      box.innerHTML = '<span class="muted">Ищу…</span>';
+      try {
+        const list = await search($("input", row).value);
+        if (!list.length) return (box.innerHTML = '<span class="muted">Ничего не найдено. Измените запрос.</span>');
+        box.innerHTML = list.map((m) => `<label class="opt ${chosen[id] === m.slug ? "on" : ""}"><input type="radio" name="r${id}" value="${esc(m.slug)}" ${chosen[id] === m.slug ? "checked" : ""}><span><b>${esc(m.q)}</b><small>Да ${m.y.toFixed(1)}% · закрытие ${esc((m.end || "").slice(0, 10))} · объём $${Math.round(m.vol).toLocaleString("ru-RU")}</small></span></label>`).join("") + `<label class="opt"><input type="radio" name="r${id}" value=""><span>Не привязывать</span></label>`;
+      } catch (err) {
+        box.innerHTML = `<span class="neg">Не удалось запросить Polymarket (${esc(err.message)}). Откройте страницу с обычного хостинга и проверьте доступ в интернет.</span>`;
+        throw err;
+      }
+    }
+    document.addEventListener("click", (ev) => {
+      const f = ev.target.closest("[data-find]");
+      if (f) find(f.dataset.find).catch(() => {});
+    });
+    document.addEventListener("change", (ev) => {
+      const r = ev.target.closest('input[type="radio"]');
+      if (!r) return;
+      const id = r.name.slice(1);
+      chosen[id] = r.value;
+      document.querySelectorAll(`#res${id} .opt`).forEach((o) => o.classList.toggle("on", $("input", o).checked));
+      paintOut();
+    });
+    $("#all").onclick = async () => {
+      for (const e of EVENTS) {
+        $("#status").textContent = `Рынок ${e.id} из ${EVENTS.length}…`;
+        try { await find(e.id); } catch { $("#status").textContent = "Остановлено: нет доступа к Polymarket."; return; }
+        await new Promise((r) => setTimeout(r, 350));
+      }
+      $("#status").textContent = "Готово. Проверьте каждый вариант и выберите подходящие.";
+    };
+    $("#copy").onclick = async () => {
+      try { await navigator.clipboard.writeText($("#out").value); $("#copy").textContent = "Скопировано"; }
+      catch { $("#out").select(); }
+    };
+    render();
+    paintOut();
+  </script>
+</body>
+</html>
