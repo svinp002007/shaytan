@@ -2,7 +2,12 @@
   const $ = (s, r = document) => r.querySelector(s);
   const COLORS = ["#1d4ed8", "#d52b1e", "#15803d", "#b45309", "#7c3aed", "#0e7490"];
   const DEFAULT_PROFILE = { nick: "Гость", city: "", bio: "", color: COLORS[0], fav: "all" };
+  const FEE = 0.02; // комиссия за продажу позиции
+  const HOURS = 720; // история цены: 30 дней по часам
+  const RANGES = { "1Д": 24, "1Н": 168, "1М": 720 };
   const state = { cat: "all", q: "", sort: "volume", route: "home" };
+  let modalEvent = null; // рынок, открытый в окне
+  let modalRange = "1Н";
 
   // ---------- хранилище (localStorage может быть недоступен) ----------
   const store = {
@@ -12,6 +17,8 @@
   let profile = { ...DEFAULT_PROFILE, ...store.get("profile", {}) };
   let balance = Number(store.get("balance", 10000)) || 0;
   let bets = store.get("bets", []);
+  let closed = store.get("closed", []);
+  bets.forEach((b, i) => { if (!b.id) b.id = b.ts + "-" + i; });
 
   // ---------- утилиты ----------
   const nf = new Intl.NumberFormat("ru-RU");
@@ -26,6 +33,8 @@
   const hash = (s) => [...s].reduce((a, c) => (a * 31 + c.charCodeAt(0)) >>> 0, 7);
   const traderColor = (nick) => COLORS[hash(nick) % COLORS.length];
   const byId = (id) => EVENTS.find((e) => e.id === id);
+  const clamp = (v, a, b) => Math.min(b, Math.max(a, v));
+  const pct1 = (v) => v.toFixed(1).replace(".", ",");
 
   function setBalance(v) {
     balance = Math.max(0, v);
@@ -38,7 +47,139 @@
     t.textContent = text;
     t.hidden = false;
     clearTimeout(toastTimer);
-    toastTimer = setTimeout(() => (t.hidden = true), 2600);
+    toastTimer = setTimeout(() => (t.hidden = true), 2800);
+  }
+
+  // ---------- история цены (демо-данные) ----------
+  function mulberry(a) {
+    return () => { a |= 0; a = (a + 0x6d2b79f5) | 0; let t = Math.imul(a ^ (a >>> 15), 1 | a); t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t; return ((t ^ (t >>> 14)) >>> 0) / 4294967296; };
+  }
+  function makeHistory(seed, end) {
+    const rnd = mulberry(seed * 9301 + 7);
+    const start = clamp(end + (rnd() - 0.5) * 36, 4, 96);
+    const w = [0];
+    for (let i = 1; i < HOURS; i++) w.push(w[i - 1] + (rnd() - 0.5) * 0.9);
+    const out = w.map((x, i) => {
+      const k = i / (HOURS - 1);
+      return clamp(start + (end - start) * k + (x - w[HOURS - 1] * k), 2, 98);
+    });
+    out[HOURS - 1] = end;
+    return out.map((v) => Math.round(v * 10) / 10);
+  }
+  EVENTS.forEach((e) => { e.hist = makeHistory(e.id, e.yes); });
+
+  // ---------- графики ----------
+  function downsample(vals, max) {
+    if (vals.length <= max) return vals.map((v, i) => [i, v]);
+    const out = [];
+    const step = (vals.length - 1) / (max - 1);
+    for (let k = 0; k < max; k++) { const i = Math.round(k * step); out.push([i, vals[i]]); }
+    return out;
+  }
+  function spark(vals) {
+    const s = vals.slice(-168);
+    const pts = downsample(s, 40);
+    const lo = Math.min(...s), hi = Math.max(...s), span = Math.max(hi - lo, 4);
+    const X = (i) => (i / (s.length - 1)) * 100;
+    const Y = (v) => 3 + (1 - (v - lo) / span) * 26;
+    const line = pts.map(([i, v], k) => (k ? "L" : "M") + X(i).toFixed(1) + " " + Y(v).toFixed(1)).join("");
+    const up = s[s.length - 1] >= s[0];
+    return `<svg viewBox="0 0 100 32" preserveAspectRatio="none" class="spark ${up ? "up" : "down"}" aria-hidden="true"><path class="sa" d="${line}L100 32L0 32Z"/><path class="sl" d="${line}"/></svg>`;
+  }
+  function timeLabel(n, i, key) {
+    const d = new Date(Date.now() - (n - 1 - i) * 3600e3);
+    return key === "1Д"
+      ? d.toLocaleTimeString("ru-RU", { hour: "2-digit", minute: "2-digit" })
+      : d.toLocaleDateString("ru-RU", { day: "numeric", month: "short" });
+  }
+  function geom(vals) {
+    const W = 540, H = 230, L = 38, R = 12, T = 12, B = 24, n = vals.length;
+    let lo = Math.min(...vals), hi = Math.max(...vals);
+    const pad = Math.max(2, (hi - lo) * 0.15);
+    lo = Math.max(0, Math.floor(lo - pad)); hi = Math.min(100, Math.ceil(hi + pad));
+    if (hi - lo < 6) { hi = Math.min(100, lo + 6); lo = Math.max(0, hi - 6); }
+    return { W, H, L, R, T, B, n, lo, hi, x: (i) => L + (i * (W - L - R)) / (n - 1), y: (v) => T + ((hi - v) * (H - T - B)) / (hi - lo) };
+  }
+  function chartMarkup(vals, key) {
+    const g = geom(vals);
+    const pts = downsample(vals, 150);
+    const line = pts.map(([i, v], k) => (k ? "L" : "M") + g.x(i).toFixed(1) + " " + g.y(v).toFixed(1)).join("");
+    const base = g.H - g.B;
+    const up = vals[g.n - 1] >= vals[0];
+    const ticks = [0, 1, 2, 3].map((k) => {
+      const v = g.lo + ((g.hi - g.lo) * k) / 3;
+      return `<line class="gl" x1="${g.L}" x2="${g.W - g.R}" y1="${g.y(v).toFixed(1)}" y2="${g.y(v).toFixed(1)}"/><text class="tx" x="${g.L - 6}" y="${(g.y(v) + 4).toFixed(1)}" text-anchor="end">${Math.round(v)}%</text>`;
+    }).join("");
+    const xl = [[0, "start"], [Math.round((g.n - 1) / 2), "middle"], [g.n - 1, "end"]]
+      .map(([i, a]) => `<text class="tx" x="${g.x(i).toFixed(1)}" y="${g.H - 6}" text-anchor="${a}">${timeLabel(g.n, i, key)}</text>`).join("");
+    return `<svg viewBox="0 0 ${g.W} ${g.H}" class="chart-svg ${up ? "up" : "down"}" role="img" aria-label="График вероятности «Да»">
+      ${ticks}${xl}
+      <path class="ca" d="${line}L${g.x(g.n - 1).toFixed(1)} ${base}L${g.L} ${base}Z"/>
+      <path class="cl" d="${line}"/>
+      <line class="cross" y1="${g.T}" y2="${base}" hidden/>
+      <circle class="dot" r="4.5" hidden/>
+      <text class="tip" hidden></text>
+    </svg>`;
+  }
+  function bindChart(host, vals, key) {
+    const svg = $("svg", host);
+    if (!svg) return;
+    const g = geom(vals);
+    const cross = $(".cross", svg), dot = $(".dot", svg), tip = $(".tip", svg);
+    const show = (on) => [cross, dot, tip].forEach((el) => (el.hidden = !on));
+    svg.onpointerleave = () => show(false);
+    svg.onpointermove = (ev) => {
+      const r = svg.getBoundingClientRect();
+      const px = ((ev.clientX - r.left) / r.width) * g.W;
+      const i = clamp(Math.round(((px - g.L) / (g.W - g.L - g.R)) * (g.n - 1)), 0, g.n - 1);
+      const x = g.x(i), y = g.y(vals[i]);
+      cross.setAttribute("x1", x); cross.setAttribute("x2", x);
+      dot.setAttribute("cx", x); dot.setAttribute("cy", y);
+      tip.textContent = `${pct1(vals[i])}% · ${timeLabel(g.n, i, key)}`;
+      tip.setAttribute("x", clamp(x, 70, g.W - 70)); tip.setAttribute("y", Math.max(y - 10, g.T + 10));
+      tip.setAttribute("text-anchor", "middle");
+      show(true);
+    };
+  }
+
+  // ---------- позиции и продажа ----------
+  const curPrice = (e, side) => (side === "yes" ? e.yes : 100 - e.yes);
+  function valueOf(b) {
+    const e = byId(b.eid);
+    const shares = (b.amt / b.price) * 100;
+    const gross = (shares * curPrice(e, b.side)) / 100;
+    const fee = gross * FEE;
+    return { shares, gross, fee, net: gross - fee, pnl: gross - fee - b.amt };
+  }
+  function sellBet(id) {
+    const i = bets.findIndex((b) => b.id === id);
+    if (i < 0) return;
+    const b = bets[i], v = valueOf(b);
+    bets.splice(i, 1);
+    closed.push({ eid: b.eid, side: b.side, amt: b.amt, net: v.net, fee: v.fee, ts: Date.now() });
+    store.set("bets", bets);
+    store.set("closed", closed);
+    setBalance(balance + v.net);
+    toast(`Продано за ${rub(v.net)} (комиссия ${rub(v.fee)}). ${v.pnl >= 0 ? "Прибыль" : "Убыток"}: ${signed(v.pnl)} ₽`);
+    if (modalEvent) paintModalLive();
+    if (state.route === "account") paintAccountRight();
+  }
+  const realized = () => closed.reduce((s, c) => s + (c.net - c.amt), 0);
+  const closedStake = () => closed.reduce((s, c) => s + c.amt, 0);
+
+  function positionsHTML(list) {
+    return list.map((b) => {
+      const e = byId(b.eid), v = valueOf(b);
+      return `<div class="pos-row">
+        <div class="pos-main">
+          <span class="tag ${b.side}">${b.side === "yes" ? "Да" : "Нет"}</span>
+          <span>${rub(b.amt)} по ${b.price}¢</span>
+          <span class="${v.pnl >= 0 ? "pos" : "neg"}">${signed(v.pnl)} ₽</span>
+        </div>
+        <button class="sell" data-sell="${b.id}">Продать за ${rub(v.net)}</button>
+        <div class="pos-note">Сейчас ${rub(v.gross)} − комиссия 2% (${rub(v.fee)})</div>
+      </div>`;
+    }).join("");
   }
 
   // ---------- карточка рынка ----------
@@ -48,7 +189,7 @@
       <h3>${esc(e.q)}</h3>
       <div class="meter">
         <div class="pct">${e.yes}%</div>
-        <div class="bar-track"><div class="bar-fill" style="width:${e.yes}%"></div></div>
+        <div class="spark-host">${spark(e.hist)}</div>
       </div>
       <div class="btns">
         <button class="btn yes" data-open="${e.id}" data-side="yes">Да ${e.yes}¢</button>
@@ -69,7 +210,7 @@
         <div>
           <div class="eyebrow">Рынок прогнозов России</div>
           <h1>Знаешь, что будет дальше? <em>Вложи в пул</em> и забери разницу.</h1>
-          <p class="lead">Ставь на курс рубля, решения ЦБ, нефть, крипту, спорт и политику. Цена «Да» — это вероятность события: 62¢ значит 62%. Угадал — получил ₽1 за каждую долю.</p>
+          <p class="lead">Ставь на курс рубля, решения ЦБ, нефть, крипту, спорт и политику. Цена «Да» — это вероятность события: 62¢ значит 62%. Угадал — получил ₽1 за каждую долю. Передумал — продай в любой момент.</p>
           <div class="cta-row">
             <button class="cta primary" data-deposit>Пополнить пул</button>
             <a class="cta ghost" href="#markets">Смотреть рынки</a>
@@ -79,8 +220,8 @@
         <div class="hero-card" data-open="${featured.id}" style="cursor:pointer">
           <div class="eyebrow">Самый большой пул · ${catName(featured.cat)}</div>
           <div class="q">${esc(featured.q)}</div>
-          <div class="big">${featured.yes}% <small>вероятность «Да»</small></div>
-          <div class="track"><div class="fill" style="width:${featured.yes}%"></div></div>
+          <div class="big"><span class="pct">${featured.yes}%</span> <small>вероятность «Да»</small></div>
+          <div class="spark-host hero-spark">${spark(featured.hist)}</div>
           <div class="btns">
             <button class="btn yes" data-open="${featured.id}" data-side="yes">Да ${featured.yes}¢</button>
             <button class="btn no" data-open="${featured.id}" data-side="no">Нет ${100 - featured.yes}¢</button>
@@ -94,7 +235,7 @@
         <div class="stat"><b>${EVENTS.length}</b><span>открытых рынков</span></div>
         <div class="stat"><b>${short(totalVol)} ₽</b><span>объём всех пулов</span></div>
         <div class="stat"><b>${nf.format(12480 + TRADERS.length)}</b><span>трейдеров (демо)</span></div>
-        <div class="stat"><b>${CATEGORIES.length}</b><span>категорий</span></div>
+        <div class="stat"><b>2%</b><span>комиссия при продаже</span></div>
       </div>
 
       <section class="block">
@@ -114,8 +255,8 @@
         <div class="block-head"><h2>Как это работает</h2></div>
         <div class="steps">
           <div class="step"><b>Пополните пул</b><span>Получите игровые рубли на баланс одним нажатием.</span></div>
-          <div class="step"><b>Выберите исход</b><span>«Да» или «Нет» по цене в копейках. Чем дешевле доля, тем больше выплата.</span></div>
-          <div class="step"><b>Заберите выплату</b><span>Если исход сбылся, каждая доля стоит ₽1. Если нет, ставка сгорает.</span></div>
+          <div class="step"><b>Выберите исход</b><span>«Да» или «Нет» по цене в копейках. Смотрите график цены перед ставкой.</span></div>
+          <div class="step"><b>Заберите выплату или продайте</b><span>Если исход сбылся, каждая доля стоит ₽1. Продать позицию можно в любой момент, комиссия 2%.</span></div>
         </div>
       </section>
 
@@ -146,7 +287,7 @@
     return `
     <div class="wrap">
       <h1 class="page-title">Рынки</h1>
-      <p class="page-sub">Выберите событие и поставьте на «Да» или «Нет».</p>
+      <p class="page-sub">Выберите событие, изучите график и поставьте на «Да» или «Нет». Продать позицию можно в любой момент.</p>
       <nav id="tabs" class="tabs">${tabs.map((t) => `<button class="tab ${t.id === state.cat ? "active" : ""}" data-cat="${t.id}">${t.name}</button>`).join("")}</nav>
       <div class="toolbar">
         <span id="count"></span>
@@ -176,8 +317,8 @@
   function leaderTable(rows, withMe) {
     let list = rows.map((t) => ({ ...t }));
     if (withMe) {
-      const staked = bets.reduce((s, b) => s + b.amt, 0);
-      list.push({ nick: profile.nick, profit: 0, pnl: 0, trades: bets.length, win: 0, me: true, color: profile.color, staked });
+      const profit = realized(), stake = closedStake();
+      list.push({ nick: profile.nick, profit, pnl: stake ? (profit / stake) * 100 : 0, trades: closed.length + bets.length, me: true, color: profile.color });
       list.sort((a, b) => b.profit - a.profit);
     }
     return `<div class="table-wrap"><table>
@@ -197,23 +338,40 @@
     const rows = [...TRADERS].sort((a, b) => b.profit - a.profit);
     return `<div class="wrap">
       <h1 class="page-title">Таблица лидеров</h1>
-      <p class="page-sub">PNL — доходность на вложенные средства, общая прибыль — в игровых рублях. Все трейдеры вымышлены. Ваша строка появится в рейтинге после первых закрытых рынков.</p>
+      <p class="page-sub">PNL — доходность на вложенные средства, общая прибыль — в игровых рублях. Все трейдеры вымышлены. Ваша прибыль считается по проданным позициям, с учётом комиссии 2%.</p>
       ${leaderTable(rows, true)}
     </div>`;
   }
 
-  function viewAccount() {
+  function accountRight() {
     const staked = bets.reduce((s, b) => s + b.amt, 0);
-    const betsHTML = bets.length
+    const r = realized();
+    const open = bets.length
       ? bets.slice().reverse().map((b) => {
           const e = byId(b.eid);
-          const shares = (b.amt / b.price) * 100;
-          return `<div class="bet">
-            <div class="t">${esc(e.q)}</div>
-            <div class="d"><span><span class="tag ${b.side}">${b.side === "yes" ? "Да" : "Нет"}</span> по ${b.price}¢ · ${rub(b.amt)}</span><span>Выплата при успехе: <b>${rub(shares)}</b></span></div>
-          </div>`;
+          return `<div class="bet"><div class="t">${esc(e.q)}</div>${positionsHTML([b])}</div>`;
         }).join("")
-      : `<p class="empty" style="padding:20px">Ставок пока нет. Откройте <a href="#markets" style="color:var(--brand)">рынки</a> и сделайте первый прогноз.</p>`;
+      : `<p class="empty" style="padding:20px">Открытых ставок нет. Откройте <a href="#markets" style="color:var(--brand)">рынки</a> и сделайте первый прогноз.</p>`;
+    const hist = closed.length
+      ? `<h3 style="margin-top:22px">Закрытые сделки</h3><div class="bets">${closed.slice(-5).reverse().map((c) => {
+          const p = c.net - c.amt;
+          return `<div class="bet"><div class="t">${esc(byId(c.eid).q)}</div><div class="d"><span><span class="tag ${c.side}">${c.side === "yes" ? "Да" : "Нет"}</span> вложено ${rub(c.amt)} · получено ${rub(c.net)}</span><span class="${p >= 0 ? "pos" : "neg"}">${signed(p)} ₽</span></div></div>`;
+        }).join("")}</div>`
+      : "";
+    return `
+      <h3>Мои средства и ставки</h3>
+      <div class="kpis">
+        <div class="kpi"><b>${rub(balance)}</b><span>баланс</span></div>
+        <div class="kpi"><b>${rub(staked)}</b><span>в игре</span></div>
+        <div class="kpi"><b>${bets.length}</b><span>открытых ставок</span></div>
+        <div class="kpi"><b class="${r >= 0 ? "pos" : "neg"}">${signed(r)} ₽</b><span>прибыль по проданным</span></div>
+      </div>
+      <div class="row-actions" style="margin:0 0 18px"><button class="pbtn" data-deposit>Пополнить пул</button></div>
+      <div class="bets">${open}</div>${hist}`;
+  }
+  const paintAccountRight = () => { const el = $("#acc-right"); if (el) el.innerHTML = accountRight(); };
+
+  function viewAccount() {
     return `<div class="wrap">
       <h1 class="page-title">Мой аккаунт</h1>
       <p class="page-sub">Данные профиля хранятся в вашем браузере и меняются в любой момент.</p>
@@ -244,16 +402,7 @@
             </div>
           </form>
         </div>
-        <div class="panel">
-          <h3>Мои средства и ставки</h3>
-          <div class="kpis">
-            <div class="kpi"><b>${rub(balance)}</b><span>баланс</span></div>
-            <div class="kpi"><b>${rub(staked)}</b><span>в игре</span></div>
-            <div class="kpi"><b>${bets.length}</b><span>открытых ставок</span></div>
-          </div>
-          <div class="row-actions" style="margin:0 0 18px"><button class="pbtn" data-deposit>Пополнить пул</button></div>
-          <div class="bets">${betsHTML}</div>
-        </div>
+        <div class="panel" id="acc-right">${accountRight()}</div>
       </div>
     </div>`;
   }
@@ -300,8 +449,10 @@
       if (!armed) { armed = true; ev.target.textContent = "Нажмите ещё раз для сброса"; return; }
       profile = { ...DEFAULT_PROFILE };
       bets = [];
+      closed = [];
       store.set("profile", profile);
       store.set("bets", bets);
+      store.set("closed", closed);
       setBalance(10000);
       toast("Аккаунт сброшен");
       render();
@@ -310,33 +461,41 @@
 
   // ---------- модальные окна ----------
   const openSheet = (html) => { $("#sheet-body").innerHTML = html; $("#modal").hidden = false; };
-  const closeModal = () => ($("#modal").hidden = true);
+  const closeModal = () => { $("#modal").hidden = true; modalEvent = null; };
 
+  let chosenSide = "yes";
   function openBet(id, side) {
     const e = byId(id);
-    let chosen = side || "yes";
-    const price = () => (chosen === "yes" ? e.yes : 100 - e.yes);
+    modalEvent = e;
+    chosenSide = side || "yes";
     openSheet(`
       <div class="cat">${catName(e.cat)}</div>
       <h2>${esc(e.q)}</h2>
       <p>Закрытие ${fmtDate(e.closes)} · пул ${short(e.vol)} ₽</p>
+      <div class="chart-head">
+        <div><span class="chart-now" id="m-now"></span> <span class="chart-delta" id="m-delta"></span></div>
+        <div class="range" id="m-range">${Object.keys(RANGES).map((k) => `<button data-range="${k}" class="${k === modalRange ? "on" : ""}">${k}</button>`).join("")}</div>
+      </div>
+      <div class="chart" id="m-chart"></div>
       <div class="seg">
-        <button class="yes" data-side="yes">Да ${e.yes}¢</button>
-        <button class="no" data-side="no">Нет ${100 - e.yes}¢</button>
+        <button class="yes" data-side="yes"></button>
+        <button class="no" data-side="no"></button>
       </div>
       <input class="field" id="amt" type="number" min="1" step="100" value="500" aria-label="Сумма ставки в рублях">
       <div class="calc"><span id="shares"></span><span id="payout"></span></div>
       <button class="submit" id="buy">Вложить в пул</button>
-      <div class="msg" id="msg"></div>`);
-    const refresh = () => {
-      document.querySelectorAll(".seg button").forEach((b) => b.classList.toggle("on", b.dataset.side === chosen));
-      const amt = Number($("#amt").value) || 0;
-      const shares = (amt / price()) * 100;
-      $("#shares").textContent = `Долей: ${shares.toFixed(1).replace(".", ",")}`;
-      $("#payout").textContent = `Выплата при «${chosen === "yes" ? "Да" : "Нет"}»: ${rub(shares)}`;
+      <div class="msg" id="msg"></div>
+      <p class="fee-note">Продать позицию можно в любой момент по текущей цене. Комиссия за продажу — 2%.</p>
+      <div id="m-pos"></div>`);
+    $(".seg").onclick = (ev) => { const b = ev.target.closest("button"); if (b) { chosenSide = b.dataset.side; paintModalLive(); } };
+    $("#m-range").onclick = (ev) => {
+      const b = ev.target.closest("button");
+      if (!b) return;
+      modalRange = b.dataset.range;
+      document.querySelectorAll("#m-range button").forEach((x) => x.classList.toggle("on", x === b));
+      paintChart();
     };
-    $(".seg").onclick = (ev) => { const b = ev.target.closest("button"); if (b) { chosen = b.dataset.side; refresh(); } };
-    $("#amt").oninput = refresh;
+    $("#amt").oninput = paintModalLive;
     $("#buy").onclick = () => {
       const amt = Math.floor(Number($("#amt").value));
       const msg = $("#msg");
@@ -344,16 +503,47 @@
       if (!(amt > 0)) return (msg.textContent = "Введите сумму.");
       if (amt > balance) return (msg.textContent = "Недостаточно средств. Пополните пул.");
       setBalance(balance - amt);
-      bets.push({ eid: e.id, side: chosen, amt, price: price(), ts: Date.now() });
+      bets.push({ id: Date.now() + "-" + Math.random().toString(36).slice(2, 6), eid: e.id, side: chosenSide, amt, price: curPrice(e, chosenSide), ts: Date.now() });
       store.set("bets", bets);
       msg.className = "msg";
-      msg.textContent = `Ставка принята: ${rub(amt)} на «${chosen === "yes" ? "Да" : "Нет"}».`;
-      if (state.route === "account") render();
+      msg.textContent = `Ставка принята: ${rub(amt)} на «${chosenSide === "yes" ? "Да" : "Нет"}».`;
+      paintModalLive();
+      if (state.route === "account") paintAccountRight();
     };
-    refresh();
+    paintChart();
+    paintModalLive();
+  }
+
+  function paintChart() {
+    if (!modalEvent) return;
+    const vals = modalEvent.hist.slice(-RANGES[modalRange]);
+    const host = $("#m-chart");
+    host.innerHTML = chartMarkup(vals, modalRange);
+    bindChart(host, vals, modalRange);
+    const d = vals[vals.length - 1] - vals[0];
+    const el = $("#m-delta");
+    el.textContent = `${d >= 0 ? "+" : "−"}${pct1(Math.abs(d))} п.п. за ${modalRange}`;
+    el.className = "chart-delta " + (d >= 0 ? "pos" : "neg");
+  }
+
+  // обновляет цены, расчёты и позиции в открытом окне (без сброса поля суммы)
+  function paintModalLive() {
+    const e = modalEvent;
+    if (!e || !$("#m-now")) return;
+    $("#m-now").textContent = `${pct1(e.yes)}% «Да»`;
+    const yb = $(".seg .yes"), nb = $(".seg .no");
+    yb.textContent = `Да ${e.yes}¢`; nb.textContent = `Нет ${100 - e.yes}¢`;
+    yb.classList.toggle("on", chosenSide === "yes"); nb.classList.toggle("on", chosenSide === "no");
+    const amt = Number($("#amt").value) || 0;
+    const shares = (amt / curPrice(e, chosenSide)) * 100;
+    $("#shares").textContent = `Долей: ${pct1(shares)}`;
+    $("#payout").textContent = `Выплата при «${chosenSide === "yes" ? "Да" : "Нет"}»: ${rub(shares)}`;
+    const mine = bets.filter((b) => b.eid === e.id);
+    $("#m-pos").innerHTML = mine.length ? `<h3 class="pos-title">Ваши позиции на этом рынке</h3>${positionsHTML(mine)}` : "";
   }
 
   function openDeposit() {
+    modalEvent = null;
     openSheet(`
       <h2>Пополнить пул</h2>
       <p>Демо-режим: вы получаете игровые рубли. Реальные платежи не принимаются.</p>
@@ -369,13 +559,38 @@
       setBalance(balance + v);
       msg.className = "msg";
       msg.textContent = `Баланс пополнен на ${rub(v)}.`;
-      if (state.route === "account") render();
+      if (state.route === "account") paintAccountRight();
     };
   }
+
+  // ---------- «живые» цены (демо) ----------
+  function tick() {
+    EVENTS.forEach((e) => {
+      if (Math.random() > 0.4) return;
+      const step = (Math.random() < 0.2 ? 2 : 1) * (Math.random() < 0.5 ? -1 : 1);
+      e.yes = clamp(e.yes + step, 2, 98);
+      e.hist[e.hist.length - 1] = e.yes;
+    });
+    document.querySelectorAll(".card[data-open], .hero-card[data-open]").forEach((c) => {
+      const e = byId(Number(c.dataset.open));
+      const p = $(".pct", c);
+      if (p) p.textContent = e.yes + "%";
+      const y = $(".btn.yes", c), n = $(".btn.no", c);
+      if (y) y.textContent = `Да ${e.yes}¢`;
+      if (n) n.textContent = `Нет ${100 - e.yes}¢`;
+      const s = $(".spark-host", c);
+      if (s) s.innerHTML = spark(e.hist);
+    });
+    if (modalEvent && $("#m-chart")) { paintChart(); paintModalLive(); }
+    if (state.route === "account" && $("#modal").hidden) paintAccountRight();
+  }
+  setInterval(tick, 5000);
 
   // ---------- общие обработчики ----------
   document.addEventListener("click", (ev) => {
     const t = ev.target;
+    const sell = t.closest("[data-sell]");
+    if (sell) return sellBet(sell.dataset.sell);
     if (t.closest("[data-deposit]") || t.closest("#wallet")) return openDeposit();
     const pick = t.closest("[data-pick]");
     if (pick) state.cat = pick.dataset.pick;
