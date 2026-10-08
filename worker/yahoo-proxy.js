@@ -18,6 +18,13 @@ export default {
     if (request.method === "OPTIONS") return new Response(null, { headers: cors });
 
     const url = new URL(request.url);
+    // ?pm=1: данные Polymarket Perps (если браузер не пускает напрямую); возвращаем контракты и котировки как есть
+    if (url.searchParams.get("pm")) {
+      const base = "https://api.perpetuals.polymarket.com";
+      const get = (path) => fetch(base + path, { headers: { accept: "application/json" }, cf: { cacheTtl: 2, cacheEverything: true } }).then((r) => (r.ok ? r.json() : null)).catch(() => null);
+      const [instruments, tickers] = await Promise.all([get("/v1/info/instruments"), get("/v1/info/tickers")]);
+      return new Response(JSON.stringify({ instruments, tickers }), { headers: { ...cors, "content-type": "application/json", "cache-control": "public, max-age=2" } });
+    }
     const symbols = (url.searchParams.get("symbols") || "")
       .split(",").map((s) => s.trim()).filter((s) => SYMBOL_RE.test(s)).slice(0, 20);
     if (!symbols.length) {

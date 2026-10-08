@@ -27,13 +27,13 @@ const PERPS = (() => {
   const SRC = {
     BTC: { bn: "BTCUSDT", cb: "BTC-USD", kr: "XBT", yf: "BTC-USD" }, ETH: { bn: "ETHUSDT", cb: "ETH-USD", kr: "ETH", yf: "ETH-USD" }, SOL: { bn: "SOLUSDT", cb: "SOL-USD", kr: "SOL", yf: "SOL-USD" },
     SBER: { moex: "SBER" }, GAZP: { moex: "GAZP" }, YDEX: { moex: "YDEX" }, LKOH: { moex: "LKOH" },
-    AAPL: { fh: "AAPL", yf: "AAPL" }, NVDA: { fh: "NVDA", yf: "NVDA" }, TSLA: { fh: "TSLA", yf: "TSLA" },
-    XAU: { td: "XAU/USD", yf: "GC=F" }, XAG: { td: "XAG/USD", yf: "SI=F" },
+    AAPL: { fh: "AAPL", yf: "AAPL", pm: "AAPL-USD" }, NVDA: { fh: "NVDA", yf: "NVDA", pm: "NVDA-USD" }, TSLA: { fh: "TSLA", yf: "TSLA", pm: "TSLA-USD" },
+    XAU: { td: "XAU/USD", yf: "GC=F", pm: "GOLD-USD" }, XAG: { td: "XAG/USD", yf: "SI=F", pm: "SILVER-USD" },
     BRENT: { yf: "BZ=F" }, NG: { yf: "NG=F" }, WHEAT: { yf: "ZW=F" }
   };
   const YF_SCALE = { "ZW=F": 0.01 }; // пшеница на Yahoo в центах за бушель, у нас в долларах
-  const SRC_NAME = { bn: "Binance, обновление каждые 2 с", cb: "Coinbase, обновление каждые 2 с", kr: "Kraken, обновление каждые 2 с", moex: "Мосбиржа (ISS), бесплатные данные с задержкой ~15 мин", fh: "Finnhub, обновление каждые 15 с", td: "Twelve Data, обновление раз в минуту", yf: "Yahoo Finance через ваш прокси, обновление каждые 15 с (у некоторых бирж задержка до 15 мин)" };
-  const SRC_TTL = { bn: 15000, cb: 15000, kr: 15000, moex: 45000, fh: 60000, td: 180000, yf: 90000 }; // через сколько цена считается устаревшей
+  const SRC_NAME = { bn: "Binance, обновление каждые 2 с", cb: "Coinbase, обновление каждые 2 с", kr: "Kraken, обновление каждые 2 с", pm: "Polymarket Perps (mark-цена контракта), обновление каждые 3 с", moex: "Мосбиржа (ISS), бесплатные данные с задержкой ~15 мин", fh: "Finnhub, обновление каждые 15 с", td: "Twelve Data, обновление раз в минуту", yf: "Yahoo Finance через ваш прокси, обновление каждые 15 с (у некоторых бирж задержка до 15 мин)" };
+  const SRC_TTL = { bn: 15000, cb: 15000, kr: 15000, pm: 20000, moex: 45000, fh: 60000, td: 180000, yf: 90000 }; // через сколько цена считается устаревшей
   const P = { sel: "BTC", cls: "crypto", range: "LIVE", dir: "long", lev: 1, margin: 1000, tp: "", sl: "" };
   let positions = [], closed = [], plog = [], ticks = 0, chartHover = false, ready = false;
 
@@ -70,11 +70,15 @@ const PERPS = (() => {
     checkLiquidations();
     startFeeds();
   }
-  const change24 = (a) => (a.isLive && typeof a.liveChange === "number" ? a.liveChange : (a.price / a.hh[a.hh.length - 25] - 1) * 100);
+  const change24 = (a) => {
+    if (a.isLive && typeof a.liveChange === "number") return a.liveChange;
+    if (a.isLive && !a.realHist) return null; // у живой цены нет настоящего изменения за 24 часа, выдумывать его не будем
+    return (a.price / a.hh[a.hh.length - 25] - 1) * 100;
+  };
   const savePrices = () => RP.store.set("prices", Object.fromEntries(ASSETS.map((a) => [a.sym, a.price])));
 
   // ---------- живые цены ----------
-  const PRI = { bn: 3, moex: 3, fh: 3, td: 3, yf: 2, cb: 2, kr: 2 }; // при двух источниках побеждает более надёжный
+  const PRI = { pm: 4, bn: 3, moex: 3, fh: 3, td: 3, yf: 2, cb: 2, kr: 2 }; // при двух источниках побеждает более надёжный
   const fresh = (a) => a.isLive && Date.now() - a.lastReal < (SRC_TTL[a.srcKey] || 45000);
   function adopt(a, p) {
     // Первая настоящая цена: подгоняем симулированную историю и открытые позиции, чтобы PnL в процентах не менялся.
@@ -178,6 +182,45 @@ const PERPS = (() => {
     } catch (e) { errs.push("Kraken: " + errTxt(e)); }
     throw new Error(errs.join("; "));
   }
+  // Polymarket Perps: публичные данные без ключей. Если браузер не пускает напрямую, запрос идёт через ваш прокси (?pm=1).
+  const PM_BASE = "https://api.perpetuals.polymarket.com";
+  const pick = (o, keys) => { for (const k of keys) if (o && o[k] !== undefined && o[k] !== null && o[k] !== "") return o[k]; };
+  const asList = (x) => (Array.isArray(x) ? x : (x && (x.data || x.instruments || x.tickers || x.result)) || []);
+  let pmIds = null, pmNote = "";
+  async function pollPolymarket() {
+    let inst = null, tick;
+    try {
+      [inst, tick] = await Promise.all([pmIds ? null : getJSON(PM_BASE + "/v1/info/instruments"), getJSON(PM_BASE + "/v1/info/tickers")]);
+    } catch (e) {
+      const proxy = typeof LIVE_PROXY !== "undefined" && LIVE_PROXY;
+      if (!proxy) throw e;
+      const d = await getJSON(`${proxy}${proxy.includes("?") ? "&" : "?"}pm=1`);
+      inst = d.instruments; tick = d.tickers;
+      if (!tick) throw e;
+    }
+    if (inst) {
+      pmIds = {};
+      const equity = [];
+      asList(inst).forEach((i) => {
+        const sym = pick(i, ["symbol"]), id = pick(i, ["id", "instrument_id", "instrumentId"]);
+        if (sym !== undefined && id !== undefined) pmIds[sym] = id;
+        if (sym !== undefined && /equity|stock|index/i.test(String(pick(i, ["category"]) || ""))) equity.push(sym);
+      });
+      const want = ASSETS.filter((a) => SRC[a.sym] && SRC[a.sym].pm);
+      const missing = want.filter((a) => pmIds[SRC[a.sym].pm] === undefined).map((a) => SRC[a.sym].pm);
+      pmNote = missing.length ? `Не найдены на Polymarket: ${missing.join(", ")}. Доступные акции и индексы: ${equity.slice(0, 40).join(", ") || "список пуст"}.` : "";
+    }
+    if (!pmIds) throw new Error("Polymarket: нет списка контрактов");
+    const byKey = {};
+    asList(tick).forEach((t) => { const k = pick(t, ["instrument_id", "instrumentId", "id", "symbol"]); if (k !== undefined) byKey[k] = t; });
+    let n = 0;
+    ASSETS.filter((a) => SRC[a.sym] && SRC[a.sym].pm).forEach((a) => {
+      const sym = SRC[a.sym].pm, t = byKey[pmIds[sym]] || byKey[sym];
+      const p = Number(pick(t, ["mark_price", "markPrice", "index_price", "indexPrice", "last_price", "lastPrice"]));
+      if (p > 0) { setReal(a.sym, p, NaN, "pm"); n++; }
+    });
+    if (!n) throw new Error("Polymarket ответил, но цен по нужным контрактам нет");
+  }
   async function pollMoex() {
     const ids = ASSETS.filter((a) => SRC[a.sym] && SRC[a.sym].moex).map((a) => SRC[a.sym].moex);
     const d = await getJSON(`https://iss.moex.com/iss/engines/stock/markets/shares/boards/TQBR/securities.json?iss.meta=off&iss.only=marketdata&marketdata.columns=SECID,LAST,LCURRENTPRICE,MARKETPRICE,LCLOSEPRICE,LASTTOPREVPRICE&securities=${ids.join(",")}`);
@@ -226,6 +269,7 @@ const PERPS = (() => {
     schedule(pollCrypto, 2000, "Крипта (Binance, Coinbase, Kraken)");
     schedule(pollMoex, 10000, "Мосбиржа (российские акции)");
     if (keys.finnhub) schedule(() => pollFinnhub(keys.finnhub), 15000, "Finnhub (акции США)");
+    schedule(pollPolymarket, 3000, "Polymarket Perps (акции США, золото, серебро)");
     if (typeof LIVE_PROXY !== "undefined" && LIVE_PROXY) schedule(() => pollYahoo(LIVE_PROXY), 15000, "Прокси Yahoo (акции США, золото, нефть…)");
     if (keys.twelvedata) schedule(() => pollTwelve(keys.twelvedata), 60000, "Twelve Data (золото, серебро)");
   }
@@ -235,7 +279,7 @@ const PERPS = (() => {
     if (/HTTP (403|401)/.test(err)) return "Доступ запрещён (проверьте ключ или адрес).";
     if (/HTTP 429/.test(err)) return "Превышен лимит запросов, подождите.";
     if (/HTTP 5\d\d/.test(err)) return "Источник временно не работает.";
-    if (/без цен/.test(err)) return "Источник ответил, но данных по бумагам нет (биржа закрыта, тикер не найден или источник блокирует запросы).";
+    if (/без цен|цен по нужным/.test(err)) return "Источник ответил, но данных по бумагам нет (биржа закрыта, тикер не найден или источник блокирует запросы).";
     if (/Failed to fetch|NetworkError|Load failed/i.test(err)) return "Запрос не прошёл. Частые причины: сайт открыт внутри claude.ai (там внешние запросы запрещены), источник не разрешает запросы с этого сайта (CORS), либо запрос блокирует провайдер, VPN или расширение браузера.";
     return "";
   };
@@ -245,7 +289,8 @@ const PERPS = (() => {
     const rows = Object.entries(feedStatus).map(([name, s]) => `<tr><td>${esc(name)}</td><td class="${s.ok ? "pos" : "neg"}">${s.ok ? "работает" : "ошибка"}</td><td>${agoTxt(s.lastOk)}</td><td class="fe">${s.ok ? "" : esc(s.err) + (errHint(s.err) ? `<small>${esc(errHint(s.err))}</small>` : "")}</td></tr>`).join("");
     const proxy = typeof LIVE_PROXY !== "undefined" && LIVE_PROXY ? esc(LIVE_PROXY) : "не задан (акции США, золото, нефть, газ и пшеница останутся на симуляции)";
     const live = ASSETS.filter((x) => fresh(x)).length;
-    return `<p class="muted" style="margin:0 0 10px">Страница открыта с: <b>${esc(where)}</b> · Live-цены: <b>${live} из ${ASSETS.length}</b> · Адрес прокси: ${proxy}</p>
+    return `${pmNote ? `<p class="neg" style="margin:0 0 10px">${esc(pmNote)}</p>` : ""}
+    <p class="muted" style="margin:0 0 10px">Страница открыта с: <b>${esc(where)}</b> · Live-цены: <b>${live} из ${ASSETS.length}</b> · Адрес прокси: ${proxy}</p>
       <div class="table-wrap" style="margin:0"><table class="ptable feeds"><thead><tr><th>Источник</th><th>Статус</th><th>Последний успех</th><th>Что не так</th></tr></thead><tbody>${rows || '<tr><td colspan="4">Запросы ещё не отправлялись.</td></tr>'}</tbody></table></div>`;
   }
   function paintFeeds() { const el = $("#t-feedbody"); if (el && $("#t-feeds") && $("#t-feeds").open) el.innerHTML = feedsHTML(); }
@@ -505,7 +550,7 @@ const PERPS = (() => {
   // ---------- интерфейс ----------
   const $ = (s, r = document) => r.querySelector(s);
   const badge = (a) => `<span class="abadge c-${a.cls}">${a.sym.length > 4 ? a.sym.slice(0, 4) : a.sym}</span>`;
-  const chText = (a) => { const c = change24(a); return `<span class="${c >= 0 ? "pos" : "neg"}">${sg(c)}%</span>`; };
+  const chText = (a) => { const c = change24(a); return c === null ? '<span class="muted">—</span>' : `<span class="${c >= 0 ? "pos" : "neg"}">${sg(c)}%</span>`; };
 
   function listHTML() {
     return ASSETS.filter((a) => a.cls === P.cls).map((a) => `
