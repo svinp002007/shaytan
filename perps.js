@@ -160,12 +160,16 @@ const PERPS = (() => {
   }
   async function pollMoex() {
     const ids = ASSETS.filter((a) => SRC[a.sym] && SRC[a.sym].moex).map((a) => SRC[a.sym].moex);
-    const d = await getJSON(`https://iss.moex.com/iss/engines/stock/markets/shares/boards/TQBR/securities.json?iss.meta=off&iss.only=marketdata&marketdata.columns=SECID,LAST,LASTTOPREVPRICE&securities=${ids.join(",")}`);
-    const cols = d.marketdata.columns, iS = cols.indexOf("SECID"), iL = cols.indexOf("LAST"), iC = cols.indexOf("LASTTOPREVPRICE");
+    const d = await getJSON(`https://iss.moex.com/iss/engines/stock/markets/shares/boards/TQBR/securities.json?iss.meta=off&iss.only=marketdata&marketdata.columns=SECID,LAST,LCURRENTPRICE,MARKETPRICE,LCLOSEPRICE,LASTTOPREVPRICE&securities=${ids.join(",")}`);
+    const cols = d.marketdata.columns, ix = (n) => cols.indexOf(n);
+    let n = 0;
     d.marketdata.data.forEach((r) => {
-      const a = ASSETS.find((x) => SRC[x.sym] && SRC[x.sym].moex === r[iS]);
-      if (a && r[iL] > 0) setReal(a.sym, Number(r[iL]), r[iC] === null ? NaN : Number(r[iC]), "moex");
+      const a = ASSETS.find((x) => SRC[x.sym] && SRC[x.sym].moex === r[ix("SECID")]);
+      // когда торги закрыты, LAST может быть пустым: берём последнюю доступную цену
+      const p = [r[ix("LAST")], r[ix("LCURRENTPRICE")], r[ix("MARKETPRICE")], r[ix("LCLOSEPRICE")]].find((v) => v > 0);
+      if (a && p) { setReal(a.sym, Number(p), r[ix("LASTTOPREVPRICE")] === null ? NaN : Number(r[ix("LASTTOPREVPRICE")]), "moex"); n++; }
     });
+    if (!n) throw new Error("Мосбиржа ответила, но без цен по бумагам");
   }
   async function pollFinnhub(key) {
     for (const a of ASSETS.filter((x) => SRC[x.sym] && SRC[x.sym].fh)) {
@@ -184,11 +188,17 @@ const PERPS = (() => {
   async function pollYahoo(base) {
     const list = ASSETS.filter((a) => SRC[a.sym] && SRC[a.sym].yf);
     const d = await getJSON(`${base}${base.includes("?") ? "&" : "?"}symbols=${encodeURIComponent(list.map((a) => SRC[a.sym].yf).join(","))}`);
+    let n = 0;
     list.forEach((a) => {
       const o = d[SRC[a.sym].yf];
       if (!o || !(o.price > 0)) return;
       setReal(a.sym, o.price * (YF_SCALE[SRC[a.sym].yf] || 1), o.prev > 0 ? (o.price / o.prev - 1) * 100 : NaN, "yf");
+      n++;
     });
+    if (!n) {
+      const why = d._errors ? " Причины от Yahoo: " + Object.values(d._errors).slice(0, 2).join("; ") : " Обновите код воркера из файла worker/yahoo-proxy.js, чтобы видеть причину.";
+      throw new Error("Прокси ответил, но без цен." + why);
+    }
   }
   function startFeeds() {
     if (typeof fetch !== "function") return;
@@ -205,6 +215,7 @@ const PERPS = (() => {
     if (/HTTP (403|401)/.test(err)) return "Доступ запрещён (проверьте ключ или адрес).";
     if (/HTTP 429/.test(err)) return "Превышен лимит запросов, подождите.";
     if (/HTTP 5\d\d/.test(err)) return "Источник временно не работает.";
+    if (/без цен/.test(err)) return "Источник ответил, но данных по бумагам нет (биржа закрыта, тикер не найден или источник блокирует запросы).";
     if (/Failed to fetch|NetworkError|Load failed/i.test(err)) return "Запрос не прошёл. Частые причины: сайт открыт внутри claude.ai (там внешние запросы запрещены), источник не разрешает запросы с этого сайта (CORS), либо запрос блокирует провайдер, VPN или расширение браузера.";
     return "";
   };
@@ -219,7 +230,7 @@ const PERPS = (() => {
   }
   function paintFeeds() { const el = $("#t-feedbody"); if (el && $("#t-feeds") && $("#t-feeds").open) el.innerHTML = feedsHTML(); }
   const liveBadge = (a) => (fresh(a) ? '<span class="lv on">Live</span>' : '<span class="lv">Демо</span>');
-  const srcText = (a) => (fresh(a) ? "Источник цены: " + SRC_NAME[a.srcKey] : "Источник цены: симуляция (живой источник недоступен или не подключён)");
+  const srcText = (a) => (fresh(a) ? "Источник цены: " + SRC_NAME[a.srcKey] : "Источник цены: симуляция. " + (SRC[a.sym] ? "Живой источник не ответил: причина в разделе «Статус источников цен» внизу страницы." : "Для этого актива бесплатного живого источника нет."));
   const rangesFor = (a) => (fresh(a) && !a.realHist ? ["LIVE"] : ["LIVE", "1Д", "1Н"]);
   const rangeHTML = (a) => { if (!rangesFor(a).includes(P.range)) P.range = "LIVE"; return rangesFor(a).map((k) => `<button data-range="${k}" class="${k === P.range ? "on" : ""}">${k === "LIVE" ? "Live" : k}</button>`).join(""); };
 
