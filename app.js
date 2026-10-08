@@ -3,6 +3,7 @@
   const COLORS = ["#1d4ed8", "#d52b1e", "#15803d", "#b45309", "#7c3aed", "#0e7490"];
   const DEFAULT_PROFILE = { nick: "Гость", city: "", bio: "", color: COLORS[0], fav: "all" };
   const FEE = 0.02; // комиссия за продажу позиции
+  const WIN_FEE = 0.02; // комиссия платформы с выигрыша: 2% от (выплата минус ставка)
   const HOURS = 720; // история цены: 30 дней по часам
   const RANGES = { "1Д": 24, "1Н": 168, "1М": 720 };
   const state = { cat: "all", q: "", sort: "volume", route: "home" };
@@ -19,6 +20,7 @@
   let bets = store.get("bets", []);
   let closed = store.get("closed", []);
   bets.forEach((b, i) => { if (!b.id) b.id = b.ts + "-" + i; });
+  let resolved = store.get("resolved", {}); // id рынка -> "yes" | "no"
   let myIdeas = store.get("ideas", []);
   let voted = store.get("voted", []);
 
@@ -84,6 +86,7 @@
   const cents = (e) => clamp(Math.round(e.yes), 1, 99);
   const priceOf = (e, side) => (side === "yes" ? cents(e) : 100 - cents(e));
   function syncYes(e) {
+    if (e.resolved) return; // итог рынка уже определён
     e.yes = Math.round(prob(e) * 10) / 10;
     e.hist[e.hist.length - 1] = e.yes;
   }
@@ -145,6 +148,7 @@
       store.set("mytx", myTx);
     }
   }
+  const TX_LABEL = { buy: "Покупка", sell: "Продажа", win: "Выигрыш", loss: "Проигрыш" };
   const MONTHS = ["янв", "фев", "мар", "апр", "мая", "июн", "июл", "авг", "сен", "окт", "ноя", "дек"];
   function when(t) {
     const d = new Date(t), two = (n) => String(n).padStart(2, "0");
@@ -160,7 +164,7 @@
       return `<tr class="${x.own ? "me" : ""}">
         <td><span class="tx-when">${w.abs}</span><small>${w.rel}</small></td>
         <td><span class="who">${avatar(x.nick, x.own ? profile.color : traderColor(x.nick))}<span class="tx-nick">${esc(x.nick)}${x.own ? " (вы)" : ""}</span></span></td>
-        <td><span class="tag ${x.side}">${x.kind === "sell" ? "Продажа" : "Покупка"} · ${x.side === "yes" ? "Да" : "Нет"}</span></td>
+        <td><span class="tag ${x.side}">${TX_LABEL[x.kind] || "Покупка"} · ${x.side === "yes" ? "Да" : "Нет"}</span></td>
         <td>${rub(x.amt)}</td>
         <td>${pct1(x.price)}¢</td>
       </tr>`;
@@ -300,6 +304,61 @@
     if (modalEvent) { paintChart(); paintModalLive(); }
     if (state.route === "account") paintAccountRight();
   }
+  // ---------- завершение рынка и выплаты ----------
+  // Выигравшая доля стоит ₽1. Выигрыш = выплата минус ставка. С выигрыша платформа удерживает 2% (WIN_FEE), с проигрыша ничего.
+  function previewSettle(e, outcome) {
+    let stake = 0, payout = 0, fee = 0, n = 0;
+    bets.filter((b) => b.eid === e.id).forEach((b) => {
+      n++; stake += b.amt;
+      if (b.side === outcome) { payout += b.shares; fee += Math.max(0, b.shares - b.amt) * WIN_FEE; }
+    });
+    return { n, stake, payout, fee, net: payout - fee };
+  }
+  function settleMarket(e, outcome, silent) {
+    const pv = previewSettle(e, outcome);
+    bets.filter((b) => b.eid === e.id).forEach((b) => {
+      if (b.side === outcome) {
+        const fee = Math.max(0, b.shares - b.amt) * WIN_FEE, net = b.shares - fee;
+        setBalance(balance + net);
+        closed.push({ eid: b.eid, side: b.side, amt: b.amt, net, fee, kind: "win", ts: Date.now() });
+        addTrade(e, { nick: profile.nick, own: true, side: b.side, kind: "win", amt: net, price: 100, pnl: net - b.amt });
+      } else {
+        closed.push({ eid: b.eid, side: b.side, amt: b.amt, net: 0, fee: 0, kind: "loss", ts: Date.now() });
+        addTrade(e, { nick: profile.nick, own: true, side: b.side, kind: "loss", amt: 0, price: 0, pnl: -b.amt });
+      }
+    });
+    bets = bets.filter((b) => b.eid !== e.id);
+    e.resolved = outcome;
+    e.yes = outcome === "yes" ? 100 : 0;
+    e.hist[e.hist.length - 1] = e.yes;
+    resolved[e.id] = outcome;
+    store.set("resolved", resolved);
+    store.set("bets", bets);
+    store.set("closed", closed);
+    if (pv.n && !silent) toast(pv.payout > 0 ? `Рынок завершён: «${outcome === "yes" ? "Да" : "Нет"}». Выплата ${rub(pv.payout)}, комиссия 2% с выигрыша ${rub(pv.fee)}, вы получили ${rub(pv.net)}.` : `Рынок завершён: «${outcome === "yes" ? "Да" : "Нет"}». Ваши ставки не сыграли.`);
+    else if (!silent) toast(`Рынок завершён: «${outcome === "yes" ? "Да" : "Нет"}».`);
+    refreshPrices();
+    if (modalEvent === e) openBet(e.id);
+    if (state.route === "markets") paintGrid();
+    if (state.route === "account") { paintAccountRight(); }
+  }
+  function confirmResolve(e, outcome) {
+    const pv = previewSettle(e, outcome), word = outcome === "yes" ? "Да" : "Нет";
+    askConfirm({
+      title: "Демо: завершить рынок",
+      okText: `Итог «${word}»`,
+      rows: [
+        ["Рынок", esc(e.q)],
+        ["Итог", `«${word}»`],
+        ["Ваших ставок", String(pv.n)],
+        ["Выплата по ставкам", rub(pv.payout)],
+        ["Комиссия 2% с выигрыша", "− " + rub(pv.fee)],
+        ["Вы получите", `<b>${rub(pv.net)}</b>`],
+        ["Результат с учётом ставок", `${signed(pv.net - pv.stake)} ₽`, pv.net - pv.stake >= 0 ? "pos" : "neg"]
+      ]
+    }, () => settleMarket(e, outcome));
+  }
+
   const realized = () => closed.reduce((s, c) => s + (c.net - c.amt), 0) + PERPS.realized();
   const closedStake = () => closed.reduce((s, c) => s + c.amt, 0) + PERPS.closedMargin();
 
@@ -335,6 +394,7 @@
     } catch { return null; }
   }
   async function pollPoly(e) {
+    if (e.resolved) return;
     const ctl = new AbortController(), t = setTimeout(() => ctl.abort(), 7000);
     try {
       const r = await fetch(`https://gamma-api.polymarket.com/markets?slug=${encodeURIComponent(POLY_SLUGS[e.id])}`, { signal: ctl.signal, cache: "no-store" });
@@ -375,10 +435,12 @@
         <div class="pct">${Math.round(e.yes)}%</div>
         <div class="spark-host">${spark(e.hist)}</div>
       </div>
-      <div class="btns">
+      ${e.resolved
+        ? `<div class="resolved">Рынок завершён · итог «${e.resolved === "yes" ? "Да" : "Нет"}»</div>`
+        : `<div class="btns">
         <button class="btn yes" data-open="${e.id}" data-side="yes">Да ${cents(e)}¢</button>
         <button class="btn no" data-open="${e.id}" data-side="no">Нет ${100 - cents(e)}¢</button>
-      </div>
+      </div>`}
       <div class="meta"><span class="vol">Пул ${short(e.vol)} ₽</span><span>до ${fmtDate(e.closes)}</span></div>
     </article>`;
 
@@ -394,7 +456,7 @@
         <div>
           <div class="eyebrow">Рынок прогнозов России</div>
           <h1>Знаешь, что будет дальше? <em>Вложи в пул</em> и забери разницу.</h1>
-          <p class="lead">Ставь на курс рубля, решения ЦБ, нефть, крипту, спорт и политику. Цена «Да» — это вероятность события: 62¢ значит 62%. Угадал — получил ₽1 за каждую долю. Передумал — продай в любой момент.</p>
+          <p class="lead">Ставь на курс рубля, решения ЦБ, нефть, крипту, спорт и политику. Цена «Да» — это вероятность события: 62¢ значит 62%. Угадал — получил ₽1 за каждую долю, платформа берёт 2% от выигрыша. Передумал — продай в любой момент.</p>
           <div class="cta-row">
             <button class="cta primary" data-deposit>Пополнить пул</button>
             <a class="cta ghost" href="#markets">Смотреть рынки</a>
@@ -441,7 +503,7 @@
         <div class="steps">
           <div class="step"><b>Пополните пул</b><span>Получите игровые рубли на баланс одним нажатием.</span></div>
           <div class="step"><b>Выберите исход</b><span>«Да» или «Нет» по цене в копейках. Смотрите график цены перед ставкой.</span></div>
-          <div class="step"><b>Заберите выплату или продайте</b><span>Если исход сбылся, каждая доля стоит ₽1. Продать позицию можно в любой момент, комиссия 2%.</span></div>
+          <div class="step"><b>Заберите выплату или продайте</b><span>Если исход сбылся, каждая доля стоит ₽1, с выигрыша удерживается 2%. Продать позицию можно в любой момент, комиссия тоже 2%.</span></div>
         </div>
       </section>
 
@@ -544,7 +606,7 @@
     const hist = closed.length
       ? `<h3 style="margin-top:22px">Закрытые сделки</h3><div class="bets">${closed.slice(-5).reverse().map((c) => {
           const p = c.net - c.amt;
-          return `<div class="bet"><div class="t">${esc(byId(c.eid).q)}</div><div class="d"><span><span class="tag ${c.side}">${c.side === "yes" ? "Да" : "Нет"}</span> вложено ${rub(c.amt)} · получено ${rub(c.net)}</span><span class="${p >= 0 ? "pos" : "neg"}">${signed(p)} ₽</span></div></div>`;
+          return `<div class="bet"><div class="t">${esc(byId(c.eid).q)}</div><div class="d"><span><span class="tag ${c.side}">${c.side === "yes" ? "Да" : "Нет"}</span> вложено ${rub(c.amt)} · получено ${rub(c.net)}${c.kind === "win" ? ` · комиссия 2% с выигрыша ${rub(c.fee)}` : c.kind === "loss" ? " · ставка не сыграла" : ""}</span><span class="${p >= 0 ? "pos" : "neg"}">${signed(p)} ₽</span></div></div>`;
         }).join("")}</div>`
       : "";
     return `
@@ -571,7 +633,7 @@
     myTx.forEach((x) => {
       const e = byId(x.eid);
       if (!e) return;
-      rows.push({ t: x.t, sec: "pred", title: e.q, action: `${x.kind === "sell" ? "Продажа" : "Покупка"} · ${x.side === "yes" ? "Да" : "Нет"}`, cls: x.side, amt: x.amt, priceText: pct1(x.price) + "¢", pnl: x.pnl === undefined ? null : x.pnl });
+      rows.push({ t: x.t, sec: "pred", title: e.q, action: `${TX_LABEL[x.kind] || "Покупка"} · ${x.side === "yes" ? "Да" : "Нет"}`, cls: x.side, amt: x.amt, priceText: pct1(x.price) + "¢", pnl: x.pnl === undefined ? null : x.pnl });
     });
     PERPS.rows().forEach((r) => rows.push(r));
     return rows.sort((a, b) => b.t - a.t);
@@ -807,6 +869,8 @@
       <div class="chart" id="m-chart"></div>
       <div class="probbar" id="m-bar"></div>
       <div class="poly-note" id="m-poly"></div>
+      ${e.resolved ? `<div class="resolved-note">Рынок завершён. Итог: «${e.resolved === "yes" ? "Да" : "Нет"}». Выплаты по ставкам уже рассчитаны, комиссия платформы 2% удержана с выигрыша.</div>` : ""}
+      <div id="m-form"${e.resolved ? " hidden" : ""}>
       <div class="seg">
         <button class="yes" data-side="yes"></button>
         <button class="no" data-side="no"></button>
@@ -815,8 +879,10 @@
       <div class="impact" id="impact"></div>
       <button class="submit" id="buy">Вложить в пул</button>
       <div class="msg" id="msg"></div>
-      <p class="fee-note">Цену определяет поток денег: чем больше ставок на «Да», тем выше вероятность «Да» и ниже «Нет». Продать позицию можно в любой момент, комиссия 2%.</p>
+      <p class="fee-note">Цену определяет поток денег: чем больше ставок на «Да», тем выше вероятность «Да» и ниже «Нет». Продать позицию можно в любой момент, комиссия 2%. Если ставка выиграет, платформа удержит 2% от выигрыша (выплата минус ставка).</p>
       <div id="m-pos"></div>
+      </div>
+      ${!e.resolved && typeof DEMO_RESOLVE !== "undefined" && DEMO_RESOLVE ? `<details class="demo-resolve"><summary>Демо: завершить рынок и увидеть выплату</summary><p>Настоящий итог определяет источник результата. В демо вы выбираете его сами.</p><div class="btns"><button class="btn yes" data-demoresolve="yes">Итог «Да»</button><button class="btn no" data-demoresolve="no">Итог «Нет»</button></div></details>` : ""}
       <div id="m-tx"></div>`);
     $(".seg").onclick = (ev) => { const b = ev.target.closest("button"); if (b) { chosenSide = b.dataset.side; paintModalLive(); } };
     $("#m-range").onclick = (ev) => {
@@ -844,7 +910,8 @@
           ["Долей", pct1(q.shares)],
           ["Выплата при успехе", `<b>${rub(q.shares)}</b>`],
           ["«Да» после ставки", `${pct1(prob(e))}% → ${pct1(q.after)}%`],
-          ["Комиссия при продаже", "2%"]
+          ["Комиссия при продаже", "2%"],
+          ["Комиссия с выигрыша", "2% от (выплата − ставка)"]
         ]
       }, () => {
         if (amt > balance) return toast("Недостаточно средств");
@@ -950,6 +1017,7 @@
   function tick() {
     if (!$("#confirm").hidden) return; // цены стоят, пока открыто подтверждение
     EVENTS.forEach((e) => {
+      if (e.resolved) return;
       if (polyFresh(e)) { // мягко возвращаем цену к Polymarket: после ставки отклонение гаснет примерно за пару минут
         const S = e.y + e.n, next = prob(e) + (e.poly - prob(e)) * 0.03;
         e.n = (S * next) / 100; e.y = S - e.n; syncYes(e);
@@ -972,6 +1040,8 @@
   // ---------- общие обработчики ----------
   document.addEventListener("click", (ev) => {
     const t = ev.target;
+    const dr = t.closest("[data-demoresolve]");
+    if (dr && modalEvent) return confirmResolve(modalEvent, dr.dataset.demoresolve);
     const txf = t.closest("[data-txf]");
     if (txf) { accFilter = txf.dataset.txf; accLimit = 15; return paintAccountTx(); }
     if (t.closest("[data-txmore]")) { accLimit += 15; return paintAccountTx(); }
@@ -1019,6 +1089,10 @@
   $("#modal").onclick = (ev) => { if (ev.target.id === "modal") closeModal(); };
   document.addEventListener("keydown", (ev) => { if (ev.key === "Escape") { if (!$("#confirm").hidden) closeConfirm(); else closeModal(); } });
 
+  EVENTS.forEach((e) => { // итоги, заданные заранее (в events.js) или сохранённые в браузере
+    const out = resolved[e.id] || (typeof RESOLUTIONS !== "undefined" ? RESOLUTIONS[e.id] : null);
+    if (out === "yes" || out === "no") settleMarket(e, out, true);
+  });
   window.RP = {
     store, rub, toast, askConfirm, openSheet, closeModal,
     route: () => state.route,

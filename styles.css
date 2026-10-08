@@ -387,3 +387,10 @@ footer{border-top:1px solid var(--line);padding:22px 0;color:var(--muted);font-s
 .feeds td.fe small{display:block;color:var(--muted);font-weight:500;margin-top:2px}
 .feeds td,.feeds th{text-align:left}
 #t-feeds summary{list-style:revert}
+
+/* завершение рынка */
+.resolved{padding:10px 12px;border-radius:10px;background:var(--soft);font-weight:700;font-size:13px;text-align:center}
+.resolved-note{margin:0 0 12px;padding:12px 14px;border-radius:10px;background:color-mix(in srgb,var(--brand) 12%,var(--card));font-size:14px}
+.demo-resolve{margin:14px 0;border:1px dashed var(--line);border-radius:12px;padding:10px 12px;font-size:13px}
+.demo-resolve summary{cursor:pointer;color:var(--muted);font-weight:700}
+.demo-resolve p{color:var(--muted);margin:8px 0 10px}
