@@ -148,6 +148,16 @@
       store.set("mytx", myTx);
     }
   }
+  // сроки: рынок принимает ставки до конца дня закрытия
+  const todayISO = () => new Date().toLocaleDateString("sv");
+  const isExpired = (e) => !e.resolved && e.closes < todayISO();
+  const daysLeft = (e) => Math.round((new Date(e.closes + "T00:00:00") - new Date(todayISO() + "T00:00:00")) / 86400000);
+  const isOpen = (e) => !e.resolved && !isExpired(e);
+  const leftTxt = (e) => {
+    if (e.resolved) return "завершён";
+    const d = daysLeft(e);
+    return d < 0 ? "срок вышел" : d === 0 ? "сегодня" : d === 1 ? "завтра" : d <= 21 ? `через ${d} дн.` : "";
+  };
   const TX_LABEL = { buy: "Покупка", sell: "Продажа", win: "Выигрыш", loss: "Проигрыш" };
   const MONTHS = ["янв", "фев", "мар", "апр", "мая", "июн", "июл", "авг", "сен", "окт", "ноя", "дек"];
   function when(t) {
@@ -435,13 +445,13 @@
         <div class="pct">${Math.round(e.yes)}%</div>
         <div class="spark-host">${spark(e.hist)}</div>
       </div>
-      ${e.resolved
-        ? `<div class="resolved">Рынок завершён · итог «${e.resolved === "yes" ? "Да" : "Нет"}»</div>`
+      ${e.resolved || isExpired(e)
+        ? `<div class="resolved">${e.resolved ? `Рынок завершён · итог «${e.resolved === "yes" ? "Да" : "Нет"}»` : "Приём ставок закрыт · ждём итог"}</div>`
         : `<div class="btns">
         <button class="btn yes" data-open="${e.id}" data-side="yes">Да ${cents(e)}¢</button>
         <button class="btn no" data-open="${e.id}" data-side="no">Нет ${100 - cents(e)}¢</button>
       </div>`}
-      <div class="meta"><span class="vol">Пул ${short(e.vol)} ₽</span><span>до ${fmtDate(e.closes)}</span></div>
+      <div class="meta"><span class="vol">Пул ${short(e.vol)} ₽</span><span>до ${fmtDate(e.closes)}${leftTxt(e) ? ` · <b>${leftTxt(e)}</b>` : ""}</span></div>
     </article>`;
 
   // ---------- страницы ----------
@@ -491,6 +501,11 @@
       </section>
 
       <section class="block">
+        <div class="block-head"><h2>Скоро закроются</h2><a href="#markets" data-pick="soon">Все короткие рынки →</a></div>
+        <div class="grid" style="padding-bottom:0">${EVENTS.filter((e) => isOpen(e) && daysLeft(e) <= 14).sort((x, y) => x.closes.localeCompare(y.closes) || y.vol - x.vol).slice(0, 6).map(cardHTML).join("")}</div>
+      </section>
+
+      <section class="block">
         <div class="block-head"><h2>Категории</h2></div>
         <div class="cats">${CATEGORIES.map((c) => {
           const n = EVENTS.filter((e) => e.cat === c.id);
@@ -527,14 +542,15 @@
     const q = state.q.trim().toLowerCase();
     const sorts = {
       volume: (a, b) => b.vol - a.vol,
-      closing: (a, b) => a.closes.localeCompare(b.closes),
+      closing: (a, b) => (isOpen(b) - isOpen(a)) || a.closes.localeCompare(b.closes), // сначала открытые, ближайший срок первым
       chance: (a, b) => b.yes - a.yes
     };
-    return EVENTS.filter((e) => (state.cat === "all" || e.cat === state.cat) && (!q || e.q.toLowerCase().includes(q))).sort(sorts[state.sort]);
+    const inCat = (e) => state.cat === "all" || (state.cat === "soon" ? isOpen(e) && daysLeft(e) <= 14 : e.cat === state.cat);
+    return EVENTS.filter((e) => inCat(e) && (!q || e.q.toLowerCase().includes(q))).sort(state.cat === "soon" && state.sort === "volume" ? sorts.closing : sorts[state.sort]);
   }
 
   function viewMarkets() {
-    const tabs = [{ id: "all", name: "Все" }, ...CATEGORIES];
+    const tabs = [{ id: "all", name: "Все" }, { id: "soon", name: "Скоро закроются" }, ...CATEGORIES];
     return `
     <div class="wrap">
       <h1 class="page-title">Рынки</h1>
@@ -861,7 +877,7 @@
       ${banner(e, "in-modal", 560, 120)}
       <div class="cat">${catName(e.cat)}</div>
       <h2>${esc(e.q)}</h2>
-      <p>Закрытие ${fmtDate(e.closes)} · <span id="m-vol"></span></p>
+      <p>Закрытие ${fmtDate(e.closes)}${leftTxt(e) ? ` (${leftTxt(e)})` : ""} · <span id="m-vol"></span></p>
       <div class="chart-head">
         <div><span class="chart-now" id="m-now"></span> <span class="chart-delta" id="m-delta"></span></div>
         <div class="range" id="m-range">${Object.keys(RANGES).map((k) => `<button data-range="${k}" class="${k === modalRange ? "on" : ""}">${k}</button>`).join("")}</div>
@@ -869,8 +885,8 @@
       <div class="chart" id="m-chart"></div>
       <div class="probbar" id="m-bar"></div>
       <div class="poly-note" id="m-poly"></div>
-      ${e.resolved ? `<div class="resolved-note">Рынок завершён. Итог: «${e.resolved === "yes" ? "Да" : "Нет"}». Выплаты по ставкам уже рассчитаны, комиссия платформы 2% удержана с выигрыша.</div>` : ""}
-      <div id="m-form"${e.resolved ? " hidden" : ""}>
+      ${e.resolved ? `<div class="resolved-note">Рынок завершён. Итог: «${e.resolved === "yes" ? "Да" : "Нет"}». Выплаты по ставкам уже рассчитаны, комиссия платформы 2% удержана с выигрыша.</div>` : isExpired(e) ? `<div class="resolved-note">Срок рынка вышел (${fmtDate(e.closes)}). Новые ставки не принимаются, ждём итог.</div>` : ""}
+      <div id="m-form"${e.resolved || isExpired(e) ? " hidden" : ""}>
       <div class="seg">
         <button class="yes" data-side="yes"></button>
         <button class="no" data-side="no"></button>
@@ -898,6 +914,7 @@
       const msg = $("#msg");
       msg.className = "msg err";
       if (!(amt > 0)) return (msg.textContent = "Введите сумму.");
+      if (!isOpen(e)) return (msg.textContent = "Приём ставок на этот рынок закрыт.");
       if (amt > balance) return (msg.textContent = "Недостаточно средств. Пополните пул.");
       const side = chosenSide, q = quoteBuy(e, side, amt);
       askConfirm({

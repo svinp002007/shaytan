@@ -33,6 +33,15 @@ const GLYPHS = {
   peace: '<circle cx="32" cy="32" r="24"/><path d="M32 8v48M32 32 15 49M32 32l17 17"/>',
   talk: '<path d="M6 10h30v20H18l-8 8V30H6z"/><path d="M44 26h14v22h-4v9l-9-9H26v-8"/>',
   shield: '<path d="M32 6l22 9v17c0 13-9 22-22 26C19 54 10 45 10 32V15z"/><path d="M22 32l8 8 13-14"/>',
+  snow: '<path d="M32 6v52M10 19l44 26M10 45l44-26M24 10l8 6 8-6M24 54l8-6 8 6"/>',
+  thermo: '<path d="M26 8h12v30a14 14 0 1 1-12 0z"/><path d="M32 22v26"/>',
+  cloud: '<path d="M18 46a12 12 0 0 1 2-23 16 16 0 0 1 30 5 10 10 0 0 1-2 18z"/>',
+  rocket: '<path d="M32 6c10 8 14 20 12 34H20C18 26 22 14 32 6z"/><circle cx="32" cy="26" r="5"/><path d="M20 40l-8 10 12-2M44 40l8 10-12-2M28 48l4 10 4-10"/>',
+  sun: '<circle cx="32" cy="32" r="11"/><path d="M32 6v8M32 50v8M6 32h8M50 32h8M13 13l6 6M45 45l6 6M13 51l6-6M45 19l6-6"/>',
+  film: '<rect x="8" y="14" width="48" height="36" rx="3"/><path d="M8 24h48M8 40h48M18 14v36M46 14v36"/>',
+  medal: '<circle cx="32" cy="38" r="15"/><path d="M22 6l10 18 10-18M32 31v14M27 38h10"/>',
+  bolt: '<path d="M36 4 14 36h14l-4 24 26-34H36z"/>',
+  phone: '<path d="M14 8h12l4 14-8 5c4 8 9 13 17 17l5-8 14 4v12c0 4-3 6-6 6C27 58 6 37 8 14c0-3 3-6 6-6z"/>',
   ballot: '<rect x="8" y="28" width="48" height="28" rx="3"/><path d="M20 28V10h24v18M23 42l6 6 12-12"/>'
 };
 
@@ -42,7 +51,16 @@ const BANNER_ICONS = [
   "percent", "ruble", "basket", "stocks", "bank", "growth", "oil", "briefcase", "doc", "building", "city",
   "btc", "btc", "eth", "stocks", "pie", "tether", "bank", "globe", "sol", "chip",
   "football", "football", "trophy", "hockey", "hockey", "tennis", "tennis", "hockey", "football", "rings", "football",
-  "mic", "doc", "person", "peace", "talk", "shield", "person", "globe", "ballot", "city"
+  "mic", "doc", "person", "peace", "talk", "shield", "person", "globe", "ballot", "city",
+  // короткие рынки (в том же порядке, что и в events.js)
+  "oil", "gold", "stocks", "ruble", "stocks", "basket",
+  "btc", "eth", "btc", "sol",
+  "football", "football", "hockey", "hockey",
+  "phone", "doc", "shield",
+  "chip", "chip", "chip", "chip", "cloud",
+  "medal", "film", "film",
+  "snow", "thermo", "snow", "cloud", "snow",
+  "rocket", "rocket", "sun", "bolt"
 ];
 EVENTS.forEach((e, i) => { e.img = BANNER_ICONS[i] || "globe"; });
 
@@ -51,23 +69,27 @@ const CAT_STYLE = {
   russia:   ["#1e3a8a", "#c3281c"],
   crypto:   ["#2a1b6e", "#e8830c"],
   sport:    ["#0b5d3b", "#19a864"],
-  politics: ["#1f2a44", "#7a2fa8"]
+  politics: ["#1f2a44", "#7a2fa8"],
+  tech:     ["#0b3b5c", "#2bb3c0"],
+  culture:  ["#5a1f4a", "#d8573f"],
+  weather:  ["#1c3b6b", "#6fa8dc"],
+  space:    ["#0a0f2e", "#5b3fc4"]
 };
 
 function bannerPattern(cat, W, H) {
   const w = 'stroke="#fff" fill="none"';
-  if (cat === "world") {
+  if (cat === "world" || cat === "tech") {
     let d = `M0 ${H / 3}h${W}M0 ${(2 * H) / 3}h${W}`;
     for (let i = 1; i < 4; i++) d += `M${(W * i) / 4} 0v${H}`;
     return `<path d="${d}" ${w} opacity=".08"/>`;
   }
   if (cat === "russia") return `<rect y="${H - 12}" width="${W}" height="4" fill="#fff" opacity=".9"/><rect y="${H - 8}" width="${W}" height="4" fill="#1d4ed8"/><rect y="${H - 4}" width="${W}" height="4" fill="#d52b1e"/>`;
-  if (cat === "crypto") {
+  if (cat === "crypto" || cat === "weather" || cat === "space") {
     let d = "";
     for (let i = 0; i < Math.ceil(W / 29); i++) for (let j = 0; j < 4; j++) d += `<circle cx="${14 + i * 29 + (j % 2) * 14}" cy="${H * 0.11 + j * (H * 0.25)}" r="2.2"/>`;
     return `<g fill="#fff" opacity=".16">${d}</g>`;
   }
-  if (cat === "sport") return `<circle cx="${W / 2}" cy="${H / 2}" r="${H * 0.42}" ${w} opacity=".16" stroke-width="2"/><circle cx="${W / 2}" cy="${H / 2}" r="${H * 0.73}" ${w} opacity=".1" stroke-width="2"/><path d="M${W / 2} 0v${H}" ${w} opacity=".1" stroke-width="2"/>`;
+  if (cat === "sport" || cat === "culture") return `<circle cx="${W / 2}" cy="${H / 2}" r="${H * 0.42}" ${w} opacity=".16" stroke-width="2"/><circle cx="${W / 2}" cy="${H / 2}" r="${H * 0.73}" ${w} opacity=".1" stroke-width="2"/><path d="M${W / 2} 0v${H}" ${w} opacity=".1" stroke-width="2"/>`;
   let d = "";
   for (let i = 0; i < 6; i++) d += `M${(W * (i + 0.5)) / 6} ${H}V${H - (i % 2 ? 46 : 36)}`;
   return `<path d="${d}" ${w} opacity=".1" stroke-width="12"/>`;
