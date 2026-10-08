@@ -21,6 +21,19 @@
   let closed = store.get("closed", []);
   bets.forEach((b, i) => { if (!b.id) b.id = b.ts + "-" + i; });
   let resolved = store.get("resolved", {}); // id рынка -> "yes" | "no"
+  // Миграция: рынки №75–77 и №83–86 заменены другими. Старые ставки возвращаются, сохранённые итоги и записи сбрасываются.
+  (function migrate() {
+    if (store.get("mig_cat1", false)) return;
+    const reset = [75, 76, 77, 83, 84, 85, 86];
+    const refund = bets.filter((b) => reset.includes(b.eid)).reduce((s, b) => s + b.amt, 0);
+    bets = bets.filter((b) => !reset.includes(b.eid));
+    closed = closed.filter((c) => !reset.includes(c.eid));
+    reset.forEach((id) => delete resolved[id]);
+    store.set("bets", bets); store.set("closed", closed); store.set("resolved", resolved);
+    if (refund) { balance += refund; store.set("balance", balance); }
+    try { localStorage.setItem("rp_mig_cat1", "true"); } catch {}
+  })();
+
   let myIdeas = store.get("ideas", []);
   let voted = store.get("voted", []);
 
@@ -112,6 +125,7 @@
   const EXTRA_NICKS = ["user_4821", "Алекс_М", "Катя_Прогноз", "vlad_trader", "Миша_Б", "Anna_K", "Сергей_74", "Тимур_Р", "nkr_91", "Лена_Инвест"];
   const NICKS = [...TRADERS.map((t) => t.nick), ...EXTRA_NICKS];
   let myTx = store.get("mytx", []);
+  { const reset = [75, 76, 77, 83, 84, 85, 86]; if (!store.get("mig_tx1", false)) { myTx = myTx.filter((t) => !reset.includes(t.eid)); store.set("mytx", myTx); store.set("mig_tx1", true); } }
   let txSeq = 0;
   const txId = () => "t" + Date.now().toString(36) + "-" + txSeq++;
   // Демо: сделки других трейдеров за последние трое суток (цена берётся из графика на тот момент).

@@ -42,6 +42,9 @@ const GLYPHS = {
   medal: '<circle cx="32" cy="38" r="15"/><path d="M22 6l10 18 10-18M32 31v14M27 38h10"/>',
   bolt: '<path d="M36 4 14 36h14l-4 24 26-34H36z"/>',
   phone: '<path d="M14 8h12l4 14-8 5c4 8 9 13 17 17l5-8 14 4v12c0 4-3 6-6 6C27 58 6 37 8 14c0-3 3-6 6-6z"/>',
+  crosshair: '<circle cx="32" cy="32" r="20"/><circle cx="32" cy="32" r="7"/><path d="M32 6v10M32 48v10M6 32h10M48 32h10"/>',
+  gamepad: '<path d="M18 20h28c8 0 12 9 14 20 1 7-3 11-9 8l-8-6H21l-8 6c-6 3-10-1-9-8 2-11 6-20 14-20z"/><path d="M20 30v10M15 35h10M42 32h.01M48 38h.01"/>',
+  plane: '<path d="M58 8 6 29l15 6 6 19 9-10 13 10z"/><path d="M21 35 58 8 28 40"/>',
   ballot: '<rect x="8" y="28" width="48" height="28" rx="3"/><path d="M20 28V10h24v18M23 42l6 6 12-12"/>'
 };
 
@@ -58,9 +61,10 @@ const BANNER_ICONS = [
   "football", "football", "hockey", "hockey",
   "phone", "doc", "shield",
   "chip", "chip", "chip", "chip", "cloud",
-  "medal", "film", "film",
+  "crosshair", "trophy", "gamepad",
   "snow", "thermo", "snow", "cloud", "snow",
-  "rocket", "rocket", "sun", "bolt"
+  "plane", "shield", "phone", "mic",
+  "gamepad", "growth", "talk"
 ];
 EVENTS.forEach((e, i) => { e.img = BANNER_ICONS[i] || "globe"; });
 
@@ -71,25 +75,25 @@ const CAT_STYLE = {
   sport:    ["#0b5d3b", "#19a864"],
   politics: ["#1f2a44", "#7a2fa8"],
   tech:     ["#0b3b5c", "#2bb3c0"],
-  culture:  ["#5a1f4a", "#d8573f"],
+  esports:  ["#1b1f4b", "#e11d48"],
   weather:  ["#1c3b6b", "#6fa8dc"],
-  space:    ["#0a0f2e", "#5b3fc4"]
+  internet: ["#3a1d6e", "#22d3ee"]
 };
 
 function bannerPattern(cat, W, H) {
   const w = 'stroke="#fff" fill="none"';
-  if (cat === "world" || cat === "tech") {
+  if (cat === "world" || cat === "tech" || cat === "esports") {
     let d = `M0 ${H / 3}h${W}M0 ${(2 * H) / 3}h${W}`;
     for (let i = 1; i < 4; i++) d += `M${(W * i) / 4} 0v${H}`;
     return `<path d="${d}" ${w} opacity=".08"/>`;
   }
   if (cat === "russia") return `<rect y="${H - 12}" width="${W}" height="4" fill="#fff" opacity=".9"/><rect y="${H - 8}" width="${W}" height="4" fill="#1d4ed8"/><rect y="${H - 4}" width="${W}" height="4" fill="#d52b1e"/>`;
-  if (cat === "crypto" || cat === "weather" || cat === "space") {
+  if (cat === "crypto" || cat === "weather" || cat === "internet") {
     let d = "";
     for (let i = 0; i < Math.ceil(W / 29); i++) for (let j = 0; j < 4; j++) d += `<circle cx="${14 + i * 29 + (j % 2) * 14}" cy="${H * 0.11 + j * (H * 0.25)}" r="2.2"/>`;
     return `<g fill="#fff" opacity=".16">${d}</g>`;
   }
-  if (cat === "sport" || cat === "culture") return `<circle cx="${W / 2}" cy="${H / 2}" r="${H * 0.42}" ${w} opacity=".16" stroke-width="2"/><circle cx="${W / 2}" cy="${H / 2}" r="${H * 0.73}" ${w} opacity=".1" stroke-width="2"/><path d="M${W / 2} 0v${H}" ${w} opacity=".1" stroke-width="2"/>`;
+  if (cat === "sport") return `<circle cx="${W / 2}" cy="${H / 2}" r="${H * 0.42}" ${w} opacity=".16" stroke-width="2"/><circle cx="${W / 2}" cy="${H / 2}" r="${H * 0.73}" ${w} opacity=".1" stroke-width="2"/><path d="M${W / 2} 0v${H}" ${w} opacity=".1" stroke-width="2"/>`;
   let d = "";
   for (let i = 0; i < 6; i++) d += `M${(W * (i + 0.5)) / 6} ${H}V${H - (i % 2 ? 46 : 36)}`;
   return `<path d="${d}" ${w} opacity=".1" stroke-width="12"/>`;
