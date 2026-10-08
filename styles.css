@@ -381,3 +381,9 @@ footer{border-top:1px solid var(--line);padding:22px 0;color:var(--muted);font-s
 .pm{font:700 10px var(--body);letter-spacing:.02em;text-transform:none;padding:2px 8px;border-radius:99px;background:color-mix(in srgb,var(--brand) 14%,transparent);color:var(--brand)}
 .poly-note{font-size:12px;color:var(--muted);margin:-4px 0 12px}
 .poly-note a{color:var(--brand)}
+
+/* статус источников */
+.feeds td.fe{white-space:normal;min-width:260px;text-align:left}
+.feeds td.fe small{display:block;color:var(--muted);font-weight:500;margin-top:2px}
+.feeds td,.feeds th{text-align:left}
+#t-feeds summary{list-style:revert}

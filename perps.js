@@ -101,6 +101,7 @@ const PERPS = (() => {
     else a.price = p;
     a.isLive = true;
   }
+  const feedStatus = {}; // имя источника -> { ok, lastOk, err, at }
   async function getJSON(url, ms = 6000) {
     const ctl = new AbortController(), t = setTimeout(() => ctl.abort(), ms);
     try {
@@ -110,10 +111,12 @@ const PERPS = (() => {
     } finally { clearTimeout(t); }
   }
   // Повторяет запрос по расписанию; при ошибках делает паузы длиннее (до минуты).
-  function schedule(fn, every) {
+  function schedule(fn, every, name) {
     let fails = 0;
     const run = async () => {
-      try { await fn(); fails = 0; } catch { fails++; }
+      const prev = feedStatus[name] || {};
+      try { await fn(); fails = 0; feedStatus[name] = { ok: true, lastOk: Date.now(), at: Date.now() }; }
+      catch (e) { fails++; feedStatus[name] = { ok: false, lastOk: prev.lastOk, err: (e && (e.name === "AbortError" ? "AbortError" : e.message)) || String(e), at: Date.now() }; }
       setTimeout(run, fails ? Math.min(60000, every * 2 ** Math.min(fails, 4)) : every);
     };
     run();
@@ -131,6 +134,7 @@ const PERPS = (() => {
   }
   async function pollCrypto() {
     const list = ASSETS.filter((a) => SRC[a.sym] && SRC[a.sym].bn);
+    let bnErr = "", cbErr = "";
     try {
       const syms = encodeURIComponent(JSON.stringify(list.map((a) => SRC[a.sym].bn)));
       const data = await getJSON(`https://api.binance.com/api/v3/ticker/24hr?symbols=${syms}`);
@@ -142,7 +146,7 @@ const PERPS = (() => {
         if (first && a.adopted) loadKlines(a);
       });
       return;
-    } catch {}
+    } catch (e) { bnErr = e.name === "AbortError" ? "AbortError" : e.message; }
     // запасной источник
     let ok = 0;
     await Promise.all(list.map(async (a) => {
@@ -150,9 +154,9 @@ const PERPS = (() => {
         const d = await getJSON(`https://api.coinbase.com/v2/prices/${SRC[a.sym].cb}/spot`);
         setReal(a.sym, Number(d.data.amount), NaN, "cb");
         ok++;
-      } catch {}
+      } catch (e) { cbErr = e.name === "AbortError" ? "AbortError" : e.message; }
     }));
-    if (!ok) throw new Error("crypto feed unavailable");
+    if (!ok) throw new Error(`Binance: ${bnErr}; Coinbase: ${cbErr}`);
   }
   async function pollMoex() {
     const ids = ASSETS.filter((a) => SRC[a.sym] && SRC[a.sym].moex).map((a) => SRC[a.sym].moex);
@@ -189,12 +193,31 @@ const PERPS = (() => {
   function startFeeds() {
     if (typeof fetch !== "function") return;
     const keys = typeof LIVE_KEYS !== "undefined" ? LIVE_KEYS : {};
-    schedule(pollCrypto, 2000);
-    schedule(pollMoex, 10000);
-    if (keys.finnhub) schedule(() => pollFinnhub(keys.finnhub), 15000);
-    if (typeof LIVE_PROXY !== "undefined" && LIVE_PROXY) schedule(() => pollYahoo(LIVE_PROXY), 15000);
-    if (keys.twelvedata) schedule(() => pollTwelve(keys.twelvedata), 60000);
+    schedule(pollCrypto, 2000, "Binance / Coinbase (крипта)");
+    schedule(pollMoex, 10000, "Мосбиржа (российские акции)");
+    if (keys.finnhub) schedule(() => pollFinnhub(keys.finnhub), 15000, "Finnhub (акции США)");
+    if (typeof LIVE_PROXY !== "undefined" && LIVE_PROXY) schedule(() => pollYahoo(LIVE_PROXY), 15000, "Прокси Yahoo (акции США, золото, нефть…)");
+    if (keys.twelvedata) schedule(() => pollTwelve(keys.twelvedata), 60000, "Twelve Data (золото, серебро)");
   }
+  const errHint = (err) => {
+    if (/AbortError/.test(err)) return "Нет ответа за 6 секунд: медленная сеть или источник недоступен.";
+    if (/HTTP 451/.test(err)) return "Источник недоступен в вашей стране.";
+    if (/HTTP (403|401)/.test(err)) return "Доступ запрещён (проверьте ключ или адрес).";
+    if (/HTTP 429/.test(err)) return "Превышен лимит запросов, подождите.";
+    if (/HTTP 5\d\d/.test(err)) return "Источник временно не работает.";
+    if (/Failed to fetch|NetworkError|Load failed/i.test(err)) return "Запрос не прошёл. Частые причины: сайт открыт внутри claude.ai (там внешние запросы запрещены), источник не разрешает запросы с этого сайта (CORS), либо запрос блокирует провайдер, VPN или расширение браузера.";
+    return "";
+  };
+  const agoTxt = (t) => { if (!t) return "ещё не было"; const s = Math.round((Date.now() - t) / 1000); return s < 60 ? s + " с назад" : Math.floor(s / 60) + " мин назад"; };
+  function feedsHTML() {
+    const where = location.protocol === "file:" ? "локальный файл" : location.hostname;
+    const rows = Object.entries(feedStatus).map(([name, s]) => `<tr><td>${esc(name)}</td><td class="${s.ok ? "pos" : "neg"}">${s.ok ? "работает" : "ошибка"}</td><td>${agoTxt(s.lastOk)}</td><td class="fe">${s.ok ? "" : esc(s.err) + (errHint(s.err) ? `<small>${esc(errHint(s.err))}</small>` : "")}</td></tr>`).join("");
+    const proxy = typeof LIVE_PROXY !== "undefined" && LIVE_PROXY ? esc(LIVE_PROXY) : "не задан (акции США, золото, нефть, газ и пшеница останутся на симуляции)";
+    const live = ASSETS.filter((x) => fresh(x)).length;
+    return `<p class="muted" style="margin:0 0 10px">Страница открыта с: <b>${esc(where)}</b> · Live-цены: <b>${live} из ${ASSETS.length}</b> · Адрес прокси: ${proxy}</p>
+      <div class="table-wrap" style="margin:0"><table class="ptable feeds"><thead><tr><th>Источник</th><th>Статус</th><th>Последний успех</th><th>Что не так</th></tr></thead><tbody>${rows || '<tr><td colspan="4">Запросы ещё не отправлялись.</td></tr>'}</tbody></table></div>`;
+  }
+  function paintFeeds() { const el = $("#t-feedbody"); if (el && $("#t-feeds") && $("#t-feeds").open) el.innerHTML = feedsHTML(); }
   const liveBadge = (a) => (fresh(a) ? '<span class="lv on">Live</span>' : '<span class="lv">Демо</span>');
   const srcText = (a) => (fresh(a) ? "Источник цены: " + SRC_NAME[a.srcKey] : "Источник цены: симуляция (живой источник недоступен или не подключён)");
   const rangesFor = (a) => (fresh(a) && !a.realHist ? ["LIVE"] : ["LIVE", "1Д", "1Н"]);
@@ -584,6 +607,10 @@ const PERPS = (() => {
         <h3 style="margin-top:22px">Последние сделки</h3>
         <div id="t-hist"></div>
       </div>
+      <details class="panel" id="t-feeds" style="margin:0 0 40px">
+        <summary style="cursor:pointer;font-weight:700">Статус источников цен</summary>
+        <div id="t-feedbody" style="margin-top:12px"></div>
+      </details>
     </div>`;
   }
 
@@ -652,6 +679,7 @@ const PERPS = (() => {
     paintChart();
     paintSummary();
     paintPositions();
+    $("#t-feeds").ontoggle = paintFeeds;
   }
 
   // ---------- обновление цен ----------
@@ -672,6 +700,7 @@ const PERPS = (() => {
       ASSETS.forEach((a) => { a.hh.push(a.price); a.hh.shift(); });
     }
     if (ticks % 5 === 0) savePrices();
+    if (ticks % 3 === 0) paintFeeds();
     checkLiquidations();
     checkTpSl();
     if (RP.route() !== "trade" || !$("#t-main")) return;
