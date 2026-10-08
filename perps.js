@@ -25,15 +25,15 @@ const PERPS = (() => {
   const A = Object.fromEntries(ASSETS.map((a) => [a.sym, a]));
   // Откуда берутся живые цены. Нет источника или ключа: актив остаётся на симуляции.
   const SRC = {
-    BTC: { bn: "BTCUSDT", cb: "BTC-USD" }, ETH: { bn: "ETHUSDT", cb: "ETH-USD" }, SOL: { bn: "SOLUSDT", cb: "SOL-USD" },
+    BTC: { bn: "BTCUSDT", cb: "BTC-USD", kr: "XBT", yf: "BTC-USD" }, ETH: { bn: "ETHUSDT", cb: "ETH-USD", kr: "ETH", yf: "ETH-USD" }, SOL: { bn: "SOLUSDT", cb: "SOL-USD", kr: "SOL", yf: "SOL-USD" },
     SBER: { moex: "SBER" }, GAZP: { moex: "GAZP" }, YDEX: { moex: "YDEX" }, LKOH: { moex: "LKOH" },
     AAPL: { fh: "AAPL", yf: "AAPL" }, NVDA: { fh: "NVDA", yf: "NVDA" }, TSLA: { fh: "TSLA", yf: "TSLA" },
     XAU: { td: "XAU/USD", yf: "GC=F" }, XAG: { td: "XAG/USD", yf: "SI=F" },
     BRENT: { yf: "BZ=F" }, NG: { yf: "NG=F" }, WHEAT: { yf: "ZW=F" }
   };
   const YF_SCALE = { "ZW=F": 0.01 }; // пшеница на Yahoo в центах за бушель, у нас в долларах
-  const SRC_NAME = { bn: "Binance, обновление каждые 2 с", cb: "Coinbase, обновление каждые 2 с", moex: "Мосбиржа (ISS), бесплатные данные с задержкой ~15 мин", fh: "Finnhub, обновление каждые 15 с", td: "Twelve Data, обновление раз в минуту", yf: "Yahoo Finance через ваш прокси, обновление каждые 15 с (у некоторых бирж задержка до 15 мин)" };
-  const SRC_TTL = { bn: 15000, cb: 15000, moex: 45000, fh: 60000, td: 180000, yf: 90000 }; // через сколько цена считается устаревшей
+  const SRC_NAME = { bn: "Binance, обновление каждые 2 с", cb: "Coinbase, обновление каждые 2 с", kr: "Kraken, обновление каждые 2 с", moex: "Мосбиржа (ISS), бесплатные данные с задержкой ~15 мин", fh: "Finnhub, обновление каждые 15 с", td: "Twelve Data, обновление раз в минуту", yf: "Yahoo Finance через ваш прокси, обновление каждые 15 с (у некоторых бирж задержка до 15 мин)" };
+  const SRC_TTL = { bn: 15000, cb: 15000, kr: 15000, moex: 45000, fh: 60000, td: 180000, yf: 90000 }; // через сколько цена считается устаревшей
   const P = { sel: "BTC", cls: "crypto", range: "LIVE", dir: "long", lev: 1, margin: 1000, tp: "", sl: "" };
   let positions = [], closed = [], plog = [], ticks = 0, chartHover = false, ready = false;
 
@@ -74,7 +74,7 @@ const PERPS = (() => {
   const savePrices = () => RP.store.set("prices", Object.fromEntries(ASSETS.map((a) => [a.sym, a.price])));
 
   // ---------- живые цены ----------
-  const PRI = { bn: 3, moex: 3, fh: 3, td: 3, yf: 2, cb: 1 }; // при двух источниках побеждает более надёжный
+  const PRI = { bn: 3, moex: 3, fh: 3, td: 3, yf: 2, cb: 2, kr: 2 }; // при двух источниках побеждает более надёжный
   const fresh = (a) => a.isLive && Date.now() - a.lastReal < (SRC_TTL[a.srcKey] || 45000);
   function adopt(a, p) {
     // Первая настоящая цена: подгоняем симулированную историю и открытые позиции, чтобы PnL в процентах не менялся.
@@ -121,9 +121,11 @@ const PERPS = (() => {
     };
     run();
   }
+  const BN_HOSTS = ["https://api.binance.com", "https://data-api.binance.vision"]; // второй адрес Binance отдаёт те же публичные данные
+  let bnHost = BN_HOSTS[0];
   async function loadKlines(a) {
     try {
-      const k = await getJSON(`https://api.binance.com/api/v3/klines?symbol=${SRC[a.sym].bn}&interval=1h&limit=168`);
+      const k = await getJSON(`${bnHost}/api/v3/klines?symbol=${SRC[a.sym].bn}&interval=1h&limit=168`);
       const closes = k.map((x) => Number(x[4])).filter((v) => v > 0);
       if (closes.length < 30) return;
       while (closes.length < 168) closes.unshift(closes[0]);
@@ -132,31 +134,49 @@ const PERPS = (() => {
       a.realHist = true;
     } catch {}
   }
+  const errTxt = (e) => (e && e.name === "AbortError" ? "AbortError" : (e && e.message) || String(e));
+  // Крипта: Binance, затем его запасной адрес, затем Coinbase, затем Kraken. Берётся первый, кто ответил.
   async function pollCrypto() {
     const list = ASSETS.filter((a) => SRC[a.sym] && SRC[a.sym].bn);
-    let bnErr = "", cbErr = "";
-    try {
-      const syms = encodeURIComponent(JSON.stringify(list.map((a) => SRC[a.sym].bn)));
-      const data = await getJSON(`https://api.binance.com/api/v3/ticker/24hr?symbols=${syms}`);
-      data.forEach((d) => {
-        const a = list.find((x) => SRC[x.sym].bn === d.symbol);
-        if (!a) return;
-        const first = !a.adopted;
-        setReal(a.sym, Number(d.lastPrice), Number(d.priceChangePercent), "bn");
-        if (first && a.adopted) loadKlines(a);
-      });
-      return;
-    } catch (e) { bnErr = e.name === "AbortError" ? "AbortError" : e.message; }
-    // запасной источник
+    const errs = [];
+    for (const host of BN_HOSTS) {
+      try {
+        const syms = encodeURIComponent(JSON.stringify(list.map((a) => SRC[a.sym].bn)));
+        const data = await getJSON(`${host}/api/v3/ticker/24hr?symbols=${syms}`);
+        let n = 0;
+        data.forEach((d) => {
+          const a = list.find((x) => SRC[x.sym].bn === d.symbol);
+          if (!a || !(Number(d.lastPrice) > 0)) return;
+          const first = !a.adopted;
+          bnHost = host;
+          setReal(a.sym, Number(d.lastPrice), Number(d.priceChangePercent), "bn");
+          n++;
+          if (first && a.adopted) loadKlines(a);
+        });
+        if (n) return;
+        errs.push(`${host.replace("https://", "")}: пустой ответ`);
+      } catch (e) { errs.push(`${host.replace("https://", "")}: ${errTxt(e)}`); }
+    }
     let ok = 0;
     await Promise.all(list.map(async (a) => {
       try {
         const d = await getJSON(`https://api.coinbase.com/v2/prices/${SRC[a.sym].cb}/spot`);
         setReal(a.sym, Number(d.data.amount), NaN, "cb");
         ok++;
-      } catch (e) { cbErr = e.name === "AbortError" ? "AbortError" : e.message; }
+      } catch (e) { if (!errs.some((x) => x.startsWith("Coinbase"))) errs.push("Coinbase: " + errTxt(e)); }
     }));
-    if (!ok) throw new Error(`Binance: ${bnErr}; Coinbase: ${cbErr}`);
+    if (ok) return;
+    try {
+      const d = await getJSON("https://api.kraken.com/0/public/Ticker?pair=" + list.map((a) => SRC[a.sym].kr + "USD").join(","));
+      Object.entries(d.result || {}).forEach(([key, v]) => {
+        const a = list.find((x) => key.includes(SRC[x.sym].kr));
+        const last = Number(v.c && v.c[0]), open = Number(v.o);
+        if (a && last > 0) { setReal(a.sym, last, open > 0 ? (last / open - 1) * 100 : NaN, "kr"); ok++; }
+      });
+      if (ok) return;
+      errs.push("Kraken: пустой ответ");
+    } catch (e) { errs.push("Kraken: " + errTxt(e)); }
+    throw new Error(errs.join("; "));
   }
   async function pollMoex() {
     const ids = ASSETS.filter((a) => SRC[a.sym] && SRC[a.sym].moex).map((a) => SRC[a.sym].moex);
@@ -203,7 +223,7 @@ const PERPS = (() => {
   function startFeeds() {
     if (typeof fetch !== "function") return;
     const keys = typeof LIVE_KEYS !== "undefined" ? LIVE_KEYS : {};
-    schedule(pollCrypto, 2000, "Binance / Coinbase (крипта)");
+    schedule(pollCrypto, 2000, "Крипта (Binance, Coinbase, Kraken)");
     schedule(pollMoex, 10000, "Мосбиржа (российские акции)");
     if (keys.finnhub) schedule(() => pollFinnhub(keys.finnhub), 15000, "Finnhub (акции США)");
     if (typeof LIVE_PROXY !== "undefined" && LIVE_PROXY) schedule(() => pollYahoo(LIVE_PROXY), 15000, "Прокси Yahoo (акции США, золото, нефть…)");
