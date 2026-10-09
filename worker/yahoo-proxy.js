@@ -25,6 +25,30 @@ export default {
       const [instruments, tickers] = await Promise.all([get("/v1/info/instruments"), get("/v1/info/tickers")]);
       return new Response(JSON.stringify({ instruments, tickers }), { headers: { ...cors, "content-type": "application/json", "cache-control": "public, max-age=2" } });
     }
+    // ?news=запрос: свежие новости из Google News (RSS) в виде JSON
+    const nq = url.searchParams.get("news");
+    if (nq !== null) {
+      const json = (obj, status = 200, extra = {}) => new Response(JSON.stringify(obj), { status, headers: { ...cors, "content-type": "application/json", ...extra } });
+      const q = nq.trim();
+      if (!/^[\p{L}\p{N} .,:+&$%"-]{2,80}$/u.test(q)) return json({ error: "некорректный запрос" }, 400);
+      try {
+        const r = await fetch(`https://news.google.com/rss/search?q=${encodeURIComponent(q + " when:7d")}&hl=ru&gl=RU&ceid=RU:ru`, {
+          headers: { "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36" },
+          cf: { cacheTtl: 120, cacheEverything: true }
+        });
+        if (!r.ok) return json({ error: `Google News ответил HTTP ${r.status}` }, 502);
+        const xml = await r.text();
+        const dec = (s) => s.replace(/<!\[CDATA\[|\]\]>/g, "").replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/&amp;/g, "&").trim();
+        const tag = (x, t) => { const m = x.match(new RegExp(`<${t}[^>]*>([\\s\\S]*?)</${t}>`)); return m ? dec(m[1]) : ""; };
+        const items = [...xml.matchAll(/<item>([\s\S]*?)<\/item>/g)].slice(0, 10).map((m) => {
+          const x = m[1], source = tag(x, "source");
+          let title = tag(x, "title");
+          if (source && title.endsWith(" - " + source)) title = title.slice(0, -(source.length + 3));
+          return { title, url: tag(x, "link"), source, time: Date.parse(tag(x, "pubDate")) || null };
+        }).filter((i) => i.title && /^https?:\/\//.test(i.url));
+        return json({ items }, 200, { "cache-control": "public, max-age=120" });
+      } catch (e) { return json({ error: e.message }, 502); }
+    }
     const symbols = (url.searchParams.get("symbols") || "")
       .split(",").map((s) => s.trim()).filter((s) => SYMBOL_RE.test(s)).slice(0, 20);
     if (!symbols.length) {

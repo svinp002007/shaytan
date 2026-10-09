@@ -452,6 +452,54 @@
     });
   }
 
+  // ---------- новости по теме ----------
+  // Лента из Google News через ваш прокси (LIVE_PROXY). Без прокси показывается ссылка на поиск новостей.
+  const newsCache = {}; // запрос -> { at, items, err }
+  const newsUrl = (q) => `https://news.google.com/search?q=${encodeURIComponent(q)}&hl=ru&gl=RU&ceid=RU:ru`;
+  const newsQ = (key) => (typeof key === "number" ? (typeof NEWS_Q !== "undefined" && NEWS_Q[key]) : (typeof NEWS_ASSET !== "undefined" && NEWS_ASSET[key])) || "";
+  function newsHTML(key, title = "Новости по теме") {
+    const q = newsQ(key);
+    if (!q) return "";
+    return `<section class="news" data-q="${esc(q)}"><h3 class="pos-title">${title}</h3><div class="news-body"><p class="muted">Загружаю новости…</p></div><div class="news-foot"></div></section>`;
+  }
+  const safeHttp = (u) => (/^https?:\/\//i.test(u) ? u : "#");
+  function newsPaint(root) {
+    const q = root.dataset.q, c = newsCache[q], body = $(".news-body", root), foot = $(".news-foot", root);
+    if (c && c.items && c.items.length) {
+      body.innerHTML = c.items.slice(0, 6).map((i) => `<a class="ni" href="${esc(safeHttp(i.url))}" target="_blank" rel="noopener noreferrer"><span class="nt">${esc(i.title)}</span><small>${esc(i.source || "источник не указан")}${i.time ? " · " + when(i.time).rel : ""}</small></a>`).join("");
+      foot.innerHTML = `Обновлено в ${chatTime(c.at)} · Google News · <a href="${esc(newsUrl(q))}" target="_blank" rel="noopener">Все новости</a>`;
+    } else if (c && c.items) {
+      body.innerHTML = '<p class="muted">За последние 7 дней новостей по теме не найдено.</p>';
+      foot.innerHTML = `<a href="${esc(newsUrl(q))}" target="_blank" rel="noopener">Искать в Google News</a>`;
+    } else if (c && c.err) {
+      body.innerHTML = `<p class="muted">Не удалось загрузить новости (${esc(c.err)}).</p>`;
+      foot.innerHTML = `<a href="${esc(newsUrl(q))}" target="_blank" rel="noopener">Открыть новости в Google News</a>`;
+    } else if (!(typeof LIVE_PROXY !== "undefined" && LIVE_PROXY)) {
+      body.innerHTML = '<p class="muted">Живая лента подключается через прокси (адрес в <code>LIVE_PROXY</code> в файле events.js).</p>';
+      foot.innerHTML = `<a href="${esc(newsUrl(q))}" target="_blank" rel="noopener">Открыть новости в Google News</a>`;
+    }
+  }
+  async function newsLoad(root) {
+    const q = root.dataset.q, proxy = typeof LIVE_PROXY !== "undefined" && LIVE_PROXY;
+    if (!proxy) return newsPaint(root);
+    const c = newsCache[q];
+    if (c && c.items && Date.now() - c.at < 90000) return newsPaint(root);
+    try {
+      const ctl = new AbortController(), t = setTimeout(() => ctl.abort(), 8000);
+      const r = await fetch(`${proxy}${proxy.includes("?") ? "&" : "?"}news=${encodeURIComponent(q)}`, { signal: ctl.signal, cache: "no-store" });
+      clearTimeout(t);
+      const d = await r.json().catch(() => ({}));
+      if (!r.ok || d.error) throw new Error(d.error || "HTTP " + r.status);
+      newsCache[q] = { at: Date.now(), items: Array.isArray(d.items) ? d.items : [] };
+    } catch (e) {
+      const keep = newsCache[q] && newsCache[q].items;
+      newsCache[q] = keep ? { ...newsCache[q] } : { err: e.name === "AbortError" ? "нет ответа за 8 секунд" : e.message === "Failed to fetch" ? "запрос заблокирован: сайт открыт на claude.ai или прокси недоступен" : e.message };
+    }
+    if (root.isConnected) newsPaint(root);
+  }
+  function newsBind(root) { if (root) { const s = $(".news", root); if (s) { newsPaint(s); newsLoad(s); } } }
+  setInterval(() => document.querySelectorAll(".news[data-q]").forEach((s) => { if (!s.closest("#modal") || !$("#modal").hidden) newsLoad(s); }), 60000);
+
   // ---------- чат ----------
   // Демо без сервера: свои сообщения хранятся в браузере, «собеседники» сымитированы.
   const CHAT_SEED = ["Коэффициент выглядит интересно, но я сначала проверю правила рынка.", "Итог определяет только источник из правил. Новости не в счёт.", "Беру небольшую ставку, не больше 5% баланса.", "Кто смотрел график за неделю?", "Не кладите всё на один рынок.", "Пул небольшой, цена двигается быстро.", "Жду, пока вероятность вырастет, потом продам.", "Комиссия 2% с выигрыша, я это уже закладываю.", "Срок близко, ставки закроются в конце дня.", "Похожие рынки внизу страницы тоже полезно посмотреть."];
@@ -1026,6 +1074,7 @@
           <div class="chart" id="m-chart"></div>
           <div class="probbar" id="m-bar"></div>
           <div class="poly-note" id="m-poly"></div>
+          <div id="m-news">${newsHTML(e.id)}</div>
           ${rulesHTML(e)}
           <div id="m-chat">${chatHTML("m" + e.id)}</div>
           ${similarHTML(e)}
@@ -1050,6 +1099,7 @@
         </aside>
       </div>`, true);
     $("#fs-back").onclick = closeModal;
+    newsBind($("#m-news"));
     chatBind($("#m-chat"), "m" + e.id);
     $(".seg").onclick = (ev) => { const b = ev.target.closest("button"); if (b) { chosenSide = b.dataset.side; paintModalLive(); } };
     $("#m-range").onclick = (ev) => {
@@ -1262,7 +1312,7 @@
     if (out === "yes" || out === "no") settleMarket(e, out, true);
   });
   window.RP = {
-    store, rub, toast, askConfirm, openSheet, closeModal, chatHTML, chatBind,
+    store, rub, toast, askConfirm, openSheet, closeModal, chatHTML, chatBind, newsHTML, newsBind,
     route: () => state.route,
     getBalance: () => balance,
     setBalance: (v) => { setBalance(v); if (state.route === "account") paintAccountRight(); }
