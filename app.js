@@ -449,6 +449,22 @@
     });
   }
 
+  // ---------- правила рынка ----------
+  function rulesHTML(e) {
+    const r = rulesFor(e);
+    return `<div class="rules">
+      <h3 class="pos-title">Правила: как определим победителя</h3>
+      <dl class="rules-dl">
+        <div><dt>Итог «Да», если</dt><dd>${esc(r.cond)}</dd></div>
+        <div><dt>Источник результата</dt><dd>${esc(r.src)}</dd></div>
+        <div><dt>Особые случаи</dt><dd>${esc(r.edge)}</dd></div>
+        <div><dt>Приём ставок</dt><dd>до 23:59:59 МСК ${fmtDate(e.closes)}</dd></div>
+      </dl>
+      <details class="rules-gen"><summary>Общие правила и порядок спора</summary><ol>${RULES_GENERAL.map((t) => `<li>${esc(t)}</li>`).join("")}</ol></details>
+      <p class="fee-note">Не согласны с итогом? В течение 24 часов напишите в <a href="${TELEGRAM_URL}" target="_blank" rel="noopener">Telegram-канал</a> и укажите «Рынок №${e.id}».</p>
+    </div>`;
+  }
+
   // ---------- похожие рынки ----------
   const STOP_WORDS = new Set(["будет", "выше", "ниже", "этой", "этого", "после", "более", "менее", "хотя", "бы", "раз", "для", "что", "при", "или"]);
   const wordsOf = (s) => (s.toLowerCase().match(/[a-zа-яё0-9]{4,}/g) || []).filter((w) => !STOP_WORDS.has(w));
@@ -538,6 +554,14 @@
         <div class="stat"><b>2%</b><span>комиссия при продаже</span></div>
       </div>
 
+      <section class="block cats-top">
+        <div class="block-head"><h2>Категории</h2></div>
+        <div class="cats">${CATEGORIES.map((c) => {
+          const n = EVENTS.filter((e) => e.cat === c.id);
+          return `<a class="cat-tile" href="#markets" data-pick="${c.id}"><b>${c.name}</b><span>${n.length} рынков · пул ${short(n.reduce((s, e) => s + e.vol, 0))} ₽</span></a>`;
+        }).join("")}</div>
+      </section>
+
       <section class="block">
         <div class="block-head"><h2>Горячие рынки</h2><a href="#markets">Все рынки →</a></div>
         <div class="grid" style="padding-bottom:0">${hot.slice(1, 7).map(cardHTML).join("")}</div>
@@ -546,14 +570,6 @@
       <section class="block">
         <div class="block-head"><h2>Скоро закроются</h2><a href="#markets" data-pick="soon">Все короткие рынки →</a></div>
         <div class="grid" style="padding-bottom:0">${EVENTS.filter((e) => isOpen(e) && daysLeft(e) <= 14).sort((x, y) => x.closes.localeCompare(y.closes) || y.vol - x.vol).slice(0, 6).map(cardHTML).join("")}</div>
-      </section>
-
-      <section class="block">
-        <div class="block-head"><h2>Категории</h2></div>
-        <div class="cats">${CATEGORIES.map((c) => {
-          const n = EVENTS.filter((e) => e.cat === c.id);
-          return `<a class="cat-tile" href="#markets" data-pick="${c.id}"><b>${c.name}</b><span>${n.length} рынков · пул ${short(n.reduce((s, e) => s + e.vol, 0))} ₽</span></a>`;
-        }).join("")}</div>
       </section>
 
       <section class="block">
@@ -763,6 +779,28 @@
     </div>`;
   }
 
+  // ---------- правила ----------
+  function viewRules() {
+    return `<div class="wrap">
+      <h1 class="page-title">Правила рынков</h1>
+      <p class="page-sub">Как определяется победитель и как решаются споры. У каждого рынка свои условие «Да», источник результата и особые случаи: они показаны в окне рынка в блоке «Правила».</p>
+      <div class="panel" style="margin-top:20px">
+        <h3>Общие правила</h3>
+        <ol class="rules-list">${RULES_GENERAL.map((t) => `<li>${esc(t)}</li>`).join("")}</ol>
+      </div>
+      <div class="panel" style="margin:16px 0 40px">
+        <h3>Как оспорить итог</h3>
+        <ol class="rules-list">
+          <li>Итог рынка отображается на его странице. Откройте рынок и проверьте блок «Правила».</li>
+          <li>В течение 24 часов после объявления итога напишите в <a href="${TELEGRAM_URL}" target="_blank" rel="noopener">Telegram-канал RusPredict</a>: номер рынка, ссылка на источник из правил и суть возражения.</li>
+          <li>Администрация сверяет итог только с источником из правил рынка и отвечает в течение 3 рабочих дней.</li>
+          <li>Если ошибка признана, итог меняется, выплаты и комиссия пересчитываются. Если нет, итог остаётся, а решение окончательное.</li>
+        </ol>
+        <p class="fee-note">Это демонстрационный прототип: пока у сайта нет сервера, заявки на спор принимаются только вручную через Telegram.</p>
+      </div>
+    </div>`;
+  }
+
   // ---------- сообщество ----------
   const planeIcon = '<svg viewBox="0 0 64 64" width="56" height="56" fill="none" stroke="#fff" stroke-width="3" stroke-linejoin="round" stroke-linecap="round" aria-hidden="true"><path d="M58 8 6 29l15 6 6 19 9-10 13 10z"/><path d="M21 35 58 8 28 40"/></svg>';
   function tgCard() {
@@ -850,7 +888,7 @@
   }
 
   // ---------- роутер ----------
-  const routes = { home: viewHome, markets: viewMarkets, trade: () => PERPS.view(), leaderboard: viewLeaderboard, community: viewCommunity, account: viewAccount };
+  const routes = { rules: viewRules, home: viewHome, markets: viewMarkets, trade: () => PERPS.view(), leaderboard: viewLeaderboard, community: viewCommunity, account: viewAccount };
   function render() {
     const r = (location.hash || "#home").slice(1);
     state.route = routes[r] ? r : "home";
@@ -942,6 +980,7 @@
       <div id="m-pos"></div>
       </div>
       ${!e.resolved && typeof DEMO_RESOLVE !== "undefined" && DEMO_RESOLVE ? `<details class="demo-resolve"><summary>Демо: завершить рынок и увидеть выплату</summary><p>Настоящий итог определяет источник результата. В демо вы выбираете его сами.</p><div class="btns"><button class="btn yes" data-demoresolve="yes">Итог «Да»</button><button class="btn no" data-demoresolve="no">Итог «Нет»</button></div></details>` : ""}
+      ${rulesHTML(e)}
       ${similarHTML(e)}
       <div id="m-tx"></div>`);
     $(".seg").onclick = (ev) => { const b = ev.target.closest("button"); if (b) { chosenSide = b.dataset.side; paintModalLive(); } };

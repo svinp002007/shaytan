@@ -427,3 +427,16 @@ footer{border-top:1px solid var(--line);padding:22px 0;color:var(--muted);font-s
 .sg-pr{display:flex;flex-direction:column;align-items:flex-end;font-variant-numeric:tabular-nums;line-height:1.25}
 .sg-pr b{font-size:13px}.sg-pr small{font-size:12px;font-weight:700}
 @media (max-width:640px){.grid{grid-template-columns:1fr}.sim{grid-template-columns:72px 1fr auto}.sim .banner{height:52px}}
+
+/* правила рынков */
+.rules{margin:6px 0 4px}
+.rules-dl{margin:0 0 8px;display:flex;flex-direction:column;gap:6px}
+.rules-dl div{display:grid;grid-template-columns:130px 1fr;gap:10px;font-size:13px;padding:7px 0;border-bottom:1px solid var(--line)}
+.rules-dl dt{color:var(--muted)}
+.rules-dl dd{margin:0}
+.rules-gen{margin:8px 0;font-size:13px}
+.rules-gen summary{cursor:pointer;font-weight:700;color:var(--brand)}
+.rules-gen ol,.rules-list{margin:10px 0 0;padding-left:20px;display:flex;flex-direction:column;gap:8px;font-size:14px}
+.rules .fee-note a,.rules-list a{color:var(--brand)}
+@media (max-width:560px){.rules-dl div{grid-template-columns:1fr;gap:2px}}
+.cats-top{padding-top:28px}
