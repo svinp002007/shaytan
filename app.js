@@ -97,6 +97,9 @@
   });
   const prob = (e) => (e.n / (e.y + e.n)) * 100;
   const cents = (e) => clamp(Math.round(e.yes), 1, 99);
+  // Коэффициент (десятичный): во сколько раз выплата больше ставки. Цена 19¢ (19%) даёт ×5,26.
+  const coefTxt = (c) => "×" + (100 / clamp(c, 0.5, 99.5)).toFixed(2).replace(".", ",");
+  const sideBtn = (e, side) => { const c = side === "yes" ? cents(e) : 100 - cents(e); return `<b>${side === "yes" ? "Да" : "Нет"} ${c}%</b><small>${coefTxt(c)}</small>`; };
   const priceOf = (e, side) => (side === "yes" ? cents(e) : 100 - cents(e));
   function syncYes(e) {
     if (e.resolved) return; // итог рынка уже определён
@@ -190,12 +193,12 @@
         <td><span class="who">${avatar(x.nick, x.own ? profile.color : traderColor(x.nick))}<span class="tx-nick">${esc(x.nick)}${x.own ? " (вы)" : ""}</span></span></td>
         <td><span class="tag ${x.side}">${TX_LABEL[x.kind] || "Покупка"} · ${x.side === "yes" ? "Да" : "Нет"}</span></td>
         <td>${rub(x.amt)}</td>
-        <td>${pct1(x.price)}¢</td>
+        <td>${pct1(x.price)}% · ${coefTxt(x.price)}</td>
       </tr>`;
     }).join("");
     return `<h3 class="pos-title">История сделок</h3>
       <p class="tx-sum">${e.trades.length} сделок · за 24 часа ${rub(day)}</p>
-      <div class="tx-scroll"><table class="tx"><thead><tr><th>Когда</th><th>Трейдер</th><th>Сделка</th><th>Сумма</th><th>Цена</th></tr></thead><tbody>${rows}</tbody></table></div>`;
+      <div class="tx-scroll"><table class="tx"><thead><tr><th>Когда</th><th>Трейдер</th><th>Сделка</th><th>Сумма</th><th>Вер. · коэф.</th></tr></thead><tbody>${rows}</tbody></table></div>`;
   }
 
   // ---------- графики ----------
@@ -392,7 +395,7 @@
       return `<div class="pos-row">
         <div class="pos-main">
           <span class="tag ${b.side}">${b.side === "yes" ? "Да" : "Нет"}</span>
-          <span>${rub(b.amt)} · ${pct1(b.shares)} долей · ср. ${pct1(b.price)}¢</span>
+          <span>${rub(b.amt)} · ${pct1(b.shares)} долей · коэф. ${coefTxt(b.price)}</span>
           <span class="${v.pnl >= 0 ? "pos" : "neg"}">${signed(v.pnl)} ₽</span>
         </div>
         <button class="sell" data-sell="${b.id}">Продать за ${rub(v.net)}</button>
@@ -490,7 +493,7 @@
       <button class="sim" data-open="${x.id}">
         ${banner(x, "sim-thumb", 96, 56)}
         <span class="sim-body"><b>${esc(x.q)}</b><small>${catName(x.cat)}${leftTxt(x) ? " · " + leftTxt(x) : ""}</small></span>
-        <span class="sim-pct">${Math.round(x.yes)}%</span>
+        <span class="sim-pct">${Math.round(x.yes)}%<small>${coefTxt(cents(x))}</small></span>
       </button>`).join("")}</div>`;
   }
 
@@ -507,8 +510,8 @@
       ${e.resolved || isExpired(e)
         ? `<div class="resolved">${e.resolved ? `Рынок завершён · итог «${e.resolved === "yes" ? "Да" : "Нет"}»` : "Приём ставок закрыт · ждём итог"}</div>`
         : `<div class="btns">
-        <button class="btn yes" data-open="${e.id}" data-side="yes">Да ${cents(e)}¢</button>
-        <button class="btn no" data-open="${e.id}" data-side="no">Нет ${100 - cents(e)}¢</button>
+        <button class="btn yes" data-open="${e.id}" data-side="yes">${sideBtn(e, "yes")}</button>
+        <button class="btn no" data-open="${e.id}" data-side="no">${sideBtn(e, "no")}</button>
       </div>`}
       <div class="meta"><span class="vol">Пул ${short(e.vol)} ₽</span><span>до ${fmtDate(e.closes)}${leftTxt(e) ? ` · <b>${leftTxt(e)}</b>` : ""}</span></div>
     </article>`;
@@ -525,7 +528,7 @@
         <div>
           <div class="eyebrow">Рынок прогнозов России</div>
           <h1>Знаешь, что будет дальше? <em>Вложи в пул</em> и забери разницу.</h1>
-          <p class="lead">Ставь на курс рубля, решения ЦБ, нефть, крипту, спорт и политику. Цена «Да» — это вероятность события: 62¢ значит 62%. Угадал — получил ₽1 за каждую долю, платформа берёт 2% от выигрыша. Передумал — продай в любой момент.</p>
+          <p class="lead">Ставь на курс рубля, решения ЦБ, нефть, крипту, спорт и политику. Рядом с каждым исходом видны вероятность и коэффициент: 62% это ×1,61, а 20% это ×5,00. Угадал — выплата равна ставке, умноженной на коэффициент, платформа берёт 2% от выигрыша. Передумал — продай в любой момент.</p>
           <div class="cta-row">
             <button class="cta primary" data-deposit>Пополнить пул</button>
             <a class="cta ghost" href="#markets">Смотреть рынки</a>
@@ -539,8 +542,8 @@
           <div class="big"><span class="pct">${Math.round(featured.yes)}%</span> <small>вероятность «Да»</small></div>
           <div class="spark-host hero-spark">${spark(featured.hist)}</div>
           <div class="btns">
-            <button class="btn yes" data-open="${featured.id}" data-side="yes">Да ${cents(featured)}¢</button>
-            <button class="btn no" data-open="${featured.id}" data-side="no">Нет ${100 - cents(featured)}¢</button>
+            <button class="btn yes" data-open="${featured.id}" data-side="yes">${sideBtn(featured, "yes")}</button>
+            <button class="btn no" data-open="${featured.id}" data-side="no">${sideBtn(featured, "no")}</button>
           </div>
         </div>
       </div>
@@ -576,7 +579,7 @@
         <div class="block-head"><h2>Как это работает</h2></div>
         <div class="steps">
           <div class="step"><b>Пополните пул</b><span>Получите игровые рубли на баланс одним нажатием.</span></div>
-          <div class="step"><b>Выберите исход</b><span>«Да» или «Нет» по цене в копейках. Смотрите график цены перед ставкой.</span></div>
+          <div class="step"><b>Выберите исход</b><span>«Да» или «Нет». У каждого исхода есть вероятность в процентах и коэффициент: ×5 значит, что выплата в 5 раз больше ставки.</span></div>
           <div class="step"><b>Заберите выплату или продайте</b><span>Если исход сбылся, каждая доля стоит ₽1, с выигрыша удерживается 2%. Продать позицию можно в любой момент, комиссия тоже 2%.</span></div>
         </div>
       </section>
@@ -708,7 +711,7 @@
     myTx.forEach((x) => {
       const e = byId(x.eid);
       if (!e) return;
-      rows.push({ t: x.t, sec: "pred", title: e.q, action: `${TX_LABEL[x.kind] || "Покупка"} · ${x.side === "yes" ? "Да" : "Нет"}`, cls: x.side, amt: x.amt, priceText: pct1(x.price) + "¢", pnl: x.pnl === undefined ? null : x.pnl });
+      rows.push({ t: x.t, sec: "pred", title: e.q, action: `${TX_LABEL[x.kind] || "Покупка"} · ${x.side === "yes" ? "Да" : "Нет"}`, cls: x.side, amt: x.amt, priceText: pct1(x.price) + "% · " + coefTxt(x.price), pnl: x.pnl === undefined ? null : x.pnl });
     });
     PERPS.rows().forEach((r) => rows.push(r));
     return rows.sort((a, b) => b.t - a.t);
@@ -724,7 +727,7 @@
       box.innerHTML = `<p class="empty" style="padding:18px">Сделок пока нет. Откройте <a href="#markets" style="color:var(--brand)">рынки</a> или <a href="#trade" style="color:var(--brand)">трейдинг</a>.</p>`;
       return;
     }
-    box.innerHTML = `<div class="table-wrap" style="margin:0"><table class="acc-tx"><thead><tr><th>Когда</th><th>Раздел</th><th>Событие</th><th>Сделка</th><th>Сумма</th><th>Цена</th><th>Результат</th></tr></thead><tbody>${list.slice(0, accLimit).map((r) => {
+    box.innerHTML = `<div class="table-wrap" style="margin:0"><table class="acc-tx"><thead><tr><th>Когда</th><th>Раздел</th><th>Событие</th><th>Сделка</th><th>Сумма</th><th>Вер. · коэф.</th><th>Результат</th></tr></thead><tbody>${list.slice(0, accLimit).map((r) => {
       const w = when(r.t);
       return `<tr>
         <td><span class="tx-when">${w.abs}</span><small>${w.rel}</small></td>
@@ -972,6 +975,7 @@
         <button class="yes" data-side="yes"></button>
         <button class="no" data-side="no"></button>
       </div>
+      <p class="coef-note">Коэффициент показывает, во сколько раз выплата больше ставки (до комиссии 2% с выигрыша).</p>
       <input class="field" id="amt" type="number" min="1" step="100" value="500" aria-label="Сумма ставки в рублях">
       <div class="impact" id="impact"></div>
       <button class="submit" id="buy">Вложить в пул</button>
@@ -1005,7 +1009,7 @@
         okText: "Купить",
         rows: [
           ["Рынок", esc(e.q)],
-          ["Исход", `«${side === "yes" ? "Да" : "Нет"}», средняя цена ${pct1(q.avg)}¢`],
+          ["Исход", `«${side === "yes" ? "Да" : "Нет"}», вероятность ${pct1(q.avg)}%, коэффициент ${coefTxt(q.avg)}`],
           ["Сумма", rub(amt)],
           ["Долей", pct1(q.shares)],
           ["Выплата при успехе", `<b>${rub(q.shares)}</b>`],
@@ -1050,20 +1054,20 @@
     if (!e || !$("#m-now")) return;
     $("#m-now").textContent = `${pct1(e.yes)}% «Да»`;
     $("#m-vol").textContent = `пул ${short(e.vol)} ₽`;
-    $("#m-bar").innerHTML = `<div class="pbar"><div style="width:${e.yes}%"></div></div><div class="pleg"><span>Да ${pct1(e.yes)}%</span><span>Нет ${pct1(100 - e.yes)}%</span></div>`;
+    $("#m-bar").innerHTML = `<div class="pbar"><div style="width:${e.yes}%"></div></div><div class="pleg"><span>Да ${pct1(e.yes)}% · ${coefTxt(e.yes)}</span><span>Нет ${pct1(100 - e.yes)}% · ${coefTxt(100 - e.yes)}</span></div>`;
     $("#m-poly").innerHTML = e.poly != null
       ? (polyFresh(e)
           ? `Polymarket: <b>${pct1(e.poly)}%</b> · у нас ${pct1(e.yes)}% (${e.yes - e.poly >= 0 ? "+" : "−"}${pct1(Math.abs(e.yes - e.poly))} п.п.) · <a href="${polyUrl(e)}" target="_blank" rel="noopener">источник</a>`
           : `Polymarket: данные устарели · <a href="${polyUrl(e)}" target="_blank" rel="noopener">источник</a>`)
       : "";
     const yb = $(".seg .yes"), nb = $(".seg .no");
-    yb.textContent = `Да ${cents(e)}¢`; nb.textContent = `Нет ${100 - cents(e)}¢`;
+    yb.textContent = `Да ${cents(e)}% · ${coefTxt(cents(e))}`; nb.textContent = `Нет ${100 - cents(e)}% · ${coefTxt(100 - cents(e))}`;
     yb.classList.toggle("on", chosenSide === "yes"); nb.classList.toggle("on", chosenSide === "no");
     const amt = Number($("#amt").value) || 0;
     const q = quoteBuy(e, chosenSide, amt);
     const word = chosenSide === "yes" ? "Да" : "Нет";
     $("#impact").innerHTML = amt > 0
-      ? `<div><span>Долей · средняя цена</span><b>${pct1(q.shares)} · ${pct1(q.avg)}¢</b></div>
+      ? `<div><span>Долей · коэффициент</span><b>${pct1(q.shares)} · ${coefTxt(q.avg)}</b></div>
          <div><span>Выплата при «${word}»</span><b>${rub(q.shares)}</b></div>
          <div><span>Вероятность после ставки</span><b>Да ${pct1(prob(e))}% → ${pct1(q.after)}% · Нет ${pct1(100 - prob(e))}% → ${pct1(100 - q.after)}%</b></div>`
       : "";
@@ -1103,8 +1107,8 @@
       const p = $(".pct", c);
       if (p) p.textContent = Math.round(e.yes) + "%";
       const y = $(".btn.yes", c), n = $(".btn.no", c);
-      if (y) y.textContent = `Да ${cents(e)}¢`;
-      if (n) n.textContent = `Нет ${100 - cents(e)}¢`;
+      if (y) y.innerHTML = sideBtn(e, "yes");
+      if (n) n.innerHTML = sideBtn(e, "no");
       const v = $(".vol", c);
       if (v) v.textContent = `Пул ${short(e.vol)} ₽`;
       const pm = $(".pm", c);

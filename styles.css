@@ -440,3 +440,12 @@ footer{border-top:1px solid var(--line);padding:22px 0;color:var(--muted);font-s
 .rules .fee-note a,.rules-list a{color:var(--brand)}
 @media (max-width:560px){.rules-dl div{grid-template-columns:1fr;gap:2px}}
 .cats-top{padding-top:28px}
+
+/* вероятность и коэффициент */
+.btn{display:flex;flex-direction:column;align-items:center;justify-content:center;line-height:1.15}
+.btn small{font-size:11px;font-weight:500;opacity:.92}
+.card .btn{padding:5px 6px}
+.seg button{line-height:1.2}
+.sim-pct{display:flex;flex-direction:column;align-items:flex-end;line-height:1.1}
+.sim-pct small{font:500 11px var(--body);color:var(--muted)}
+.coef-note{margin:0 0 8px;font-size:12px;color:var(--muted)}
