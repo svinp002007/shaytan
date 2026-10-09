@@ -23,6 +23,14 @@ const PERPS = (() => {
     { sym: "WHEAT", name: "Пшеница",         cls: "commodity", base: 5.6,   sig: 0.00015, maxLev: 50, ccy: "$", dec: 2, fund: 0.00004 }
   ];
   const A = Object.fromEntries(ASSETS.map((a) => [a.sym, a]));
+  // Что предложить рядом с выбранным активом: близкие по теме и «соседи» из других классов.
+  const REL = {
+    BTC: ["ETH", "SOL", "XAU", "NVDA"], ETH: ["BTC", "SOL", "NVDA", "TSLA"], SOL: ["ETH", "BTC", "TSLA", "NVDA"],
+    SBER: ["GAZP", "LKOH", "YDEX", "XAU"], GAZP: ["LKOH", "SBER", "NG", "BRENT"], YDEX: ["SBER", "NVDA", "AAPL", "BTC"], LKOH: ["BRENT", "GAZP", "SBER", "XAU"],
+    AAPL: ["NVDA", "TSLA", "YDEX", "BTC"], NVDA: ["AAPL", "TSLA", "BTC", "ETH"], TSLA: ["NVDA", "AAPL", "BTC", "XAG"],
+    BRENT: ["LKOH", "GAZP", "NG", "XAU"], XAU: ["XAG", "BTC", "BRENT", "SBER"], XAG: ["XAU", "BRENT", "TSLA", "BTC"],
+    NG: ["BRENT", "GAZP", "WHEAT", "LKOH"], WHEAT: ["NG", "BRENT", "XAU", "SBER"]
+  };
   // Откуда берутся живые цены. Нет источника или ключа: актив остаётся на симуляции.
   const SRC = {
     BTC: { bn: "BTCUSDT", cb: "BTC-USD", kr: "XBT", yf: "BTC-USD" }, ETH: { bn: "ETHUSDT", cb: "ETH-USD", kr: "ETH", yf: "ETH-USD" }, SOL: { bn: "SOLUSDT", cb: "SOL-USD", kr: "SOL", yf: "SOL-USD" },
@@ -603,6 +611,10 @@ const PERPS = (() => {
       <div class="msg" id="t-msg"></div>
       <p class="fee-note warn" id="t-warn" hidden></p>
       <p class="fee-note">Плечо увеличивает и прибыль, и убыток. Если цена дойдёт до цены ликвидации, вся маржа сгорает. Без плеча (1x) ликвидация почти невозможна.</p>
+    </div>
+    <div class="panel tsugg" id="t-sugg">
+      <h3>Другие активы</h3>
+      <div class="sugg">${(REL[a.sym] || []).map((s) => { const x = A[s]; return `<button class="sg" data-sg="${x.sym}">${badge(x)}<span class="sg-info"><b>${x.sym}-PERP</b><small>${esc(x.name)} · ${CLS[x.cls]}</small></span><span class="sg-pr"><b data-sp="${x.sym}">${price(x, x.price)}</b><small data-sc="${x.sym}">${chText(x)}</small></span></button>`; }).join("")}</div>
     </div>`;
   }
   function paintSummary() {
@@ -750,6 +762,16 @@ const PERPS = (() => {
       roeChips("#t-tpchips", "tp", 1);
       roeChips("#t-slchips", "sl", -1);
       $("#t-open").onclick = confirmOpen;
+      $("#t-sugg").onclick = (ev) => {
+        const b = ev.target.closest("[data-sg]");
+        if (!b) return;
+        P.sel = b.dataset.sg;
+        P.cls = A[P.sel].cls;
+        document.querySelectorAll("#t-tabs .tab").forEach((t) => t.classList.toggle("active", t.dataset.tcls === P.cls));
+        $("#t-list").innerHTML = listHTML();
+        rebuildMain();
+        window.scrollTo({ top: 0, behavior: "smooth" });
+      };
     }
     bindMain();
     paintChart();
@@ -785,7 +807,12 @@ const PERPS = (() => {
       if (p) p.textContent = price(a, a.price);
       if (c) c.innerHTML = chText(a);
     });
-    ASSETS.forEach((x) => { const b = $(`[data-lv="${x.sym}"]`); if (b) b.innerHTML = liveBadge(x); });
+    ASSETS.forEach((x) => {
+      const b = $(`[data-lv="${x.sym}"]`); if (b) b.innerHTML = liveBadge(x);
+      const sp = $(`[data-sp="${x.sym}"]`), sc = $(`[data-sc="${x.sym}"]`);
+      if (sp) sp.textContent = price(x, x.price);
+      if (sc) sc.innerHTML = chText(x);
+    });
     const a = A[P.sel];
     $("#t-lv").innerHTML = liveBadge(a);
     $("#t-src").textContent = srcText(a);

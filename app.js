@@ -449,10 +449,39 @@
     });
   }
 
+  // ---------- похожие рынки ----------
+  const STOP_WORDS = new Set(["будет", "выше", "ниже", "этой", "этого", "после", "более", "менее", "хотя", "бы", "раз", "для", "что", "при", "или"]);
+  const wordsOf = (s) => (s.toLowerCase().match(/[a-zа-яё0-9]{4,}/g) || []).filter((w) => !STOP_WORDS.has(w));
+  // Очки: та же категория, тот же значок (тема), общие слова в вопросе, близкий срок. Только открытые рынки.
+  function similarTo(e, n = 4) {
+    const w = new Set(wordsOf(e.q));
+    return EVENTS.filter((x) => x.id !== e.id && isOpen(x))
+      .map((x) => {
+        let s = (x.cat === e.cat ? 3 : 0) + (x.img === e.img ? 2 : 0);
+        wordsOf(x.q).forEach((t) => { if (w.has(t)) s += 1; });
+        if (Math.abs(daysLeft(x) - daysLeft(e)) <= 7) s += 1;
+        return { x, s };
+      })
+      .filter((o) => o.s > 0)
+      .sort((a, b) => b.s - a.s || b.x.vol - a.x.vol)
+      .slice(0, n)
+      .map((o) => o.x);
+  }
+  function similarHTML(e) {
+    const list = similarTo(e);
+    if (!list.length) return "";
+    return `<h3 class="pos-title">Похожие рынки</h3><div class="similar">${list.map((x) => `
+      <button class="sim" data-open="${x.id}">
+        ${banner(x, "sim-thumb", 96, 56)}
+        <span class="sim-body"><b>${esc(x.q)}</b><small>${catName(x.cat)}${leftTxt(x) ? " · " + leftTxt(x) : ""}</small></span>
+        <span class="sim-pct">${Math.round(x.yes)}%</span>
+      </button>`).join("")}</div>`;
+  }
+
   // ---------- карточка рынка ----------
   const cardHTML = (e) => `
     <article class="card" data-open="${e.id}">
-      ${banner(e)}
+      ${banner(e, "", 320, 64)}
       <div class="cat"><span>${catName(e.cat)}</span>${polyChip(e)}</div>
       <h3>${esc(e.q)}</h3>
       <div class="meter">
@@ -913,6 +942,7 @@
       <div id="m-pos"></div>
       </div>
       ${!e.resolved && typeof DEMO_RESOLVE !== "undefined" && DEMO_RESOLVE ? `<details class="demo-resolve"><summary>Демо: завершить рынок и увидеть выплату</summary><p>Настоящий итог определяет источник результата. В демо вы выбираете его сами.</p><div class="btns"><button class="btn yes" data-demoresolve="yes">Итог «Да»</button><button class="btn no" data-demoresolve="no">Итог «Нет»</button></div></details>` : ""}
+      ${similarHTML(e)}
       <div id="m-tx"></div>`);
     $(".seg").onclick = (ev) => { const b = ev.target.closest("button"); if (b) { chosenSide = b.dataset.side; paintModalLive(); } };
     $("#m-range").onclick = (ev) => {

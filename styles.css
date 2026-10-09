@@ -394,3 +394,36 @@ footer{border-top:1px solid var(--line);padding:22px 0;color:var(--muted);font-s
 .demo-resolve{margin:14px 0;border:1px dashed var(--line);border-radius:12px;padding:10px 12px;font-size:13px}
 .demo-resolve summary{cursor:pointer;color:var(--muted);font-weight:700}
 .demo-resolve p{color:var(--muted);margin:8px 0 10px}
+
+/* компактные карточки рынков */
+.grid{grid-template-columns:repeat(auto-fill,minmax(250px,1fr));gap:12px}
+.card{padding:12px;gap:8px;border-radius:12px}
+.card .banner{margin:-12px -12px 0;width:calc(100% + 24px);height:64px}
+.card h3{font-size:13.5px;line-height:1.3}
+.card .cat{font-size:10px}
+.card .pct{font-size:19px;min-width:60px}
+.card .spark-host{height:28px}
+.card .btn{padding:7px;font-size:13px}
+.card .meta{font-size:11px}
+.card .resolved{padding:7px 10px;font-size:12px}
+.card .pm{font-size:9px;padding:1px 6px}
+
+/* похожие рынки и другие активы */
+.similar{display:flex;flex-direction:column;gap:8px;margin-bottom:6px}
+.sim{display:grid;grid-template-columns:96px 1fr auto;gap:10px;align-items:center;text-align:left;width:100%;border:1px solid var(--line);background:var(--card);color:var(--ink);border-radius:10px;padding:0;overflow:hidden;cursor:pointer;font:inherit}
+.sim:hover{border-color:var(--brand)}
+.sim .banner{height:56px;margin:0}
+.sim-body{display:flex;flex-direction:column;gap:2px;min-width:0;padding:6px 0}
+.sim-body b{font-size:13px;line-height:1.3}
+.sim-body small{color:var(--muted);font-size:11px}
+.sim-pct{padding:0 12px;font:700 15px var(--display)}
+.tsugg{grid-column:1/-1}
+.tsugg h3{margin-bottom:10px}
+.sugg{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:8px}
+.sg{display:flex;align-items:center;gap:10px;border:1px solid var(--line);background:var(--card);color:var(--ink);border-radius:12px;padding:10px 12px;cursor:pointer;text-align:left;font:inherit}
+.sg:hover{border-color:var(--brand);background:var(--soft)}
+.sg-info{display:flex;flex-direction:column;min-width:0;flex:1;line-height:1.25}
+.sg-info b{font-size:13px}.sg-info small{color:var(--muted);font-size:11px}
+.sg-pr{display:flex;flex-direction:column;align-items:flex-end;font-variant-numeric:tabular-nums;line-height:1.25}
+.sg-pr b{font-size:13px}.sg-pr small{font-size:12px;font-weight:700}
+@media (max-width:640px){.grid{grid-template-columns:1fr}.sim{grid-template-columns:72px 1fr auto}.sim .banner{height:52px}}

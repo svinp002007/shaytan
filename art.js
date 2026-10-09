@@ -104,12 +104,13 @@ function banner(e, extra = "", W = 320, H = 110) {
   const ang = 100 + ((e.id * 37) % 80);
   const c1 = 30 + ((e.id * 53) % (W - 60)), c2 = (e.id * 97) % W;
   const g = GLYPHS[e.img] || GLYPHS.globe;
+  const gs = Math.min(1.25, (H - 14) / 64); // значок уменьшается вместе с баннером
   const attrs = 'stroke="#fff" fill="none" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"';
   return `<div class="banner ${extra}" style="background:linear-gradient(${ang}deg,${a},${b})"><svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="xMidYMax slice" aria-hidden="true">
     <circle cx="${c1}" cy="18" r="68" fill="#fff" opacity=".07"/><circle cx="${c2}" cy="${H + 2}" r="58" fill="#fff" opacity=".07"/>
     ${bannerPattern(e.cat, W, H)}
-    <g ${attrs} opacity=".16" transform="translate(${W * 0.07} ${H * 0.47}) scale(.62) rotate(-12 32 32)">${g}</g>
-    <g ${attrs} opacity=".16" transform="translate(${W * 0.82} ${H * 0.09}) scale(.58) rotate(14 32 32)">${g}</g>
-    <g ${attrs} opacity=".96" transform="translate(${W / 2 - 40} ${H / 2 - 40}) scale(1.25)">${g}</g>
+    <g ${attrs} opacity=".16" transform="translate(${W * 0.07} ${H * 0.47}) scale(${(0.62 * gs) / 1.25}) rotate(-12 32 32)">${g}</g>
+    <g ${attrs} opacity=".16" transform="translate(${W * 0.82} ${H * 0.09}) scale(${(0.58 * gs) / 1.25}) rotate(14 32 32)">${g}</g>
+    <g ${attrs} opacity=".96" transform="translate(${W / 2 - 32 * gs} ${H / 2 - 32 * gs}) scale(${gs})">${g}</g>
   </svg></div>`;
 }
