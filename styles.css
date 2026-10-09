@@ -449,3 +449,36 @@ footer{border-top:1px solid var(--line);padding:22px 0;color:var(--muted);font-s
 .sim-pct{display:flex;flex-direction:column;align-items:flex-end;line-height:1.1}
 .sim-pct small{font:500 11px var(--body);color:var(--muted)}
 .coef-note{margin:0 0 8px;font-size:12px;color:var(--muted)}
+
+/* полноэкранный рынок */
+#modal.fs{display:block;padding:0;background:var(--bg);overflow-y:auto}
+#modal.fs[hidden]{display:none}
+#modal.fs .sheet{max-width:1240px;width:100%;min-height:100%;margin:0 auto;border-radius:0;background:transparent;padding:16px clamp(16px,3vw,40px) 70px;max-height:none;overflow:visible}
+#modal.fs .close{display:none}
+.fs-top{display:flex;align-items:center;gap:14px;margin-bottom:14px}
+.fs-back{border:1px solid var(--line);background:var(--card);color:var(--ink);padding:9px 16px;border-radius:99px;font:700 14px var(--body);cursor:pointer}
+.fs-back:hover{border-color:var(--brand)}
+.fs-id{color:var(--muted);font-size:13px}
+#modal.fs .sheet .banner.in-modal{margin:0 0 16px;width:100%;height:150px;border-radius:16px}
+.fs-head{margin-bottom:18px}
+.fs-head h2{font:700 clamp(20px,3vw,30px)/1.25 var(--display);margin:6px 0 8px}
+.fs-head p{margin:0;color:var(--muted)}
+.fs-grid{display:grid;grid-template-columns:minmax(0,1fr) 400px;gap:24px;align-items:start}
+.fs-main{min-width:0}
+.fs-side{position:sticky;top:12px;display:flex;flex-direction:column;gap:12px;background:var(--card);border:1px solid var(--line);border-radius:16px;padding:18px;min-width:0}
+.fs-side:empty{display:none}
+@media (max-width:980px){.fs-grid{grid-template-columns:1fr}.fs-side{position:static;order:-1}}
+
+/* чат */
+.chat{margin:18px 0 6px}
+.chat-list{height:260px;overflow-y:auto;border:1px solid var(--line);border-radius:12px;padding:10px 12px;display:flex;flex-direction:column;gap:10px;background:var(--card)}
+.cm{display:flex;gap:10px;align-items:flex-start;font-size:14px}
+.cm .avatar{width:26px;height:26px;font-size:10px}
+.cm b{font-size:13px}
+.cm small{color:var(--muted);font-size:11px;margin-left:8px}
+.cm p{margin:2px 0 0;overflow-wrap:anywhere}
+.cm.own b{color:var(--brand)}
+.chat-form{display:flex;gap:8px;margin-top:8px}
+.chat-form .field{flex:1;min-width:0}
+.tchat{grid-column:1/-1}
+.tchat .chat{margin:0}

@@ -452,6 +452,58 @@
     });
   }
 
+  // ---------- чат ----------
+  // Демо без сервера: свои сообщения хранятся в браузере, «собеседники» сымитированы.
+  const CHAT_SEED = ["Коэффициент выглядит интересно, но я сначала проверю правила рынка.", "Итог определяет только источник из правил. Новости не в счёт.", "Беру небольшую ставку, не больше 5% баланса.", "Кто смотрел график за неделю?", "Не кладите всё на один рынок.", "Пул небольшой, цена двигается быстро.", "Жду, пока вероятность вырастет, потом продам.", "Комиссия 2% с выигрыша, я это уже закладываю.", "Срок близко, ставки закроются в конце дня.", "Похожие рынки внизу страницы тоже полезно посмотреть."];
+  const CHAT_TRADE_SEED = ["Плечо выше 10x беру только со стоп-лоссом.", "Без плеча спокойнее, ликвидации нет.", "Цену ликвидации смотрю до открытия позиции.", "Фандинг небольшой, но на длинной позиции он копится.", "Кто торгует Short на этом активе?", "Пока флэт, жду движения.", "Тейк-профит ставлю заранее, иначе жадность мешает.", "Не открывайте 100x на последние деньги.", "Цена Live или Демо, смотрите бейдж рядом с тикером."];
+  const chatStore = store.get("chat", {}); // свои сообщения: комната -> [{t, nick, text}]
+  const chatLive = {}; // сымитированные новые сообщения
+  let chatSentAt = 0;
+  const chatClean = (s) => s.replace(/(https?:\/\/|www\.|t\.me\/)\S+/gi, "[ссылка удалена]").trim().slice(0, 280);
+  function chatMsgs(room) {
+    const rnd = mulberry(hash(room) + 11), pool = room[0] === "t" ? CHAT_TRADE_SEED : CHAT_SEED, now = Date.now();
+    const seeded = Array.from({ length: 6 }, (_, i) => ({ t: now - (6 - i) * (4 + rnd() * 9) * 60000, nick: NICKS[Math.floor(rnd() * NICKS.length)], text: pool[Math.floor(rnd() * pool.length)] }));
+    return [...seeded, ...(chatLive[room] || []), ...(chatStore[room] || []).map((m) => ({ ...m, own: true }))].sort((a, b) => a.t - b.t);
+  }
+  const chatTime = (t) => new Date(t).toLocaleTimeString("ru-RU", { hour: "2-digit", minute: "2-digit" });
+  function chatHTML(room) {
+    return `<section class="chat" data-room="${room}">
+      <h3 class="pos-title">${room[0] === "t" ? "Чат трейдеров" : "Чат рынка"}</h3>
+      <div class="chat-list"></div>
+      <form class="chat-form"><input class="field chat-in" maxlength="280" placeholder="Напишите сообщение" aria-label="Сообщение в чат"><button class="pbtn" type="submit">Отправить</button></form>
+      <p class="fee-note">Демо: ваши сообщения видны только вам, собеседники сымитированы. Без ссылок и рекламы. Чат не является инвестиционной рекомендацией.</p>
+    </section>`;
+  }
+  function chatPaint(root, first) {
+    const room = $(".chat", root).dataset.room, list = $(".chat-list", root);
+    const stick = first || list.scrollHeight - list.scrollTop - list.clientHeight < 40;
+    list.innerHTML = chatMsgs(room).slice(-60).map((m) => `<div class="cm ${m.own ? "own" : ""}">${avatar(m.nick, m.own ? profile.color : traderColor(m.nick))}<div><b>${esc(m.nick)}${m.own ? " (вы)" : ""}</b><small>${chatTime(m.t)}</small><p>${esc(m.text)}</p></div></div>`).join("");
+    if (stick) list.scrollTop = list.scrollHeight;
+  }
+  function chatBind(root, room) {
+    chatPaint(root, true);
+    $(".chat-form", root).onsubmit = (ev) => {
+      ev.preventDefault();
+      const inp = $(".chat-in", root), text = chatClean(inp.value);
+      if (!text) return;
+      if (Date.now() - chatSentAt < 2000) return toast("Не так быстро: одно сообщение в 2 секунды");
+      chatSentAt = Date.now();
+      (chatStore[room] = chatStore[room] || []).push({ t: Date.now(), nick: profile.nick, text });
+      if (chatStore[room].length > 100) chatStore[room].shift();
+      store.set("chat", chatStore);
+      inp.value = "";
+      chatPaint(root, true);
+    };
+  }
+  setInterval(() => { // «собеседники» иногда пишут сами
+    const c = document.querySelector(".chat[data-room]");
+    if (!c || Math.random() > 0.5 || (c.closest("#modal") && $("#modal").hidden)) return;
+    const room = c.dataset.room, pool = room[0] === "t" ? CHAT_TRADE_SEED : CHAT_SEED;
+    (chatLive[room] = chatLive[room] || []).push({ t: Date.now(), nick: NICKS[Math.floor(Math.random() * NICKS.length)], text: pool[Math.floor(Math.random() * pool.length)] });
+    if (chatLive[room].length > 40) chatLive[room].shift();
+    chatPaint(c.parentElement, false);
+  }, 20000);
+
   // ---------- правила рынка ----------
   function rulesHTML(e) {
     const r = rulesFor(e);
@@ -949,7 +1001,7 @@
   }
 
   // ---------- модальные окна ----------
-  const openSheet = (html) => { $("#sheet-body").innerHTML = html; $("#modal").hidden = false; };
+  const openSheet = (html, fs) => { $("#sheet-body").innerHTML = html; $("#modal").classList.toggle("fs", !!fs); $("#modal").hidden = false; $("#modal").scrollTop = 0; };
   const closeModal = () => { $("#modal").hidden = true; modalEvent = null; };
 
   let chosenSide = "yes";
@@ -958,35 +1010,47 @@
     modalEvent = e;
     chosenSide = side || "yes";
     openSheet(`
-      ${banner(e, "in-modal", 560, 120)}
-      <div class="cat">${catName(e.cat)}</div>
-      <h2>${esc(e.q)}</h2>
-      <p>Закрытие ${fmtDate(e.closes)}${leftTxt(e) ? ` (${leftTxt(e)})` : ""} · <span id="m-vol"></span></p>
-      <div class="chart-head">
-        <div><span class="chart-now" id="m-now"></span> <span class="chart-delta" id="m-delta"></span></div>
-        <div class="range" id="m-range">${Object.keys(RANGES).map((k) => `<button data-range="${k}" class="${k === modalRange ? "on" : ""}">${k}</button>`).join("")}</div>
+      <div class="fs-top"><button class="fs-back" id="fs-back">← Назад к рынкам</button><span class="fs-id">Рынок №${e.id}</span></div>
+      ${banner(e, "in-modal", 1100, 150)}
+      <div class="fs-head">
+        <div class="cat">${catName(e.cat)}</div>
+        <h2>${esc(e.q)}</h2>
+        <p>Закрытие ${fmtDate(e.closes)}${leftTxt(e) ? ` (${leftTxt(e)})` : ""} · <span id="m-vol"></span></p>
       </div>
-      <div class="chart" id="m-chart"></div>
-      <div class="probbar" id="m-bar"></div>
-      <div class="poly-note" id="m-poly"></div>
-      ${e.resolved ? `<div class="resolved-note">Рынок завершён. Итог: «${e.resolved === "yes" ? "Да" : "Нет"}». Выплаты по ставкам уже рассчитаны, комиссия платформы 2% удержана с выигрыша.</div>` : isExpired(e) ? `<div class="resolved-note">Срок рынка вышел (${fmtDate(e.closes)}). Новые ставки не принимаются, ждём итог.</div>` : ""}
-      <div id="m-form"${e.resolved || isExpired(e) ? " hidden" : ""}>
-      <div class="seg">
-        <button class="yes" data-side="yes"></button>
-        <button class="no" data-side="no"></button>
-      </div>
-      <p class="coef-note">Коэффициент показывает, во сколько раз выплата больше ставки (до комиссии 2% с выигрыша).</p>
-      <input class="field" id="amt" type="number" min="1" step="100" value="500" aria-label="Сумма ставки в рублях">
-      <div class="impact" id="impact"></div>
-      <button class="submit" id="buy">Вложить в пул</button>
-      <div class="msg" id="msg"></div>
-      <p class="fee-note">Цену определяет поток денег: чем больше ставок на «Да», тем выше вероятность «Да» и ниже «Нет». Продать позицию можно в любой момент, комиссия 2%. Если ставка выиграет, платформа удержит 2% от выигрыша (выплата минус ставка).</p>
-      <div id="m-pos"></div>
-      </div>
-      ${!e.resolved && typeof DEMO_RESOLVE !== "undefined" && DEMO_RESOLVE ? `<details class="demo-resolve"><summary>Демо: завершить рынок и увидеть выплату</summary><p>Настоящий итог определяет источник результата. В демо вы выбираете его сами.</p><div class="btns"><button class="btn yes" data-demoresolve="yes">Итог «Да»</button><button class="btn no" data-demoresolve="no">Итог «Нет»</button></div></details>` : ""}
-      ${rulesHTML(e)}
-      ${similarHTML(e)}
-      <div id="m-tx"></div>`);
+      <div class="fs-grid">
+        <div class="fs-main">
+          <div class="chart-head">
+            <div><span class="chart-now" id="m-now"></span> <span class="chart-delta" id="m-delta"></span></div>
+            <div class="range" id="m-range">${Object.keys(RANGES).map((k) => `<button data-range="${k}" class="${k === modalRange ? "on" : ""}">${k}</button>`).join("")}</div>
+          </div>
+          <div class="chart" id="m-chart"></div>
+          <div class="probbar" id="m-bar"></div>
+          <div class="poly-note" id="m-poly"></div>
+          ${rulesHTML(e)}
+          <div id="m-chat">${chatHTML("m" + e.id)}</div>
+          ${similarHTML(e)}
+          <div id="m-tx"></div>
+        </div>
+        <aside class="fs-side">
+          ${e.resolved ? `<div class="resolved-note">Рынок завершён. Итог: «${e.resolved === "yes" ? "Да" : "Нет"}». Выплаты по ставкам уже рассчитаны, комиссия платформы 2% удержана с выигрыша.</div>` : isExpired(e) ? `<div class="resolved-note">Срок рынка вышел (${fmtDate(e.closes)}). Новые ставки не принимаются, ждём итог.</div>` : ""}
+          <div id="m-form"${e.resolved || isExpired(e) ? " hidden" : ""}>
+            <div class="seg">
+              <button class="yes" data-side="yes"></button>
+              <button class="no" data-side="no"></button>
+            </div>
+            <p class="coef-note">Коэффициент показывает, во сколько раз выплата больше ставки (до комиссии 2% с выигрыша).</p>
+            <input class="field" id="amt" type="number" min="1" step="100" value="500" aria-label="Сумма ставки в рублях">
+            <div class="impact" id="impact"></div>
+            <button class="submit" id="buy">Вложить в пул</button>
+            <div class="msg" id="msg"></div>
+            <p class="fee-note">Цену определяет поток денег: чем больше ставок на «Да», тем выше вероятность «Да» и ниже «Нет». Продать позицию можно в любой момент, комиссия 2%. Если ставка выиграет, платформа удержит 2% от выигрыша (выплата минус ставка).</p>
+            <div id="m-pos"></div>
+          </div>
+          ${!e.resolved && typeof DEMO_RESOLVE !== "undefined" && DEMO_RESOLVE ? `<details class="demo-resolve"><summary>Демо: завершить рынок и увидеть выплату</summary><p>Настоящий итог определяет источник результата. В демо вы выбираете его сами.</p><div class="btns"><button class="btn yes" data-demoresolve="yes">Итог «Да»</button><button class="btn no" data-demoresolve="no">Итог «Нет»</button></div></details>` : ""}
+        </aside>
+      </div>`, true);
+    $("#fs-back").onclick = closeModal;
+    chatBind($("#m-chat"), "m" + e.id);
     $(".seg").onclick = (ev) => { const b = ev.target.closest("button"); if (b) { chosenSide = b.dataset.side; paintModalLive(); } };
     $("#m-range").onclick = (ev) => {
       const b = ev.target.closest("button");
@@ -1198,7 +1262,7 @@
     if (out === "yes" || out === "no") settleMarket(e, out, true);
   });
   window.RP = {
-    store, rub, toast, askConfirm, openSheet, closeModal,
+    store, rub, toast, askConfirm, openSheet, closeModal, chatHTML, chatBind,
     route: () => state.route,
     getBalance: () => balance,
     setBalance: (v) => { setBalance(v); if (state.route === "account") paintAccountRight(); }

@@ -612,6 +612,7 @@ const PERPS = (() => {
       <p class="fee-note warn" id="t-warn" hidden></p>
       <p class="fee-note">Плечо увеличивает и прибыль, и убыток. Если цена дойдёт до цены ликвидации, вся маржа сгорает. Без плеча (1x) ликвидация почти невозможна.</p>
     </div>
+    <div class="panel tchat" id="t-chat"></div>
     <div class="panel tsugg" id="t-sugg">
       <h3>Другие активы</h3>
       <div class="sugg">${(REL[a.sym] || []).map((s) => { const x = A[s]; return `<button class="sg" data-sg="${x.sym}">${badge(x)}<span class="sg-info"><b>${x.sym}-PERP</b><small>${esc(x.name)} · ${CLS[x.cls]}</small></span><span class="sg-pr"><b data-sp="${x.sym}">${price(x, x.price)}</b><small data-sc="${x.sym}">${chText(x)}</small></span></button>`; }).join("")}</div>
@@ -761,6 +762,8 @@ const PERPS = (() => {
       };
       roeChips("#t-tpchips", "tp", 1);
       roeChips("#t-slchips", "sl", -1);
+      $("#t-chat").innerHTML = RP.chatHTML("t-" + P.sel);
+      RP.chatBind($("#t-chat"), "t-" + P.sel);
       $("#t-open").onclick = confirmOpen;
       $("#t-sugg").onclick = (ev) => {
         const b = ev.target.closest("[data-sg]");
