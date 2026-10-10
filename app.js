@@ -67,7 +67,7 @@
     cash.textContent = rub(balance);
     let inPlay = 0;
     try { inPlay = bets.reduce((s, b) => s + b.amt, 0) + PERPS.locked(); } catch {}
-    if (port) port.textContent = rub(balance + inPlay);
+    if (port) port.textContent = rub(inPlay);
   }
   setInterval(() => paintWallet(), 1500);
   let toastTimer;
@@ -829,7 +829,7 @@
               <td><span class="tx-when">${w.abs}</span><small>${w.rel}</small></td>
               <td><span class="dp-inl" style="justify-content:flex-start">${payIcon(d.method === "sbp" ? "sbp" : "crypto", 24)}${v.head}</span></td>
               <td><span class="dp-inl" style="justify-content:flex-start">${payIcon(v.icon, 24)}${esc(v.sub)}</span></td>
-              <td>${d.coin ? esc(d.coin) : rub(d.rub)}</td>
+              <td>${d.coin ? esc(d.coin) : rub(d.rub)}${d.rate ? `<small class="dp-rt">курс ${nf.format(Math.round(d.rate * 100) / 100)} ₽${d.live ? "" : " (демо)"}</small>` : ""}</td>
               <td>${d.method === "sbp" ? "СБП-" : ""}${esc(d.id)}</td>
               <td><span class="tag yes">Зачислено</span></td>
               <td class="pos"><b>+${rub(d.rub)}</b></td>
@@ -1242,6 +1242,50 @@
     ETH: { name: "Ethereum", rate: 280000, dec: 5, chips: [0.01, 0.05, 0.1, 0.5], nets: [["ERC-20 (Ethereum)", 12, "ETH"]] },
     TON: { name: "Toncoin", rate: 300, dec: 2, chips: [10, 50, 100, 500], nets: [["TON", 1, "TON"]] }
   };
+  // ---------- реальные курсы ----------
+  // Курс монеты в рублях = цена в долларах (Binance, запасной Coinbase) × курс доллара (ЦБ РФ, запасная Мосбиржа).
+  // USDT и USDC приравнены к $1. Нет доступа к источникам (например, внутри claude.ai): остаётся демо-курс, он помечен.
+  const RATE = { t: 0, loading: false, fx: 0, srcFx: "", failed: false };
+  const fetchJSON = async (url, ms = 7000) => {
+    const c = new AbortController(), id = setTimeout(() => c.abort(), ms);
+    try { const r = await fetch(url, { signal: c.signal, cache: "no-store" }); if (!r.ok) throw new Error(r.status); return await r.json(); } finally { clearTimeout(id); }
+  };
+  async function usdRub() {
+    try { const v = (await fetchJSON("https://www.cbr-xml-daily.ru/daily_json.js")).Valute.USD; const x = v.Value / v.Nominal; if (x > 0) return { v: x, src: "ЦБ РФ" }; } catch {}
+    const j = await fetchJSON("https://iss.moex.com/iss/engines/currency/markets/selt/boards/CETS/securities/USD000UTSTOM.json?iss.meta=off&iss.only=marketdata&marketdata.columns=LAST");
+    const x = Number(j.marketdata.data[0][0]);
+    if (!(x > 0)) throw new Error("usdrub");
+    return { v: x, src: "Мосбиржа" };
+  }
+  async function coinUsd(sym) {
+    try { const x = Number((await fetchJSON("https://api.binance.com/api/v3/ticker/price?symbol=" + sym + "USDT")).price); if (x > 0) return { v: x, src: "Binance" }; } catch {}
+    const x = Number((await fetchJSON(`https://api.coinbase.com/v2/prices/${sym}-USD/spot`)).data.amount);
+    if (!(x > 0)) throw new Error(sym);
+    return { v: x, src: "Coinbase" };
+  }
+  async function loadRates() {
+    if (RATE.loading) return;
+    RATE.loading = true;
+    try {
+      const fx = await usdRub();
+      RATE.fx = fx.v; RATE.srcFx = fx.src;
+      COINS.USDT.rate = COINS.USDC.rate = fx.v; COINS.USDT.live = COINS.USDC.live = true; COINS.USDT.src = COINS.USDC.src = "$1 · " + fx.src;
+      const syms = ["BTC", "ETH", "TON"];
+      const res = await Promise.allSettled(syms.map(coinUsd));
+      res.forEach((r, i) => { if (r.status === "fulfilled") { const k = COINS[syms[i]]; k.rate = r.value.v * fx.v; k.live = true; k.src = r.value.src + " · " + fx.src; } });
+      RATE.t = Date.now(); RATE.failed = false;
+    } catch { RATE.failed = true; }
+    RATE.loading = false;
+    if (depAlive() && dep.sync) dep.sync();
+  }
+  const rateBadge = () => {
+    const c = COINS[dep.coin];
+    if (c.live) return `<span class="dp-live"></span>Живой курс · ${c.src} · ${new Date(RATE.t).toLocaleTimeString("ru-RU")}`;
+    if (RATE.loading || !RATE.t && !RATE.failed) return `<span class="dp-live wait"></span>Загружаем курс…`;
+    return `<span class="dp-live off"></span>Демо-курс: источники курса недоступны (в окне claude.ai внешние запросы закрыты). Откройте сайт на своём хостинге или из архива, чтобы курс стал живым.`;
+  };
+  const rateTxt = (c) => nf.format(Math.round(c.rate * 100) / 100).replace(/,00$/, "");
+
   // amount — сумма в рублях (её зачислим), tok — точное число токенов, если человек ввёл именно токены (иначе считается по курсу)
   const dep = { method: "sbp", amount: 5000, tok: null, bank: BANKS[0], coin: "USDT", net: 0 };
   const depAlive = () => !!$("#dep-root");
@@ -1272,11 +1316,14 @@
 
   function openDeposit() {
     modalEvent = null;
+    dep.tok = null; dep.q = null;
     openSheet(`
       <h2>Пополнить пул</h2>
       <p>Демо-режим: реальные платежи не принимаются, вы получаете игровые рубли. Реквизиты ниже вымышлены, ничего не отправляйте.</p>
       <div id="dep-root"></div>`);
     depStep1();
+    loadRates();
+    depTicker(() => loadRates(), 15000);
   }
 
   function depStep1(note) {
@@ -1294,7 +1341,7 @@
       <input class="field" id="dep" type="number" min="${DEP_MIN}" max="${DEP_MAX}" step="100" value="${dep.amount}" aria-label="Сумма пополнения в рублях">`
         : `<label class="dp-l">Сколько пополнить: в рублях или в ${dep.coin}</label>
       <div class="dp-dual">
-        <div><small>В рублях</small><div class="dp-inp"><input class="field" id="dep" type="number" min="${DEP_MIN}" max="${DEP_MAX}" step="100" value="${dep.amount || ""}" aria-label="Сумма пополнения в рублях"><i>₽</i></div></div>
+        <div><small>В рублях</small><div class="dp-inp"><input class="field" id="dep" type="number" min="1" step="any" value="${dep.amount || ""}" aria-label="Сумма пополнения в рублях"><i>₽</i></div></div>
         <span class="dp-swap" aria-hidden="true">⇄</span>
         <div><small>В ${dep.coin}</small><div class="dp-inp"><input class="field" id="dep-tok" type="text" inputmode="decimal" autocomplete="off" value="${dep.tok != null ? tokInput(dep.tok) : dep.amount > 0 ? tokInput(dep.amount / c.rate) : ""}" aria-label="Сумма пополнения в ${dep.coin}"><i>${dep.coin}</i></div></div>
       </div>
@@ -1308,17 +1355,21 @@
            <label class="dp-l" for="dep-net">Сеть</label>
            <select class="field" id="dep-net">${c.nets.map((n, i) => `<option value="${i}" ${i === dep.net ? "selected" : ""}>${n[0]}</option>`).join("")}</select>`}
       <div class="dp-sum" id="dp-sum"></div>
+      ${m === "crypto" ? `<div class="dp-rate" id="dp-rate"></div>` : ""}
       <button class="submit" id="dep-go">Продолжить</button>
       <div class="msg ${note ? "err" : ""}" id="msg">${note || ""}</div>
-      <small class="dp-fine">Лимиты: от ${rub(DEP_MIN)} до ${rub(DEP_MAX)}. Комиссия за пополнение в демо не взимается.</small>`;
+      <small class="dp-fine">${m === "sbp" ? `Лимиты СБП: от ${rub(DEP_MIN)} до ${rub(DEP_MAX)}.` : "Пополнение криптовалютой без лимитов."} Комиссия за пополнение в демо не взимается.</small>`;
     const sum = () => {
       const v = depAmount();
       $("#dp-sum").innerHTML = m === "sbp"
         ? `<div><span>К оплате</span><b>${v > 0 ? rub(v) : "—"}</b></div>`
         : `<div><span>Будет зачислено</span><b>${v > 0 ? rub(v) : "—"}</b></div>
-           <div><span>К отправке · демо-курс 1 ${dep.coin} = ${nf.format(c.rate)} ₽</span><b>${v > 0 ? tokStr(depTok()) + " " + dep.coin : "—"}</b></div>`;
+           <div><span>К отправке · 1 ${dep.coin} = ${rateTxt(c)} ₽${c.live ? "" : " (демо)"}</span><b>${v > 0 ? tokStr(depTok()) + " " + dep.coin : "—"}</b></div>`;
     };
     sum();
+    const paintRate = () => { const el = $("#dp-rate"); if (el) el.innerHTML = rateBadge(); };
+    paintRate();
+    dep.sync = null;
     if (m === "sbp") {
       $("#dep").oninput = () => { dep.amount = depAmount() || 0; sum(); };
       root.querySelector(".chips").onclick = (ev) => { const b = ev.target.closest(".chip"); if (b) { $("#dep").value = b.dataset.v; dep.amount = Number(b.dataset.v); sum(); } };
@@ -1327,6 +1378,8 @@
       const rubIn = $("#dep"), tokIn = $("#dep-tok");
       const fromRub = () => { dep.tok = null; dep.amount = depAmount() || 0; tokIn.value = dep.amount > 0 ? tokInput(dep.amount / c.rate) : ""; sum(); };
       const fromTok = () => { const t = parseTok(tokIn.value); dep.tok = t > 0 ? t : null; dep.amount = t > 0 ? Math.round(t * c.rate) : 0; rubIn.value = dep.amount > 0 ? dep.amount : ""; sum(); };
+      // новый курс: что вводили последним, то и остаётся (токены или рубли), второе поле пересчитывается
+      dep.sync = () => { if (!$("#dep-tok")) return; (dep.tok != null ? fromTok : fromRub)(); paintRate(); };
       rubIn.oninput = fromRub;
       tokIn.oninput = fromTok;
       $("#dep-rchips").onclick = (ev) => { const b = ev.target.closest("[data-v]"); if (b) { rubIn.value = b.dataset.v; fromRub(); } };
@@ -1340,16 +1393,27 @@
     }
     $("#dep-go").onclick = () => {
       const v = depAmount();
-      if (m === "crypto" && !(depTok() > 0)) return depStep1("Введите сумму в рублях или в " + dep.coin + ".");
-      if (!(v >= DEP_MIN)) return depStep1(`Минимальная сумма — ${rub(DEP_MIN)} (≈ ${tokStr(DEP_MIN / c.rate)} ${dep.coin}).`);
-      if (v > DEP_MAX) return depStep1(`Максимальная сумма — ${rub(DEP_MAX)} (≈ ${tokStr(DEP_MAX / c.rate)} ${dep.coin}).`);
-      dep.amount = v;
+      if (m === "crypto") {
+        if (!(depTok() > 0)) return depStep1("Введите сумму в рублях или в " + dep.coin + ".");
+        if (dep.tok != null) dep.amount = Math.round(dep.tok * c.rate); // токены вводили сами: рубли считаем по свежему курсу
+        if (!(dep.amount >= 1)) return depStep1("Сумма меньше ₽ 1, зачислять нечего.");
+        if (dep.amount > 1e12) return depStep1("Слишком большая сумма.");
+        // курс и суммы фиксируются на время платежа
+        const k = 10 ** c.dec, tok = Math.round(depTok() * k) / k;
+        dep.q = { amount: dep.amount, tok, rate: c.rate, live: !!c.live, src: c.src || "" };
+      } else {
+        if (!(v >= DEP_MIN)) return depStep1(`Минимальная сумма СБП — ${rub(DEP_MIN)}.`);
+        if (v > DEP_MAX) return depStep1(`Максимальная сумма СБП — ${rub(DEP_MAX)}.`);
+        dep.amount = v;
+        dep.q = { amount: v };
+      }
       depStep2(Math.random().toString(36).slice(2, 8).toUpperCase());
     };
   }
 
   function depStep2(ref) {
-    const root = $("#dep-root"), v = dep.amount, m = dep.method, c = COINS[dep.coin], net = c.nets[dep.net];
+    const root = $("#dep-root"), v = dep.q.amount, m = dep.method, c = COINS[dep.coin], net = c.nets[dep.net];
+    dep.sync = null;
     const total = m === "sbp" ? 15 * 60 : 30 * 60;
     let left = total;
     const addr = m === "crypto" ? fakeAddr(net[2], ref + dep.coin) : "";
@@ -1371,10 +1435,11 @@
       : `<div class="dp-pay">
           ${fakeQR(addr)}
           <div class="dp-det">
-            <div><span>Отправьте ровно</span><b>${tokStr(depTok())} ${dep.coin}</b></div>
+            <div><span>Отправьте ровно</span><b>${tokStr(dep.q.tok)} ${dep.coin}</b></div>
             <div><span>Монета</span><b class="dp-inl">${payIcon(dep.coin, 20)}${dep.coin}</b></div>
             <div><span>Сеть</span><b>${net[0]}</b></div>
             <div><span>Эквивалент</span><b>${rub(v)}</b></div>
+            <div><span>Курс зафиксирован</span><b>1 ${dep.coin} = ${rateTxt({ rate: dep.q.rate })} ₽${dep.q.live ? "" : " (демо)"}</b></div>
           </div>
         </div>
         <div class="dp-addr"><span>Демо-адрес для пополнения</span><code id="dp-addr">${addr}</code><button class="chip" id="dp-copy" type="button">Копировать</button></div>
@@ -1420,8 +1485,8 @@
 
   function depDone(ref) {
     if (!depAlive()) return;
-    const v = dep.amount, m = dep.method, c = COINS[dep.coin], net = c.nets[dep.net];
-    const rec = { id: ref, t: Date.now(), status: "done", method: m, rub: v, via: m === "sbp" ? dep.bank : dep.coin + " · " + net[0], coin: m === "crypto" ? tokStr(depTok()) + " " + dep.coin : "" };
+    const v = dep.q.amount, m = dep.method, c = COINS[dep.coin], net = c.nets[dep.net];
+    const rec = { id: ref, t: Date.now(), status: "done", method: m, rub: v, via: m === "sbp" ? dep.bank : dep.coin + " · " + net[0], coin: m === "crypto" ? tokStr(dep.q.tok) + " " + dep.coin : "", rate: m === "crypto" ? dep.q.rate : 0, live: m === "crypto" ? dep.q.live : false };
     deposits.push(rec);
     store.set("deposits", deposits.slice(-50));
     setBalance(balance + v);
