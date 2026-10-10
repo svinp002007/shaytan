@@ -853,6 +853,8 @@ const PERPS = (() => {
   const realized = () => closed.reduce((s, c) => s + c.pnl, 0);
   const closedMargin = () => closed.reduce((s, c) => s + c.margin, 0);
   const count = () => closed.length + positions.length;
+  // Маржа в открытых позициях (деньги, которые сейчас «в игре» в трейдинге).
+  const locked = () => positions.reduce((s, p) => s + p.margin, 0);
   function reset() { positions = []; closed = []; plog = []; persist(); }
   // Все сделки в виде строк для истории аккаунта.
   function rows() {
@@ -863,5 +865,5 @@ const PERPS = (() => {
     });
   }
 
-  return { init, view, bind, tick, promo, select, realized, closedMargin, count, reset, rows };
+  return { init, view, bind, tick, promo, select, realized, closedMargin, count, locked, reset, rows };
 })();

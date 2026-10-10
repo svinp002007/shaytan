@@ -199,7 +199,7 @@
     }).join("");
     return `<h3 class="pos-title">История сделок</h3>
       <p class="tx-sum">${e.trades.length} сделок · за 24 часа ${rub(day)}</p>
-      <div class="tx-scroll"><table class="tx"><thead><tr><th>Когда</th><th>Трейдер</th><th>Сделка</th><th>Сумма</th><th>Вер. · коэф.</th></tr></thead><tbody>${rows}</tbody></table></div>`;
+      <div class="tx-scroll"><table class="tx"><thead><tr><th>Когда</th><th>Трейдер</th><th>Сделка</th><th>Сумма</th><th>Вер. · коэф. / №</th></tr></thead><tbody>${rows}</tbody></table></div>`;
   }
 
   // ---------- графики ----------
@@ -736,7 +736,6 @@
   }
 
   function accountRight() {
-    const staked = bets.reduce((s, b) => s + b.amt, 0);
     const r = realized();
     const open = bets.length
       ? bets.slice().reverse().map((b) => {
@@ -751,24 +750,84 @@
         }).join("")}</div>`
       : "";
     return `
-      <h3>Мои средства и ставки</h3>
+      <h3>Мои ставки</h3>
       <div class="kpis">
-        <div class="kpi"><b>${rub(balance)}</b><span>баланс</span></div>
-        <div class="kpi"><b>${rub(staked)}</b><span>в игре</span></div>
         <div class="kpi"><b>${bets.length}</b><span>открытых ставок</span></div>
         <div class="kpi"><b class="${r >= 0 ? "pos" : "neg"}">${signed(r)} ₽</b><span>прибыль по проданным</span></div>
       </div>
       <div class="row-actions" style="margin:0 0 18px"><button class="pbtn" data-deposit>Пополнить пул</button></div>
-      ${deposits.length ? `<h3>Пополнения</h3><div class="dp-hist">${deposits.slice(-5).reverse().map((d) => `<div class="dp-row">${payIcon(d.method === "sbp" ? d.via : (d.coin ? d.coin.split(" ")[1] : "crypto"), 30)}<span class="dp-via">${esc(d.via)}${d.coin ? `<small>${esc(d.coin)}</small>` : ""}</span><span class="dp-when">${when(d.t).abs}</span><b>+${rub(d.rub)}</b></div>`).join("")}</div>` : ""}
       <div class="bets">${open}</div>${hist}`;
   }
   const paintAccountRight = () => {
     const el = $("#acc-right");
     if (el) el.innerHTML = accountRight();
+    paintAccountStats();
+    paintDeposits();
     paintAccountTx();
   };
 
-  // ---------- все сделки аккаунта (рынки прогнозов и трейдинг) ----------
+  // ---------- наличные и деньги в игре ----------
+  function paintAccountStats() {
+    const box = $("#acc-stats");
+    if (!box) return;
+    const inPools = bets.reduce((s, b) => s + b.amt, 0);
+    const inTrade = PERPS.locked();
+    const inPlay = inPools + inTrade, total = balance + inPlay;
+    const share = total > 0 ? Math.round((balance / total) * 100) : 100;
+    box.innerHTML = `
+      <div class="stat cash">
+        <span class="stat-ic">${payIcon("crypto", 40)}</span>
+        <div><small>Наличные на балансе</small><b>${rub(balance)}</b><em>свободные деньги: можно сразу вложить в пул или трейдинг</em></div>
+        <button class="pbtn" data-deposit>Пополнить</button>
+      </div>
+      <div class="stat play">
+        <span class="stat-ic play-ic">${payIcon("sbp", 40)}</span>
+        <div><small>В пулах и трейдинге</small><b>${rub(inPlay)}</b><em>в пулах ${rub(inPools)} (${bets.length} ${bets.length === 1 ? "ставка" : "ставок"}) · в трейдинге ${rub(inTrade)} (маржа)</em></div>
+      </div>
+      <div class="stat-bar" title="Доля наличных в общих средствах">
+        <div class="stat-bar-t"><span>Всего средств: <b>${rub(total)}</b></span><span>наличные ${share}% · в игре ${100 - share}%</span></div>
+        <div class="stat-bar-b"><i style="width:${share}%"></i></div>
+      </div>`;
+  }
+
+  // ---------- история пополнений ----------
+  let depFilter = "all", depLimit = 10;
+  const depVia = (d) => {
+    if (d.method === "sbp") return { head: "СБП", sub: d.via, icon: d.via };
+    const [coin, net] = String(d.via).split(" · ");
+    return { head: "Криптовалюта", sub: coin + (net ? " · " + net : ""), icon: coin };
+  };
+  function paintDeposits() {
+    const box = $("#acc-dep");
+    if (!box) return;
+    const sum = (m) => deposits.filter((d) => !m || d.method === m).reduce((s, d) => s + d.rub, 0);
+    const cnt = (m) => deposits.filter((d) => !m || d.method === m).length;
+    const list = deposits.filter((d) => depFilter === "all" || d.method === depFilter).slice().reverse();
+    const tabs = [["all", "Все", cnt()], ["sbp", "СБП", cnt("sbp")], ["crypto", "Криптовалюта", cnt("crypto")]];
+    box.innerHTML = `
+      <div class="kpis">
+        <div class="kpi"><b>${rub(sum())}</b><span>всего пополнено (${cnt()})</span></div>
+        <div class="kpi"><b>${rub(sum("sbp"))}</b><span>через СБП (${cnt("sbp")})</span></div>
+        <div class="kpi"><b>${rub(sum("crypto"))}</b><span>криптовалютой (${cnt("crypto")})</span></div>
+      </div>
+      <div class="chips" style="margin-bottom:12px">${tabs.map(([id, n, c]) => `<button class="chip ${id === depFilter ? "on" : ""}" data-depf="${id}">${n} · ${c}</button>`).join("")}</div>
+      ${list.length
+        ? `<div class="table-wrap" style="margin:0"><table class="acc-tx"><thead><tr><th>Когда</th><th>Способ</th><th>Банк или монета</th><th>Отправлено</th><th>Номер платежа</th><th>Статус</th><th>Зачислено</th></tr></thead><tbody>${list.slice(0, depLimit).map((d) => {
+            const v = depVia(d), w = when(d.t);
+            return `<tr>
+              <td><span class="tx-when">${w.abs}</span><small>${w.rel}</small></td>
+              <td><span class="dp-inl" style="justify-content:flex-start">${payIcon(d.method === "sbp" ? "sbp" : "crypto", 24)}${v.head}</span></td>
+              <td><span class="dp-inl" style="justify-content:flex-start">${payIcon(v.icon, 24)}${esc(v.sub)}</span></td>
+              <td>${d.coin ? esc(d.coin) : rub(d.rub)}</td>
+              <td>${d.method === "sbp" ? "СБП-" : ""}${esc(d.id)}</td>
+              <td><span class="tag yes">Зачислено</span></td>
+              <td class="pos"><b>+${rub(d.rub)}</b></td>
+            </tr>`;
+          }).join("")}</tbody></table></div>${list.length > depLimit ? `<button class="sbtn" style="margin-top:12px" data-depmore>Показать ещё (${list.length - depLimit})</button>` : ""}`
+        : `<p class="empty" style="padding:18px">${deposits.length ? "По этому способу пополнений нет." : "Пополнений пока нет."} <a href="#account" style="color:var(--brand)" data-deposit>Пополнить баланс</a></p>`}`;
+  }
+
+  // ---------- все операции аккаунта (рынки прогнозов, трейдинг и пополнения) ----------
   let accFilter = "all", accLimit = 15;
   function allTrades() {
     const rows = [];
@@ -778,6 +837,7 @@
       rows.push({ t: x.t, sec: "pred", title: e.q, action: `${TX_LABEL[x.kind] || "Покупка"} · ${x.side === "yes" ? "Да" : "Нет"}`, cls: x.side, amt: x.amt, priceText: pct1(x.price) + "% · " + coefTxt(x.price), pnl: x.pnl === undefined ? null : x.pnl });
     });
     PERPS.rows().forEach((r) => rows.push(r));
+    deposits.forEach((d) => { const v = depVia(d); rows.push({ t: d.t, sec: "dep", title: "Пополнение баланса", action: v.head === "СБП" ? "СБП · " + v.sub : v.sub, cls: "yes", amt: d.rub, priceText: (d.method === "sbp" ? "СБП-" : "") + d.id, pnl: null }); });
     return rows.sort((a, b) => b.t - a.t);
   }
   function paintAccountTx() {
@@ -785,7 +845,7 @@
     if (!box) return;
     const all = allTrades();
     const list = all.filter((r) => accFilter === "all" || r.sec === accFilter);
-    const tabs = [["all", "Все"], ["pred", "Рынки прогнозов"], ["perp", "Трейдинг"]];
+    const tabs = [["all", "Все"], ["pred", "Рынки прогнозов"], ["perp", "Трейдинг"], ["dep", "Пополнения"]];
     $("#acc-txf").innerHTML = tabs.map(([id, n]) => `<button class="chip ${id === accFilter ? "on" : ""}" data-txf="${id}">${n} · ${id === "all" ? all.length : all.filter((r) => r.sec === id).length}</button>`).join("");
     if (!list.length) {
       box.innerHTML = `<p class="empty" style="padding:18px">Сделок пока нет. Откройте <a href="#markets" style="color:var(--brand)">рынки</a> или <a href="#trade" style="color:var(--brand)">трейдинг</a>.</p>`;
@@ -795,7 +855,7 @@
       const w = when(r.t);
       return `<tr>
         <td><span class="tx-when">${w.abs}</span><small>${w.rel}</small></td>
-        <td>${r.sec === "pred" ? "Прогноз" : "Трейдинг"}</td>
+        <td>${{ pred: "Прогноз", perp: "Трейдинг", dep: "Пополнение" }[r.sec]}</td>
         <td class="ev">${esc(r.title)}</td>
         <td><span class="tag ${r.cls}">${esc(r.action)}</span></td>
         <td>${rub(r.amt)}</td>
@@ -809,6 +869,7 @@
     return `<div class="wrap">
       <h1 class="page-title">Мой аккаунт</h1>
       <p class="page-sub">Данные профиля хранятся в вашем браузере и меняются в любой момент.</p>
+      <div class="acc-stats" id="acc-stats"></div>
       <div class="acc">
         <div class="panel">
           <h3>Профиль</h3>
@@ -838,8 +899,12 @@
         </div>
         <div class="panel" id="acc-right">${accountRight()}</div>
       </div>
+      <div class="panel" style="margin:16px 0">
+        <h3>История пополнений</h3>
+        <div id="acc-dep"></div>
+      </div>
       <div class="panel" style="margin-bottom:40px">
-        <h3>Все сделки</h3>
+        <h3>Все операции</h3>
         <div id="acc-txf" class="chips" style="margin-bottom:12px"></div>
         <div id="acc-tx"></div>
       </div>
@@ -962,7 +1027,7 @@
     $("#view").innerHTML = routes[state.route]();
     document.querySelectorAll("#nav a").forEach((a) => a.classList.toggle("on", a.dataset.r === state.route));
     if (state.route === "markets") paintGrid();
-    if (state.route === "account") { bindAccount(); paintAccountTx(); }
+    if (state.route === "account") { bindAccount(); paintAccountStats(); paintDeposits(); paintAccountTx(); }
     if (state.route === "community") bindCommunity();
     if (state.route === "trade") PERPS.bind();
     window.scrollTo(0, 0);
@@ -1319,7 +1384,7 @@
   function depDone(ref) {
     if (!depAlive()) return;
     const v = dep.amount, m = dep.method, c = COINS[dep.coin], net = c.nets[dep.net];
-    const rec = { id: ref, t: Date.now(), method: m, rub: v, via: m === "sbp" ? dep.bank : dep.coin + " · " + net[0], coin: m === "crypto" ? coinAmt(v, dep.coin) + " " + dep.coin : "" };
+    const rec = { id: ref, t: Date.now(), status: "done", method: m, rub: v, via: m === "sbp" ? dep.bank : dep.coin + " · " + net[0], coin: m === "crypto" ? coinAmt(v, dep.coin) + " " + dep.coin : "" };
     deposits.push(rec);
     store.set("deposits", deposits.slice(-50));
     setBalance(balance + v);
@@ -1387,6 +1452,9 @@
     const t = ev.target;
     const dr = t.closest("[data-demoresolve]");
     if (dr && modalEvent) return confirmResolve(modalEvent, dr.dataset.demoresolve);
+    const depf = t.closest("[data-depf]");
+    if (depf) { depFilter = depf.dataset.depf; depLimit = 10; return paintDeposits(); }
+    if (t.closest("[data-depmore]")) { depLimit += 10; return paintDeposits(); }
     const txf = t.closest("[data-txf]");
     if (txf) { accFilter = txf.dataset.txf; accLimit = 15; return paintAccountTx(); }
     if (t.closest("[data-txmore]")) { accLimit += 15; return paintAccountTx(); }
