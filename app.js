@@ -57,8 +57,19 @@
   function setBalance(v) {
     balance = Math.max(0, v);
     store.set("balance", balance);
-    $("#balance").textContent = rub(balance);
+    paintWallet();
+    queueMicrotask(paintWallet); // ставки и позиции обновляются сразу после списания, поэтому повторяем после текущего кода
   }
+  // Шапка: «Портфель» — наличные плюс вложенное в пулы и трейдинг, «Наличные» — свободный баланс.
+  function paintWallet() {
+    const cash = $("#balance"), port = $("#portfolio");
+    if (!cash) return;
+    cash.textContent = rub(balance);
+    let inPlay = 0;
+    try { inPlay = bets.reduce((s, b) => s + b.amt, 0) + PERPS.locked(); } catch {}
+    if (port) port.textContent = rub(balance + inPlay);
+  }
+  setInterval(() => paintWallet(), 1500);
   let toastTimer;
   function toast(text) {
     const t = $("#toast");

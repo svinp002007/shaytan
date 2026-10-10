@@ -27,8 +27,13 @@ h1,h2,h3{font-family:var(--display);text-wrap:balance;margin:0}
 .nav a{text-decoration:none;padding:7px 13px;border-radius:99px;color:var(--muted);font-weight:500}
 .nav a:hover{color:var(--ink)}
 .nav a.on{background:var(--ink);color:var(--bg)}
-.wallet{display:flex;align-items:center;gap:10px;border:1px solid var(--line);background:var(--soft);color:var(--ink);padding:6px 6px 6px 14px;border-radius:99px;font:700 14px var(--body);cursor:pointer;white-space:nowrap}
-.wallet i{display:grid;place-items:center;width:24px;height:24px;border-radius:50%;background:var(--brand);color:#fff;font-style:normal}
+.wbox{display:flex;align-items:center;gap:22px}
+.wb{text-align:right;line-height:1.15}
+.wb small{display:block;font-size:14px;font-weight:500;color:var(--ink)}
+.wb b{display:block;margin-top:2px;font:700 16px var(--body);color:var(--yes);font-variant-numeric:tabular-nums;white-space:nowrap}
+.dep-btn{display:flex;align-items:center;gap:10px;border:0;background:#3d5afe;color:#fff;padding:0 20px;height:44px;border-radius:14px;font:700 16px var(--body);cursor:pointer;white-space:nowrap}
+.dep-btn:hover{background:#3351f0}
+.dep-btn svg{flex:none}
 
 /* hero */
 .hero{background:linear-gradient(115deg,var(--hero-a) 0%,var(--hero-b) 62%,var(--hero-c) 130%);color:#fff;position:relative;overflow:hidden}
@@ -570,3 +575,9 @@ footer{border-top:1px solid var(--line);padding:22px 0;color:var(--muted);font-s
 .stat-bar-b{height:8px;border-radius:8px;background:var(--soft);overflow:hidden;border:1px solid var(--line)}
 .stat-bar-b i{display:block;height:100%;background:var(--brand);border-radius:8px}
 @media(max-width:720px){.acc-stats{grid-template-columns:1fr}.stat .pbtn{padding:8px 12px}}
+
+@media(max-width:1180px){.wbox{gap:16px}.wb-port{display:none}}
+@media(max-width:640px){.wb small{font-size:12px}.wb b{font-size:14px}.dep-btn{padding:0 12px;height:40px;font-size:14px;gap:6px;border-radius:12px}.dep-btn svg{width:18px;height:18px}}
+@media(max-width:400px){.dep-btn span{display:none}.dep-btn{padding:0 11px}}
+@media(max-width:900px) and (min-width:641px){.bar{gap:10px}.nav{gap:0}.nav a{padding:6px 8px;font-size:13px}.logo span{display:none}.wbox{gap:10px}.dep-btn{padding:0 12px}}
+@media(max-width:720px) and (min-width:641px){.dep-btn span{display:none}.dep-btn{padding:0 11px}.nav a{padding:6px 6px}}
