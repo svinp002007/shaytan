@@ -601,8 +601,10 @@
           ${thesis ? `<div class="thesis">
             <div class="ths-label">Тезис</div>
             <p>${esc(thesis.text)}</p>
-            <div class="ths-author">${avatar(thesis.author, "#0e7490")}<span><b>${esc(thesis.author)}</b><small>${esc(thesis.role)} · ${fmtDate(thesis.date)}</small></span></div>
-            <small class="ths-note">Мнение автора, не инвестиционная рекомендация.</small>
+            <div class="ths-author">${avatar(thesis.author, "#0e7490")}<span><b>${esc(thesis.author)}</b><small>${esc(thesis.role)} · заметка от ${fmtDate(thesis.date)}</small></span></div>
+            ${(thesis.links || []).length ? `<div class="ths-links">Источники: ${thesis.links.map((l) => `<a href="${esc(/^https?:\/\//i.test(l.url) ? l.url : "#")}" target="_blank" rel="noopener noreferrer">${esc(l.name)}</a>`).join(" · ")}</div>` : ""}
+            ${thesis.counter ? `<p class="ths-counter">${esc(thesis.counter.text)} <a href="${esc(/^https?:\/\//i.test(thesis.counter.url) ? thesis.counter.url : "#")}" target="_blank" rel="noopener noreferrer">Подробнее</a></p>` : ""}
+            <small class="ths-note">Пересказ публикаций в СМИ, мнение автора, не инвестиционная рекомендация. Цифры проверяйте по первоисточнику.</small>
           </div>` : ""}
         </div>
       </div>

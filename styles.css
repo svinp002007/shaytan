@@ -493,3 +493,6 @@ footer{border-top:1px solid var(--line);padding:22px 0;color:var(--muted);font-s
 .ths-author b{display:block;font-size:14px}
 .ths-author small{opacity:.75;font-size:12px}
 .ths-note{display:block;margin-top:10px;opacity:.6;font-size:11px}
+.ths-links{margin-top:10px;font-size:12px;opacity:.9}
+.ths-links a,.ths-counter a{color:#fff;text-decoration:underline}
+.ths-counter{margin:10px 0 0;font-size:13px;opacity:.85;line-height:1.45}
