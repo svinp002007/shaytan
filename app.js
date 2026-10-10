@@ -36,6 +36,7 @@
 
   let myIdeas = store.get("ideas", []);
   let voted = store.get("voted", []);
+  let deposits = store.get("deposits", []); // демо-пополнения: СБП и криптовалюта
 
   // ---------- утилиты ----------
   const nf = new Intl.NumberFormat("ru-RU");
@@ -758,6 +759,7 @@
         <div class="kpi"><b class="${r >= 0 ? "pos" : "neg"}">${signed(r)} ₽</b><span>прибыль по проданным</span></div>
       </div>
       <div class="row-actions" style="margin:0 0 18px"><button class="pbtn" data-deposit>Пополнить пул</button></div>
+      ${deposits.length ? `<h3>Пополнения</h3><div class="dp-hist">${deposits.slice(-5).reverse().map((d) => `<div class="dp-row"><span class="dp-mth ${d.method}">${d.method === "sbp" ? "СБП" : "Крипто"}</span><span class="dp-via">${esc(d.via)}${d.coin ? `<small>${esc(d.coin)}</small>` : ""}</span><span class="dp-when">${when(d.t).abs}</span><b>+${rub(d.rub)}</b></div>`).join("")}</div>` : ""}
       <div class="bets">${open}</div>${hist}`;
   }
   const paintAccountRight = () => {
@@ -1152,25 +1154,188 @@
     $("#m-pos").innerHTML = mine.length ? `<h3 class="pos-title">Ваши позиции на этом рынке</h3>${positionsHTML(mine)}` : "";
   }
 
+  // ---------- пополнение (демо): СБП и криптовалюта ----------
+  // Платежей нет: адреса и реквизиты вымышлены, «оплата» подтверждается нажатием кнопки и зачисляет игровые рубли.
+  const DEP_MIN = 100, DEP_MAX = 300000;
+  const BANKS = ["Сбербанк", "Т-Банк", "ВТБ", "Альфа-Банк", "Газпромбанк", "Райффайзен", "Совкомбанк", "Другой банк"];
+  // rate — демо-курс в рублях, nets — сети с числом подтверждений
+  const COINS = {
+    USDT: { name: "Tether", rate: 95, dec: 2, nets: [["TRC-20 (Tron)", 19, "TRX"], ["ERC-20 (Ethereum)", 12, "ETH"], ["TON", 1, "TON"]] },
+    USDC: { name: "USD Coin", rate: 95, dec: 2, nets: [["ERC-20 (Ethereum)", 12, "ETH"]] },
+    BTC: { name: "Bitcoin", rate: 7800000, dec: 6, nets: [["Bitcoin", 2, "BTC"]] },
+    ETH: { name: "Ethereum", rate: 280000, dec: 5, nets: [["ERC-20 (Ethereum)", 12, "ETH"]] },
+    TON: { name: "Toncoin", rate: 300, dec: 2, nets: [["TON", 1, "TON"]] }
+  };
+  const dep = { method: "sbp", amount: 5000, bank: BANKS[0], coin: "USDT", net: 0 };
+  const depAlive = () => !!$("#dep-root");
+  const depTicker = (fn, ms) => { const id = setInterval(() => { if (!depAlive()) return clearInterval(id); fn(() => clearInterval(id)); }, ms); };
+
+  function fakeQR(seed) {
+    const n = 25, rnd = mulberry(hash(seed) + 11);
+    const finder = (x, y) => [[0, 0], [n - 7, 0], [0, n - 7]].some(([fx, fy]) => x >= fx && x < fx + 7 && y >= fy && y < fy + 7);
+    const fcell = (x, y) => { const [fx, fy] = [[0, 0], [n - 7, 0], [0, n - 7]].find(([a, b]) => x >= a && x < a + 7 && y >= b && y < b + 7); const dx = x - fx, dy = y - fy; return dx === 0 || dx === 6 || dy === 0 || dy === 6 || (dx >= 2 && dx <= 4 && dy >= 2 && dy <= 4); };
+    let d = "";
+    for (let y = 0; y < n; y++) for (let x = 0; x < n; x++) {
+      const on = finder(x, y) ? fcell(x, y) : rnd() > 0.52;
+      if (on) d += `M${x} ${y}h1v1h-1z`;
+    }
+    return `<svg class="dp-qr" viewBox="-2 -2 ${n + 4} ${n + 4}" role="img" aria-label="Демо-QR, не сканируется"><rect x="-2" y="-2" width="${n + 4}" height="${n + 4}" fill="#fff"/><path d="${d}" fill="#0b1630"/></svg>`;
+  }
+  const fakeAddr = (code, seed) => {
+    const rnd = mulberry(hash(seed) + 5), ch = "0123456789abcdefghijkmnpqrstuvwxyz";
+    let s = ""; for (let i = 0; i < 28; i++) s += ch[Math.floor(rnd() * ch.length)];
+    return `DEMO-${code}-${s}`;
+  };
+  const coinAmt = (rubSum, coin) => (rubSum / COINS[coin].rate).toFixed(COINS[coin].dec).replace(".", ",");
+  const mmss = (s) => String(Math.floor(s / 60)).padStart(2, "0") + ":" + String(s % 60).padStart(2, "0");
+  const depAmount = () => Math.floor(Number($("#dep").value));
+
   function openDeposit() {
     modalEvent = null;
     openSheet(`
       <h2>Пополнить пул</h2>
-      <p>Демо-режим: вы получаете игровые рубли. Реальные платежи не принимаются.</p>
+      <p>Демо-режим: реальные платежи не принимаются, вы получаете игровые рубли. Реквизиты ниже вымышлены, ничего не отправляйте.</p>
+      <div id="dep-root"></div>`);
+    depStep1();
+  }
+
+  function depStep1(note) {
+    const root = $("#dep-root");
+    const m = dep.method, c = COINS[dep.coin];
+    if (dep.net >= c.nets.length) dep.net = 0;
+    root.innerHTML = `
+      <div class="dp-tabs" role="tablist">
+        <button role="tab" data-m="sbp" class="${m === "sbp" ? "on" : ""}"><b>СБП</b><small>Система быстрых платежей</small></button>
+        <button role="tab" data-m="crypto" class="${m === "crypto" ? "on" : ""}"><b>Криптовалюта</b><small>USDT, BTC, ETH, TON</small></button>
+      </div>
+      <label class="dp-l" for="dep">Сумма пополнения, ₽</label>
       <div class="chips">${[1000, 5000, 10000, 50000].map((v) => `<button class="chip" data-v="${v}">${rub(v)}</button>`).join("")}</div>
-      <input class="field" id="dep" type="number" min="1" step="100" value="5000" aria-label="Сумма пополнения в рублях" style="margin-bottom:14px">
-      <button class="submit" id="dep-go">Пополнить</button>
-      <div class="msg" id="msg"></div>`);
-    $(".chips").onclick = (ev) => { const c = ev.target.closest(".chip"); if (c) $("#dep").value = c.dataset.v; };
-    $("#dep-go").onclick = () => {
-      const v = Math.floor(Number($("#dep").value));
-      const msg = $("#msg");
-      if (!(v > 0)) { msg.className = "msg err"; return (msg.textContent = "Введите сумму."); }
-      setBalance(balance + v);
-      msg.className = "msg";
-      msg.textContent = `Баланс пополнен на ${rub(v)}.`;
-      if (state.route === "account") paintAccountRight();
+      <input class="field" id="dep" type="number" min="${DEP_MIN}" max="${DEP_MAX}" step="100" value="${dep.amount}" aria-label="Сумма пополнения в рублях">
+      ${m === "sbp"
+        ? `<label class="dp-l" for="dep-bank">Ваш банк</label>
+           <select class="field" id="dep-bank">${BANKS.map((b) => `<option ${b === dep.bank ? "selected" : ""}>${b}</option>`).join("")}</select>`
+        : `<label class="dp-l">Монета</label>
+           <div class="chips" id="dep-coins">${Object.keys(COINS).map((k) => `<button class="chip ${k === dep.coin ? "on" : ""}" data-coin="${k}">${k}</button>`).join("")}</div>
+           <label class="dp-l" for="dep-net">Сеть</label>
+           <select class="field" id="dep-net">${c.nets.map((n, i) => `<option value="${i}" ${i === dep.net ? "selected" : ""}>${n[0]}</option>`).join("")}</select>`}
+      <div class="dp-sum" id="dp-sum"></div>
+      <button class="submit" id="dep-go">Продолжить</button>
+      <div class="msg ${note ? "err" : ""}" id="msg">${note || ""}</div>
+      <small class="dp-fine">Лимиты: от ${rub(DEP_MIN)} до ${rub(DEP_MAX)}. Комиссия за пополнение в демо не взимается.</small>`;
+    const sum = () => {
+      const v = depAmount();
+      $("#dp-sum").innerHTML = m === "sbp"
+        ? `<span>К оплате</span><b>${v > 0 ? rub(v) : "—"}</b>`
+        : `<span>К отправке · демо-курс 1 ${dep.coin} = ${nf.format(c.rate)} ₽</span><b>${v > 0 ? coinAmt(v, dep.coin) + " " + dep.coin : "—"}</b>`;
     };
+    sum();
+    $("#dep").oninput = () => { dep.amount = depAmount() || 0; sum(); };
+    root.querySelector(".chips").onclick = (ev) => { const b = ev.target.closest(".chip"); if (b) { $("#dep").value = b.dataset.v; dep.amount = Number(b.dataset.v); sum(); } };
+    root.querySelector(".dp-tabs").onclick = (ev) => { const b = ev.target.closest("[data-m]"); if (b && b.dataset.m !== dep.method) { dep.method = b.dataset.m; depStep1(); } };
+    if (m === "sbp") $("#dep-bank").onchange = (ev) => (dep.bank = ev.target.value);
+    else {
+      $("#dep-coins").onclick = (ev) => { const b = ev.target.closest("[data-coin]"); if (b) { dep.coin = b.dataset.coin; dep.net = 0; depStep1(); } };
+      $("#dep-net").onchange = (ev) => { dep.net = Number(ev.target.value); };
+    }
+    $("#dep-go").onclick = () => {
+      const v = depAmount();
+      if (!(v >= DEP_MIN)) return depStep1(`Минимальная сумма — ${rub(DEP_MIN)}.`);
+      if (v > DEP_MAX) return depStep1(`Максимальная сумма — ${rub(DEP_MAX)}.`);
+      dep.amount = v;
+      depStep2(Math.random().toString(36).slice(2, 8).toUpperCase());
+    };
+  }
+
+  function depStep2(ref) {
+    const root = $("#dep-root"), v = dep.amount, m = dep.method, c = COINS[dep.coin], net = c.nets[dep.net];
+    const total = m === "sbp" ? 15 * 60 : 30 * 60;
+    let left = total;
+    const addr = m === "crypto" ? fakeAddr(net[2], ref + dep.coin) : "";
+    root.innerHTML = m === "sbp"
+      ? `<div class="dp-pay">
+          ${fakeQR("sbp" + ref)}
+          <div class="dp-det">
+            <div><span>Сумма</span><b>${rub(v)}</b></div>
+            <div><span>Получатель</span><b>RusPredict (демо)</b></div>
+            <div><span>Номер платежа</span><b>СБП-${ref}</b></div>
+            <div><span>Ваш банк</span><b>${esc(dep.bank)}</b></div>
+          </div>
+        </div>
+        <ol class="dp-steps">
+          <li>Откройте приложение «${esc(dep.bank)}».</li>
+          <li>Выберите «Оплата по QR-коду» или «Перевод по СБП» и наведите камеру на QR.</li>
+          <li>Подтвердите платёж на ${rub(v)} и вернитесь сюда.</li>
+        </ol>`
+      : `<div class="dp-pay">
+          ${fakeQR(addr)}
+          <div class="dp-det">
+            <div><span>Отправьте ровно</span><b>${coinAmt(v, dep.coin)} ${dep.coin}</b></div>
+            <div><span>Сеть</span><b>${net[0]}</b></div>
+            <div><span>Эквивалент</span><b>${rub(v)}</b></div>
+          </div>
+        </div>
+        <div class="dp-addr"><span>Демо-адрес для пополнения</span><code id="dp-addr">${addr}</code><button class="chip" id="dp-copy" type="button">Копировать</button></div>
+        ${net[2] === "TON" ? `<div class="dp-addr"><span>Комментарий (memo)</span><code>${ref}</code></div>` : ""}
+        <p class="dp-warn">Адрес вымышлен и настоящим кошельком не является. Не отправляйте реальные средства, достаточно нажать кнопку ниже.</p>`;
+    root.insertAdjacentHTML("beforeend", `
+      <div class="dp-status" id="dp-status"><span class="dp-dot"></span><span id="dp-stxt">${m === "sbp" ? "Ожидаем оплату" : "Ожидаем перевод"} · осталось <b id="dp-timer">${mmss(left)}</b></span></div>
+      <div class="dp-bar" id="dp-barw" hidden><i id="dp-bar"></i></div>
+      <div class="c-actions">
+        <button class="sbtn" id="dp-back">Назад</button>
+        <button class="pbtn" id="dp-paid">${m === "sbp" ? "Я оплатил(а)" : "Я отправил(а)"}</button>
+      </div>
+      <small class="dp-fine">Демо: нажатие кнопки имитирует платёж и подтверждение ${m === "sbp" ? "банка" : "сети"}.</small>`);
+    let busy = false;
+    const copy = $("#dp-copy");
+    if (copy) copy.onclick = () => { try { navigator.clipboard.writeText(addr); } catch {} toast("Демо-адрес скопирован"); };
+    $("#dp-back").onclick = () => { if (!busy) depStep1(); };
+    depTicker((stop) => {
+      if (busy) return;
+      left--;
+      const t = $("#dp-timer"); if (t) t.textContent = mmss(left);
+      if (left <= 0) { stop(); depStep1("Время ожидания вышло. Создайте платёж заново."); }
+    }, 1000);
+    $("#dp-paid").onclick = () => {
+      if (busy) return;
+      busy = true;
+      $("#dp-paid").disabled = true; $("#dp-back").disabled = true;
+      $("#dp-barw").hidden = false;
+      const need = m === "sbp" ? 1 : net[1];
+      let got = 0;
+      const upd = () => {
+        $("#dp-bar").style.width = Math.round((got / need) * 100) + "%";
+        $("#dp-stxt").textContent = m === "sbp" ? "Проверяем платёж в банке…" : got === 0 ? "Транзакция найдена в сети…" : `Подтверждения сети: ${got} из ${need}`;
+      };
+      upd();
+      depTicker((stop) => {
+        got++;
+        upd();
+        if (got >= need) { stop(); setTimeout(() => depDone(ref), 400); }
+      }, m === "sbp" ? 1400 : Math.max(140, Math.round(3200 / need)));
+    };
+  }
+
+  function depDone(ref) {
+    if (!depAlive()) return;
+    const v = dep.amount, m = dep.method, c = COINS[dep.coin], net = c.nets[dep.net];
+    const rec = { id: ref, t: Date.now(), method: m, rub: v, via: m === "sbp" ? dep.bank : dep.coin + " · " + net[0], coin: m === "crypto" ? coinAmt(v, dep.coin) + " " + dep.coin : "" };
+    deposits.push(rec);
+    store.set("deposits", deposits.slice(-50));
+    setBalance(balance + v);
+    if (state.route === "account") paintAccountRight();
+    $("#dep-root").innerHTML = `
+      <div class="dp-ok">
+        <div class="dp-check">✓</div>
+        <h3>Зачислено ${rub(v)}</h3>
+        <p>${m === "sbp" ? `Платёж СБП-${ref} через ${esc(dep.bank)}` : `Перевод ${rec.coin} по сети ${net[0]}`} подтверждён. Баланс: <b>${rub(balance)}</b>.</p>
+        <div class="c-actions">
+          <button class="sbtn" id="dp-more">Пополнить ещё</button>
+          <button class="pbtn" id="dp-close">Готово</button>
+        </div>
+      </div>`;
+    $("#dp-more").onclick = () => depStep1();
+    $("#dp-close").onclick = () => { $("#modal").hidden = true; };
+    toast(`Баланс пополнен на ${rub(v)}`);
   }
 
   // ---------- «живые» цены ----------
