@@ -487,12 +487,10 @@ footer{border-top:1px solid var(--line);padding:22px 0;color:var(--muted);font-s
 /* тезис главного рынка */
 .thesis{margin-top:16px;padding-top:14px;border-top:1px solid #ffffff33;font-size:14px}
 .ths-label{font-size:11px;letter-spacing:.1em;text-transform:uppercase;opacity:.7;margin-bottom:6px}
-.thesis p{margin:0 0 12px;line-height:1.5;opacity:.95}
-.ths-author{display:flex;align-items:center;gap:10px}
-.ths-author .avatar{width:34px;height:34px;font-size:12px;border:2px solid #ffffff55}
-.ths-author b{display:block;font-size:14px}
-.ths-author small{opacity:.75;font-size:12px}
 .ths-note{display:block;margin-top:10px;opacity:.6;font-size:11px}
-.ths-links{margin-top:10px;font-size:12px;opacity:.9}
-.ths-links a,.ths-counter a{color:#fff;text-decoration:underline}
-.ths-counter{margin:10px 0 0;font-size:13px;opacity:.85;line-height:1.45}
+.news-item{display:block;padding:10px 0;border-top:1px solid #ffffff22;color:#fff;text-decoration:none}
+.news-item:first-of-type{border-top:0;padding-top:2px}
+.news-item b{display:block;font-size:14px;line-height:1.35}
+.news-item span{display:block;margin-top:4px;font-size:13px;line-height:1.45;opacity:.85}
+.news-item small{display:block;margin-top:4px;font-size:12px;opacity:.65}
+.news-item:hover b{text-decoration:underline}

@@ -572,7 +572,7 @@
   function viewHome() {
     const hot = [...EVENTS].sort((a, b) => b.vol - a.vol);
     const featured = (typeof MAIN_MARKET !== "undefined" && byId(MAIN_MARKET)) || hot[0];
-    const thesis = (typeof MAIN_THESIS !== "undefined" && MAIN_THESIS[featured.id]) || null;
+    const news = (typeof MAIN_NEWS !== "undefined" && MAIN_NEWS[featured.id]) || [];
     const totalVol = EVENTS.reduce((s, e) => s + e.vol, 0);
     const topTraders = [...TRADERS].sort((a, b) => b.profit - a.profit).slice(0, 5);
     return `
@@ -598,13 +598,14 @@
             <button class="btn yes" data-open="${featured.id}" data-side="yes">${sideBtn(featured, "yes")}</button>
             <button class="btn no" data-open="${featured.id}" data-side="no">${sideBtn(featured, "no")}</button>
           </div>
-          ${thesis ? `<div class="thesis">
-            <div class="ths-label">Тезис</div>
-            <p>${esc(thesis.text)}</p>
-            <div class="ths-author">${avatar(thesis.author, "#0e7490")}<span><b>${esc(thesis.author)}</b><small>${esc(thesis.role)} · заметка от ${fmtDate(thesis.date)}</small></span></div>
-            ${(thesis.links || []).length ? `<div class="ths-links">Источники: ${thesis.links.map((l) => `<a href="${esc(/^https?:\/\//i.test(l.url) ? l.url : "#")}" target="_blank" rel="noopener noreferrer">${esc(l.name)}</a>`).join(" · ")}</div>` : ""}
-            ${thesis.counter ? `<p class="ths-counter">${esc(thesis.counter.text)} <a href="${esc(/^https?:\/\//i.test(thesis.counter.url) ? thesis.counter.url : "#")}" target="_blank" rel="noopener noreferrer">Подробнее</a></p>` : ""}
-            <small class="ths-note">Пересказ публикаций в СМИ, мнение автора, не инвестиционная рекомендация. Цифры проверяйте по первоисточнику.</small>
+          ${news.length ? `<div class="thesis">
+            <div class="ths-label">Новости</div>
+            ${news.map((n) => `<a class="news-item" href="${esc(/^https?:\/\//i.test(n.url) ? n.url : "#")}" target="_blank" rel="noopener noreferrer">
+              <b>${esc(n.title)}</b>
+              <span>${esc(n.text)}</span>
+              <small>${esc(n.source)}${n.date ? " · " + fmtDate(n.date) : ""}</small>
+            </a>`).join("")}
+            <small class="ths-note">Пересказ публикаций в СМИ. Цифры проверяйте по ссылке, не инвестиционная рекомендация.</small>
           </div>` : ""}
         </div>
       </div>
