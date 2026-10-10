@@ -483,16 +483,13 @@ footer{border-top:1px solid var(--line);padding:22px 0;color:var(--muted);font-s
 .tchat{grid-column:1/-1}
 .tchat .chat{margin:0}
 
-/* новости */
-.news{margin:18px 0 6px}
-.news-body{display:flex;flex-direction:column;border:1px solid var(--line);border-radius:12px;background:var(--card);overflow:hidden}
-.news-body p{margin:0;padding:14px}
-.ni{display:flex;flex-direction:column;gap:3px;padding:10px 14px;border-bottom:1px solid var(--line);text-decoration:none;color:var(--ink)}
-.ni:last-child{border-bottom:0}
-.ni:hover{background:var(--soft)}
-.ni .nt{font-size:14px;font-weight:700;line-height:1.35}
-.ni small{color:var(--muted);font-size:12px}
-.news-foot{margin-top:6px;font-size:12px;color:var(--muted)}
-.news-foot a,.news-body code{color:var(--brand)}
-.tnews{grid-column:1/-1}
-.tnews .news{margin:0}
+
+/* тезис главного рынка */
+.thesis{margin-top:16px;padding-top:14px;border-top:1px solid #ffffff33;font-size:14px}
+.ths-label{font-size:11px;letter-spacing:.1em;text-transform:uppercase;opacity:.7;margin-bottom:6px}
+.thesis p{margin:0 0 12px;line-height:1.5;opacity:.95}
+.ths-author{display:flex;align-items:center;gap:10px}
+.ths-author .avatar{width:34px;height:34px;font-size:12px;border:2px solid #ffffff55}
+.ths-author b{display:block;font-size:14px}
+.ths-author small{opacity:.75;font-size:12px}
+.ths-note{display:block;margin-top:10px;opacity:.6;font-size:11px}

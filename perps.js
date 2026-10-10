@@ -612,7 +612,6 @@ const PERPS = (() => {
       <p class="fee-note warn" id="t-warn" hidden></p>
       <p class="fee-note">Плечо увеличивает и прибыль, и убыток. Если цена дойдёт до цены ликвидации, вся маржа сгорает. Без плеча (1x) ликвидация почти невозможна.</p>
     </div>
-    <div class="panel tnews" id="t-news"></div>
     <div class="panel tchat" id="t-chat"></div>
     <div class="panel tsugg" id="t-sugg">
       <h3>Другие активы</h3>
@@ -763,8 +762,6 @@ const PERPS = (() => {
       };
       roeChips("#t-tpchips", "tp", 1);
       roeChips("#t-slchips", "sl", -1);
-      $("#t-news").innerHTML = RP.newsHTML(P.sel, "Новости: " + P.sel);
-      RP.newsBind($("#t-news"));
       $("#t-chat").innerHTML = RP.chatHTML("t-" + P.sel);
       RP.chatBind($("#t-chat"), "t-" + P.sel);
       $("#t-open").onclick = confirmOpen;
