@@ -1236,13 +1236,14 @@
   const BANKS = ["Сбербанк", "Т-Банк", "ВТБ", "Альфа-Банк", "Газпромбанк", "Райффайзен", "Совкомбанк", "Другой банк"];
   // rate — демо-курс в рублях, nets — сети с числом подтверждений
   const COINS = {
-    USDT: { name: "Tether", rate: 95, dec: 2, nets: [["TRC-20 (Tron)", 19, "TRX"], ["ERC-20 (Ethereum)", 12, "ETH"], ["TON", 1, "TON"]] },
-    USDC: { name: "USD Coin", rate: 95, dec: 2, nets: [["ERC-20 (Ethereum)", 12, "ETH"]] },
-    BTC: { name: "Bitcoin", rate: 7800000, dec: 6, nets: [["Bitcoin", 2, "BTC"]] },
-    ETH: { name: "Ethereum", rate: 280000, dec: 5, nets: [["ERC-20 (Ethereum)", 12, "ETH"]] },
-    TON: { name: "Toncoin", rate: 300, dec: 2, nets: [["TON", 1, "TON"]] }
+    USDT: { name: "Tether", rate: 95, dec: 2, chips: [10, 50, 100, 500], nets: [["TRC-20 (Tron)", 19, "TRX"], ["ERC-20 (Ethereum)", 12, "ETH"], ["TON", 1, "TON"]] },
+    USDC: { name: "USD Coin", rate: 95, dec: 2, chips: [10, 50, 100, 500], nets: [["ERC-20 (Ethereum)", 12, "ETH"]] },
+    BTC: { name: "Bitcoin", rate: 7800000, dec: 6, chips: [0.0005, 0.001, 0.005, 0.01], nets: [["Bitcoin", 2, "BTC"]] },
+    ETH: { name: "Ethereum", rate: 280000, dec: 5, chips: [0.01, 0.05, 0.1, 0.5], nets: [["ERC-20 (Ethereum)", 12, "ETH"]] },
+    TON: { name: "Toncoin", rate: 300, dec: 2, chips: [10, 50, 100, 500], nets: [["TON", 1, "TON"]] }
   };
-  const dep = { method: "sbp", amount: 5000, bank: BANKS[0], coin: "USDT", net: 0 };
+  // amount — сумма в рублях (её зачислим), tok — точное число токенов, если человек ввёл именно токены (иначе считается по курсу)
+  const dep = { method: "sbp", amount: 5000, tok: null, bank: BANKS[0], coin: "USDT", net: 0 };
   const depAlive = () => !!$("#dep-root");
   const depTicker = (fn, ms) => { const id = setInterval(() => { if (!depAlive()) return clearInterval(id); fn(() => clearInterval(id)); }, ms); };
 
@@ -1262,7 +1263,10 @@
     let s = ""; for (let i = 0; i < 28; i++) s += ch[Math.floor(rnd() * ch.length)];
     return `DEMO-${code}-${s}`;
   };
-  const coinAmt = (rubSum, coin) => (rubSum / COINS[coin].rate).toFixed(COINS[coin].dec).replace(".", ",");
+  const depTok = () => (dep.tok != null ? dep.tok : dep.amount / COINS[dep.coin].rate);
+  const tokStr = (n) => Number(n).toFixed(COINS[dep.coin].dec).replace(".", ",");
+  const tokInput = (n) => String(+Number(n).toFixed(COINS[dep.coin].dec));
+  const parseTok = (s) => { const x = Number(String(s).replace(",", ".").replace(/\s/g, "")); const k = 10 ** COINS[dep.coin].dec; return Number.isFinite(x) ? Math.round(x * k) / k : 0; };
   const mmss = (s) => String(Math.floor(s / 60)).padStart(2, "0") + ":" + String(s % 60).padStart(2, "0");
   const depAmount = () => Math.floor(Number($("#dep").value));
 
@@ -1284,9 +1288,18 @@
         <button role="tab" data-m="sbp" class="${m === "sbp" ? "on" : ""}">${payIcon("sbp", 34)}<span><b>СБП</b><small>Система быстрых платежей</small></span></button>
         <button role="tab" data-m="crypto" class="${m === "crypto" ? "on" : ""}">${payIcon("crypto", 34)}<span><b>Криптовалюта</b><small>USDT, BTC, ETH, TON</small></span></button>
       </div>
-      <label class="dp-l" for="dep">Сумма пополнения, ₽</label>
+      ${m === "sbp"
+        ? `<label class="dp-l" for="dep">Сумма пополнения, ₽</label>
       <div class="chips">${[1000, 5000, 10000, 50000].map((v) => `<button class="chip" data-v="${v}">${rub(v)}</button>`).join("")}</div>
-      <input class="field" id="dep" type="number" min="${DEP_MIN}" max="${DEP_MAX}" step="100" value="${dep.amount}" aria-label="Сумма пополнения в рублях">
+      <input class="field" id="dep" type="number" min="${DEP_MIN}" max="${DEP_MAX}" step="100" value="${dep.amount}" aria-label="Сумма пополнения в рублях">`
+        : `<label class="dp-l">Сколько пополнить: в рублях или в ${dep.coin}</label>
+      <div class="dp-dual">
+        <div><small>В рублях</small><div class="dp-inp"><input class="field" id="dep" type="number" min="${DEP_MIN}" max="${DEP_MAX}" step="100" value="${dep.amount || ""}" aria-label="Сумма пополнения в рублях"><i>₽</i></div></div>
+        <span class="dp-swap" aria-hidden="true">⇄</span>
+        <div><small>В ${dep.coin}</small><div class="dp-inp"><input class="field" id="dep-tok" type="text" inputmode="decimal" autocomplete="off" value="${dep.tok != null ? tokInput(dep.tok) : dep.amount > 0 ? tokInput(dep.amount / c.rate) : ""}" aria-label="Сумма пополнения в ${dep.coin}"><i>${dep.coin}</i></div></div>
+      </div>
+      <div class="chips" id="dep-rchips">${[1000, 5000, 10000, 50000].map((v) => `<button class="chip" data-v="${v}">${rub(v)}</button>`).join("")}</div>
+      <div class="chips" id="dep-tchips">${c.chips.map((t) => `<button class="chip" data-t="${t}">${String(t).replace(".", ",")} ${dep.coin}</button>`).join("")}</div>`}
       ${m === "sbp"
         ? `<label class="dp-l">Ваш банк</label>
            <div class="dp-banks" id="dep-banks">${BANKS.map((b) => `<button type="button" class="dp-bank ${b === dep.bank ? "on" : ""}" data-bank="${b}">${payIcon(b, 38)}<small>${b}</small></button>`).join("")}</div>`
@@ -1301,22 +1314,35 @@
     const sum = () => {
       const v = depAmount();
       $("#dp-sum").innerHTML = m === "sbp"
-        ? `<span>К оплате</span><b>${v > 0 ? rub(v) : "—"}</b>`
-        : `<span>К отправке · демо-курс 1 ${dep.coin} = ${nf.format(c.rate)} ₽</span><b>${v > 0 ? coinAmt(v, dep.coin) + " " + dep.coin : "—"}</b>`;
+        ? `<div><span>К оплате</span><b>${v > 0 ? rub(v) : "—"}</b></div>`
+        : `<div><span>Будет зачислено</span><b>${v > 0 ? rub(v) : "—"}</b></div>
+           <div><span>К отправке · демо-курс 1 ${dep.coin} = ${nf.format(c.rate)} ₽</span><b>${v > 0 ? tokStr(depTok()) + " " + dep.coin : "—"}</b></div>`;
     };
     sum();
-    $("#dep").oninput = () => { dep.amount = depAmount() || 0; sum(); };
-    root.querySelector(".chips").onclick = (ev) => { const b = ev.target.closest(".chip"); if (b) { $("#dep").value = b.dataset.v; dep.amount = Number(b.dataset.v); sum(); } };
+    if (m === "sbp") {
+      $("#dep").oninput = () => { dep.amount = depAmount() || 0; sum(); };
+      root.querySelector(".chips").onclick = (ev) => { const b = ev.target.closest(".chip"); if (b) { $("#dep").value = b.dataset.v; dep.amount = Number(b.dataset.v); sum(); } };
+    } else {
+      // два поля связаны: меняете рубли — пересчитываются токены, меняете токены — пересчитываются рубли
+      const rubIn = $("#dep"), tokIn = $("#dep-tok");
+      const fromRub = () => { dep.tok = null; dep.amount = depAmount() || 0; tokIn.value = dep.amount > 0 ? tokInput(dep.amount / c.rate) : ""; sum(); };
+      const fromTok = () => { const t = parseTok(tokIn.value); dep.tok = t > 0 ? t : null; dep.amount = t > 0 ? Math.round(t * c.rate) : 0; rubIn.value = dep.amount > 0 ? dep.amount : ""; sum(); };
+      rubIn.oninput = fromRub;
+      tokIn.oninput = fromTok;
+      $("#dep-rchips").onclick = (ev) => { const b = ev.target.closest("[data-v]"); if (b) { rubIn.value = b.dataset.v; fromRub(); } };
+      $("#dep-tchips").onclick = (ev) => { const b = ev.target.closest("[data-t]"); if (b) { tokIn.value = b.dataset.t; fromTok(); } };
+    }
     root.querySelector(".dp-tabs").onclick = (ev) => { const b = ev.target.closest("[data-m]"); if (b && b.dataset.m !== dep.method) { dep.method = b.dataset.m; depStep1(); } };
     if (m === "sbp") $("#dep-banks").onclick = (ev) => { const b = ev.target.closest("[data-bank]"); if (!b) return; dep.bank = b.dataset.bank; root.querySelectorAll(".dp-bank").forEach((x) => x.classList.toggle("on", x === b)); };
     else {
-      $("#dep-coins").onclick = (ev) => { const b = ev.target.closest("[data-coin]"); if (b) { dep.coin = b.dataset.coin; dep.net = 0; depStep1(); } };
+      $("#dep-coins").onclick = (ev) => { const b = ev.target.closest("[data-coin]"); if (b) { dep.coin = b.dataset.coin; dep.net = 0; dep.tok = null; depStep1(); } };
       $("#dep-net").onchange = (ev) => { dep.net = Number(ev.target.value); };
     }
     $("#dep-go").onclick = () => {
       const v = depAmount();
-      if (!(v >= DEP_MIN)) return depStep1(`Минимальная сумма — ${rub(DEP_MIN)}.`);
-      if (v > DEP_MAX) return depStep1(`Максимальная сумма — ${rub(DEP_MAX)}.`);
+      if (m === "crypto" && !(depTok() > 0)) return depStep1("Введите сумму в рублях или в " + dep.coin + ".");
+      if (!(v >= DEP_MIN)) return depStep1(`Минимальная сумма — ${rub(DEP_MIN)} (≈ ${tokStr(DEP_MIN / c.rate)} ${dep.coin}).`);
+      if (v > DEP_MAX) return depStep1(`Максимальная сумма — ${rub(DEP_MAX)} (≈ ${tokStr(DEP_MAX / c.rate)} ${dep.coin}).`);
       dep.amount = v;
       depStep2(Math.random().toString(36).slice(2, 8).toUpperCase());
     };
@@ -1345,7 +1371,7 @@
       : `<div class="dp-pay">
           ${fakeQR(addr)}
           <div class="dp-det">
-            <div><span>Отправьте ровно</span><b>${coinAmt(v, dep.coin)} ${dep.coin}</b></div>
+            <div><span>Отправьте ровно</span><b>${tokStr(depTok())} ${dep.coin}</b></div>
             <div><span>Монета</span><b class="dp-inl">${payIcon(dep.coin, 20)}${dep.coin}</b></div>
             <div><span>Сеть</span><b>${net[0]}</b></div>
             <div><span>Эквивалент</span><b>${rub(v)}</b></div>
@@ -1395,7 +1421,7 @@
   function depDone(ref) {
     if (!depAlive()) return;
     const v = dep.amount, m = dep.method, c = COINS[dep.coin], net = c.nets[dep.net];
-    const rec = { id: ref, t: Date.now(), status: "done", method: m, rub: v, via: m === "sbp" ? dep.bank : dep.coin + " · " + net[0], coin: m === "crypto" ? coinAmt(v, dep.coin) + " " + dep.coin : "" };
+    const rec = { id: ref, t: Date.now(), status: "done", method: m, rub: v, via: m === "sbp" ? dep.bank : dep.coin + " · " + net[0], coin: m === "crypto" ? tokStr(depTok()) + " " + dep.coin : "" };
     deposits.push(rec);
     store.set("deposits", deposits.slice(-50));
     setBalance(balance + v);
