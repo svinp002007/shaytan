@@ -114,3 +114,42 @@ function banner(e, extra = "", W = 320, H = 110) {
     <g ${attrs} opacity=".96" transform="translate(${W / 2 - 32 * gs} ${H / 2 - 32 * gs}) scale(${gs})">${g}</g>
   </svg></div>`;
 }
+
+// ---------- иллюстрации для пополнения (оригинальные значки, не логотипы банков и платёжных систем) ----------
+const PAY_GLYPHS = {
+  sbp: '<path d="M38 6 16 36h15l-5 22 22-31H33z"/>',
+  crypto: '<ellipse cx="32" cy="16" rx="18" ry="7"/><path d="M14 16v13c0 4 8 7 18 7s18-3 18-7V16M14 29v13c0 4 8 7 18 7s18-3 18-7V29M14 42v6c0 4 8 7 18 7s18-3 18-7v-6"/>',
+  usdc: '<circle cx="32" cy="32" r="24"/><path d="M39 25c-1-3-4-5-8-5-4 0-7 2-7 6 0 8 15 3 15 11 0 4-3 6-7 6-4 0-7-2-8-5M32 13v7M32 44v7"/>',
+  ton: '<path d="M10 16h44L32 52z"/><path d="M32 16v36"/>',
+  bank: GLYPHS.bank, btc: GLYPHS.btc, eth: GLYPHS.eth, tether: GLYPHS.tether
+};
+const COIN_LOOK = { USDT: ["#26a17b", "tether"], USDC: ["#2775ca", "usdc"], BTC: ["#f7931a", "btc"], ETH: ["#627eea", "eth"], TON: ["#0098ea", "ton"] };
+// монограммы банков: [фон, цвет текста, буквы]
+const BANK_LOOK = {
+  "Сбербанк": ["#21a038", "#fff", "С"], "Т-Банк": ["#ffdd2d", "#1a1a1a", "Т"], "ВТБ": ["#0a2896", "#fff", "ВТБ"],
+  "Альфа-Банк": ["#ef3124", "#fff", "А"], "Газпромбанк": ["#1c5fd1", "#fff", "ГПБ"], "Райффайзен": ["#2b2d33", "#ffe600", "Р"],
+  "Совкомбанк": ["#0f7ab8", "#fff", "СКБ"], "Другой банк": ["#667085", "#fff", null]
+};
+function payIcon(kind, size = 36) {
+  let bg, glyph, txt = null, fg = "#fff";
+  if (COIN_LOOK[kind]) [bg, glyph] = COIN_LOOK[kind];
+  else if (BANK_LOOK[kind]) { [bg, fg, txt] = BANK_LOOK[kind]; glyph = "bank"; }
+  else if (kind === "sbp") { bg = "linear-gradient(135deg,#6a3df0,#1e90ff)"; glyph = "sbp"; }
+  else { bg = "linear-gradient(135deg,#f59e0b,#ef6c00)"; glyph = "crypto"; }
+  const inner = txt
+    ? `<span style="color:${fg};font-weight:800;font-size:${size * (txt.length > 1 ? 0.3 : 0.44)}px">${txt}</span>`
+    : `<svg viewBox="0 0 64 64" width="${size * 0.58}" height="${size * 0.58}" fill="none" stroke="${fg}" stroke-width="5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${PAY_GLYPHS[glyph]}</svg>`;
+  return `<span class="dp-ic" style="width:${size}px;height:${size}px;background:${bg}">${inner}</span>`;
+}
+// большая картинка вверху экрана оплаты: телефон с QR (СБП) или монета в кошельке (крипта)
+function payHero(kind, title, sub, coin) {
+  const phone = `<g transform="translate(18 8)"><rect x="0" y="0" width="52" height="84" rx="9" fill="#fff" opacity=".95"/><rect x="5" y="9" width="42" height="62" rx="4" fill="#0b1630" opacity=".92"/>
+      <g fill="#fff"><rect x="10" y="14" width="12" height="12" rx="1.5"/><rect x="30" y="14" width="12" height="12" rx="1.5"/><rect x="10" y="44" width="12" height="12" rx="1.5"/><rect x="26" y="30" width="5" height="5"/><rect x="34" y="34" width="8" height="5"/><rect x="28" y="46" width="6" height="8"/><rect x="38" y="48" width="4" height="4"/></g>
+      <rect x="18" y="76" width="16" height="3" rx="1.5" fill="#0b1630" opacity=".3"/></g>
+    <g transform="translate(90 26)" fill="none" stroke="#fff" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"><circle cx="24" cy="24" r="24" fill="#ffffff22"/><path d="M27 6 13 26h11l-3 16 14-20H25z" fill="#fff" stroke="none"/></g>`;
+  const wallet = `<g transform="translate(14 22)"><rect x="0" y="6" width="74" height="52" rx="10" fill="#fff" opacity=".95"/><path d="M0 16c0-6 4-10 10-10h50" fill="none" stroke="#0b1630" stroke-opacity=".15" stroke-width="3"/><rect x="48" y="24" width="32" height="18" rx="9" fill="#0b1630" opacity=".9"/><circle cx="60" cy="33" r="4" fill="#fff"/></g>
+    <g transform="translate(86 6)"><circle cx="22" cy="22" r="22" fill="${(COIN_LOOK[coin] || ["#fbbf24"])[0]}"/><circle cx="22" cy="22" r="18" fill="none" stroke="#fff" stroke-opacity=".5" stroke-width="2"/><g transform="translate(9.5 9.5) scale(.39)" fill="none" stroke="#fff" stroke-width="5" stroke-linecap="round" stroke-linejoin="round">${PAY_GLYPHS[(COIN_LOOK[coin] || [0, "crypto"])[1]]}</g></g>
+    <g fill="#fff" opacity=".55"><circle cx="20" cy="10" r="2.5"/><circle cx="116" cy="62" r="3"/><circle cx="8" cy="64" r="2"/></g>`;
+  const bg = kind === "sbp" ? "linear-gradient(120deg,#4527c7,#1e6fe0)" : "linear-gradient(120deg,#b45309,#f59e0b)";
+  return `<div class="dp-hero" style="background:${bg}"><svg viewBox="0 0 150 96" aria-hidden="true">${kind === "sbp" ? phone : wallet}</svg><div><b>${title}</b><span>${sub}</span></div></div>`;
+}

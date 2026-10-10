@@ -759,7 +759,7 @@
         <div class="kpi"><b class="${r >= 0 ? "pos" : "neg"}">${signed(r)} ₽</b><span>прибыль по проданным</span></div>
       </div>
       <div class="row-actions" style="margin:0 0 18px"><button class="pbtn" data-deposit>Пополнить пул</button></div>
-      ${deposits.length ? `<h3>Пополнения</h3><div class="dp-hist">${deposits.slice(-5).reverse().map((d) => `<div class="dp-row"><span class="dp-mth ${d.method}">${d.method === "sbp" ? "СБП" : "Крипто"}</span><span class="dp-via">${esc(d.via)}${d.coin ? `<small>${esc(d.coin)}</small>` : ""}</span><span class="dp-when">${when(d.t).abs}</span><b>+${rub(d.rub)}</b></div>`).join("")}</div>` : ""}
+      ${deposits.length ? `<h3>Пополнения</h3><div class="dp-hist">${deposits.slice(-5).reverse().map((d) => `<div class="dp-row">${payIcon(d.method === "sbp" ? d.via : (d.coin ? d.coin.split(" ")[1] : "crypto"), 30)}<span class="dp-via">${esc(d.via)}${d.coin ? `<small>${esc(d.coin)}</small>` : ""}</span><span class="dp-when">${when(d.t).abs}</span><b>+${rub(d.rub)}</b></div>`).join("")}</div>` : ""}
       <div class="bets">${open}</div>${hist}`;
   }
   const paintAccountRight = () => {
@@ -1205,17 +1205,17 @@
     if (dep.net >= c.nets.length) dep.net = 0;
     root.innerHTML = `
       <div class="dp-tabs" role="tablist">
-        <button role="tab" data-m="sbp" class="${m === "sbp" ? "on" : ""}"><b>СБП</b><small>Система быстрых платежей</small></button>
-        <button role="tab" data-m="crypto" class="${m === "crypto" ? "on" : ""}"><b>Криптовалюта</b><small>USDT, BTC, ETH, TON</small></button>
+        <button role="tab" data-m="sbp" class="${m === "sbp" ? "on" : ""}">${payIcon("sbp", 34)}<span><b>СБП</b><small>Система быстрых платежей</small></span></button>
+        <button role="tab" data-m="crypto" class="${m === "crypto" ? "on" : ""}">${payIcon("crypto", 34)}<span><b>Криптовалюта</b><small>USDT, BTC, ETH, TON</small></span></button>
       </div>
       <label class="dp-l" for="dep">Сумма пополнения, ₽</label>
       <div class="chips">${[1000, 5000, 10000, 50000].map((v) => `<button class="chip" data-v="${v}">${rub(v)}</button>`).join("")}</div>
       <input class="field" id="dep" type="number" min="${DEP_MIN}" max="${DEP_MAX}" step="100" value="${dep.amount}" aria-label="Сумма пополнения в рублях">
       ${m === "sbp"
-        ? `<label class="dp-l" for="dep-bank">Ваш банк</label>
-           <select class="field" id="dep-bank">${BANKS.map((b) => `<option ${b === dep.bank ? "selected" : ""}>${b}</option>`).join("")}</select>`
+        ? `<label class="dp-l">Ваш банк</label>
+           <div class="dp-banks" id="dep-banks">${BANKS.map((b) => `<button type="button" class="dp-bank ${b === dep.bank ? "on" : ""}" data-bank="${b}">${payIcon(b, 38)}<small>${b}</small></button>`).join("")}</div>`
         : `<label class="dp-l">Монета</label>
-           <div class="chips" id="dep-coins">${Object.keys(COINS).map((k) => `<button class="chip ${k === dep.coin ? "on" : ""}" data-coin="${k}">${k}</button>`).join("")}</div>
+           <div class="chips" id="dep-coins">${Object.keys(COINS).map((k) => `<button class="chip dp-coin ${k === dep.coin ? "on" : ""}" data-coin="${k}">${payIcon(k, 22)}${k}</button>`).join("")}</div>
            <label class="dp-l" for="dep-net">Сеть</label>
            <select class="field" id="dep-net">${c.nets.map((n, i) => `<option value="${i}" ${i === dep.net ? "selected" : ""}>${n[0]}</option>`).join("")}</select>`}
       <div class="dp-sum" id="dp-sum"></div>
@@ -1232,7 +1232,7 @@
     $("#dep").oninput = () => { dep.amount = depAmount() || 0; sum(); };
     root.querySelector(".chips").onclick = (ev) => { const b = ev.target.closest(".chip"); if (b) { $("#dep").value = b.dataset.v; dep.amount = Number(b.dataset.v); sum(); } };
     root.querySelector(".dp-tabs").onclick = (ev) => { const b = ev.target.closest("[data-m]"); if (b && b.dataset.m !== dep.method) { dep.method = b.dataset.m; depStep1(); } };
-    if (m === "sbp") $("#dep-bank").onchange = (ev) => (dep.bank = ev.target.value);
+    if (m === "sbp") $("#dep-banks").onclick = (ev) => { const b = ev.target.closest("[data-bank]"); if (!b) return; dep.bank = b.dataset.bank; root.querySelectorAll(".dp-bank").forEach((x) => x.classList.toggle("on", x === b)); };
     else {
       $("#dep-coins").onclick = (ev) => { const b = ev.target.closest("[data-coin]"); if (b) { dep.coin = b.dataset.coin; dep.net = 0; depStep1(); } };
       $("#dep-net").onchange = (ev) => { dep.net = Number(ev.target.value); };
@@ -1251,14 +1251,14 @@
     const total = m === "sbp" ? 15 * 60 : 30 * 60;
     let left = total;
     const addr = m === "crypto" ? fakeAddr(net[2], ref + dep.coin) : "";
-    root.innerHTML = m === "sbp"
+    root.innerHTML = payHero(m, m === "sbp" ? "Оплата по СБП" : `Перевод ${dep.coin}`, m === "sbp" ? `Платёж СБП-${ref} · ${esc(dep.bank)}` : `Сеть ${net[0]}`, dep.coin) + (m === "sbp"
       ? `<div class="dp-pay">
           ${fakeQR("sbp" + ref)}
           <div class="dp-det">
             <div><span>Сумма</span><b>${rub(v)}</b></div>
             <div><span>Получатель</span><b>RusPredict (демо)</b></div>
             <div><span>Номер платежа</span><b>СБП-${ref}</b></div>
-            <div><span>Ваш банк</span><b>${esc(dep.bank)}</b></div>
+            <div><span>Ваш банк</span><b class="dp-inl">${payIcon(dep.bank, 20)}${esc(dep.bank)}</b></div>
           </div>
         </div>
         <ol class="dp-steps">
@@ -1270,13 +1270,14 @@
           ${fakeQR(addr)}
           <div class="dp-det">
             <div><span>Отправьте ровно</span><b>${coinAmt(v, dep.coin)} ${dep.coin}</b></div>
+            <div><span>Монета</span><b class="dp-inl">${payIcon(dep.coin, 20)}${dep.coin}</b></div>
             <div><span>Сеть</span><b>${net[0]}</b></div>
             <div><span>Эквивалент</span><b>${rub(v)}</b></div>
           </div>
         </div>
         <div class="dp-addr"><span>Демо-адрес для пополнения</span><code id="dp-addr">${addr}</code><button class="chip" id="dp-copy" type="button">Копировать</button></div>
         ${net[2] === "TON" ? `<div class="dp-addr"><span>Комментарий (memo)</span><code>${ref}</code></div>` : ""}
-        <p class="dp-warn">Адрес вымышлен и настоящим кошельком не является. Не отправляйте реальные средства, достаточно нажать кнопку ниже.</p>`;
+        <p class="dp-warn">Адрес вымышлен и настоящим кошельком не является. Не отправляйте реальные средства, достаточно нажать кнопку ниже.</p>`);
     root.insertAdjacentHTML("beforeend", `
       <div class="dp-status" id="dp-status"><span class="dp-dot"></span><span id="dp-stxt">${m === "sbp" ? "Ожидаем оплату" : "Ожидаем перевод"} · осталось <b id="dp-timer">${mmss(left)}</b></span></div>
       <div class="dp-bar" id="dp-barw" hidden><i id="dp-bar"></i></div>
@@ -1325,6 +1326,7 @@
     if (state.route === "account") paintAccountRight();
     $("#dep-root").innerHTML = `
       <div class="dp-ok">
+        <svg class="dp-conf" viewBox="0 0 220 90" aria-hidden="true"><g stroke-linecap="round"><path d="M20 70l8-14M44 22l10 6M70 10l2 12M150 12l-3 12M178 28l11-5M200 62l-12-8M110 6v10M16 38l12 2M204 36l-12 4" stroke="#f59e0b" stroke-width="4"/><circle cx="36" cy="80" r="4" fill="#1e48c8"/><circle cx="92" cy="20" r="3.5" fill="#16a34a"/><circle cx="130" cy="6" r="4" fill="#ef4444"/><circle cx="190" cy="80" r="4" fill="#6a3df0"/><rect x="160" y="40" width="9" height="5" rx="1" fill="#16a34a" transform="rotate(30 164 42)"/><rect x="52" y="48" width="9" height="5" rx="1" fill="#ef4444" transform="rotate(-25 56 50)"/></g></svg>
         <div class="dp-check">✓</div>
         <h3>Зачислено ${rub(v)}</h3>
         <p>${m === "sbp" ? `Платёж СБП-${ref} через ${esc(dep.bank)}` : `Перевод ${rec.coin} по сети ${net[0]}`} подтверждён. Баланс: <b>${rub(balance)}</b>.</p>
