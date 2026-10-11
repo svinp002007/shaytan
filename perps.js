@@ -1173,10 +1173,13 @@ const PERPS = (() => {
       <p class="fee-note warn" id="t-warn" hidden></p>
       <p class="fee-note">Плечо увеличивает и прибыль, и убыток. Если цена дойдёт до цены ликвидации, вся маржа сгорает. Без плеча (1x) ликвидация почти невозможна.</p>
     </div>
-    <div class="panel ov" id="t-ov">${overviewHTML(a)}</div>
-    <div class="panel tmore" id="t-sugg">${moreHTML(a)}</div>
-    <div class="panel tchat" id="t-chat"></div>
 `;
+  }
+  // Обзор, «Другие перпы» и чат — на всю ширину страницы, под графиком и формой позиции
+  function wideHTML(a) {
+    return `<div class="panel ov" id="t-ov">${overviewHTML(a)}</div>
+    <div class="panel tmore" id="t-sugg">${moreHTML(a)}</div>
+    <div class="panel tchat" id="t-chat"></div>`;
   }
   function paintSummary() {
     const a = A[P.sel];
@@ -1253,6 +1256,7 @@ const PERPS = (() => {
         </aside>
         <section class="tmain" id="t-main">${mainHTML()}</section>
       </div>
+      <div class="twide" id="t-wide">${wideHTML(A[P.sel])}</div>
       <div class="panel" style="margin:16px 0 40px">
         <h3>Открытые позиции</h3>
         <div id="t-pos"></div>
@@ -1268,7 +1272,7 @@ const PERPS = (() => {
 
   function bind() {
     const root = $("#view");
-    const rebuildMain = () => { P.tp = ""; P.sl = ""; $("#t-main").innerHTML = mainHTML(); bindMain(); paintChart(); paintSummary(); };
+    const rebuildMain = () => { P.tp = ""; P.sl = ""; $("#t-main").innerHTML = mainHTML(); $("#t-wide").innerHTML = wideHTML(A[P.sel]); bindMain(); paintChart(); paintSummary(); };
     $("#t-tabs").onclick = (ev) => {
       const b = ev.target.closest("[data-tcls]");
       if (!b) return;
