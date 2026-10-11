@@ -597,3 +597,10 @@ footer{border-top:1px solid var(--line);padding:22px 0;color:var(--muted);font-s
 .dp-live.wait{background:#94a3b8;box-shadow:0 0 0 3px #94a3b833;animation:dppulse 1.2s infinite}
 .dp-live.off{background:#f59e0b;box-shadow:0 0 0 3px #f59e0b33}
 .dp-rt{display:block;font-size:11px;opacity:.6}
+/* длинное название в шапке */
+.logo{font-size:25px;letter-spacing:.06em;gap:11px}
+.logo-svg{width:40px;height:40px}
+.logo span{font-stretch:125%;transform:scaleX(1.12);transform-origin:left center;margin-right:10px}
+@media(max-width:1180px){.logo{font-size:21px;letter-spacing:.04em;gap:9px}.logo-svg{width:34px;height:34px}}
+@media(max-width:640px){.logo{font-size:21px}.logo span{margin-right:0}}
+@media(max-width:1100px) and (min-width:901px){.bar{gap:12px}.nav{gap:0}.nav a{padding:6px 8px;font-size:13px}.logo{font-size:19px}.logo span{margin-right:4px}.wbox{gap:10px}.dep-btn{padding:0 14px}}

@@ -1,4 +1,4 @@
-// Трейдинг: бессрочные контракты (perps) на крипту, акции и сырьё. Демо на игровые рубли.
+// Перпы: бессрочные контракты (perps) на крипту, акции и сырьё. Демо на игровые рубли.
 // Цены живые, если открыт доступ к источнику (бейдж Live); иначе актив торгуется по симулированной цене (бейдж Демо).
 // Использует общие функции приложения через window.RP (баланс, подтверждение, уведомления, хранилище).
 const PERPS = (() => {
@@ -67,6 +67,12 @@ const PERPS = (() => {
       for (let i = 1; i < 168; i++) hh.push(hh[i - 1] * Math.exp(hs * gauss(r)));
       const k = a.price / hh[167];
       a.hh = hh.map((v) => v * k);
+      // дневная история на год: нужна для периодов 1М, 3М и 1Г
+      const ds = a.sig * 60 * 0.3 * Math.sqrt(24) * 0.55; // дневная волатильность
+      const dd = [1];
+      for (let i = 1; i < 365; i++) dd.push(dd[i - 1] * Math.exp(ds * gauss(r)));
+      const kd = a.price / dd[364];
+      a.dd = dd.map((v) => v * kd);
       const lv = [a.price];
       for (let i = 1; i < 90; i++) lv.unshift(lv[0] * Math.exp(-a.sig * gauss(r)));
       a.live = lv;
@@ -95,6 +101,7 @@ const PERPS = (() => {
       if (pos.sym === a.sym) ["entry", "liq", "tp", "sl"].forEach((k) => { if (pos[k]) pos[k] *= ratio; });
     });
     a.hh = a.hh.map((v) => v * ratio);
+    a.dd = a.dd.map((v) => v * ratio);
     a.live = Array(30).fill(p);
     a.price = p;
     a.base = p;
@@ -144,6 +151,15 @@ const PERPS = (() => {
       closes[167] = a.price;
       a.hh = closes;
       a.realHist = true;
+    } catch {}
+    try {
+      const k = await getJSON(`${bnHost}/api/v3/klines?symbol=${SRC[a.sym].bn}&interval=1d&limit=365`);
+      const d = k.map((x) => Number(x[4])).filter((v) => v > 0);
+      if (d.length < 30) return;
+      while (d.length < 365) d.unshift(d[0]);
+      d[364] = a.price;
+      a.dd = d;
+      a.realDaily = true;
     } catch {}
   }
   const errTxt = (e) => (e && e.name === "AbortError" ? "AbortError" : (e && e.message) || String(e));
@@ -303,8 +319,15 @@ const PERPS = (() => {
   }
   function paintFeeds() { const el = $("#t-feedbody"); if (el && $("#t-feeds") && $("#t-feeds").open) el.innerHTML = feedsHTML(); }
   const liveBadge = (a) => (fresh(a) ? '<span class="lv on">Live</span>' : '<span class="lv">Демо</span>');
-  const srcText = (a) => (fresh(a) ? "Источник цены: " + SRC_NAME[a.srcKey] : "Источник цены: симуляция. " + (SRC[a.sym] ? "Живой источник не ответил: причина в разделе «Статус источников цен» внизу страницы." : "Для этого актива бесплатного живого источника нет."));
-  const rangesFor = (a) => (fresh(a) && !a.realHist ? ["LIVE"] : ["LIVE", "1Д", "1Н"]);
+  // Откуда взят график за выбранный период: настоящие свечи или симуляция (честно помечаем).
+  const histNote = (a) => {
+    if (P.range === "LIVE") return "";
+    const real = isDaily() ? a.realDaily : a.realHist;
+    return real ? ` История за период: настоящие свечи Binance.` : ` История за период смоделирована (демо), это не реальные котировки.`;
+  };
+  const srcText = (a) => (fresh(a) ? "Источник цены: " + SRC_NAME[a.srcKey] : "Источник цены: симуляция. " + (SRC[a.sym] ? "Живой источник не ответил: причина в разделе «Статус источников цен» внизу страницы." : "Для этого актива бесплатного живого источника нет.") + histNote(a));
+  const RANGES = ["LIVE", "1Д", "1Н", "1М", "3М", "1Г"]; // день, неделя, месяц, 3 месяца, год
+  const rangesFor = () => RANGES;
   const rangeHTML = (a) => { if (!rangesFor(a).includes(P.range)) P.range = "LIVE"; return rangesFor(a).map((k) => `<button data-range="${k}" class="${k === P.range ? "on" : ""}">${k === "LIVE" ? "Live" : k}</button>`).join(""); };
 
   // ---------- позиции ----------
@@ -490,10 +513,18 @@ const PERPS = (() => {
   // ---------- графики ----------
   function seriesFor(a) {
     if (P.range === "LIVE") return a.live;
-    return P.range === "1Д" ? a.hh.slice(-24) : a.hh;
+    switch (P.range) {
+      case "1Д": return a.hh.slice(-24);
+      case "1Н": return a.hh;
+      case "1М": return a.dd.slice(-30);
+      case "3М": return a.dd.slice(-90);
+      default: return a.dd;
+    }
   }
+  const isDaily = () => P.range === "1М" || P.range === "3М" || P.range === "1Г";
   function labelAt(n, i) {
     if (P.range === "LIVE") return i === n - 1 ? "сейчас" : `−${n - 1 - i} с`;
+    if (isDaily()) return new Date(Date.now() - (n - 1 - i) * 86400e3).toLocaleDateString("ru-RU", P.range === "1Г" ? { day: "numeric", month: "short", year: "2-digit" } : { day: "numeric", month: "short" });
     const d = new Date(Date.now() - (n - 1 - i) * 3600e3);
     return P.range === "1Д"
       ? d.toLocaleTimeString("ru-RU", { hour: "2-digit", minute: "2-digit" })
@@ -681,7 +712,7 @@ const PERPS = (() => {
 
   function view() {
     return `<div class="wrap">
-      <h1 class="page-title">Трейдинг</h1>
+      <h1 class="page-title">Перпы</h1>
       <p class="page-sub">Бессрочные контракты на крипту, акции и сырьё. Торгуйте без плеча или с плечом, в рост (Long) и в падение (Short). Демо: игровые рубли. Цены живые там, где виден бейдж Live, остальные симулируются.</p>
       <div class="trade">
         <aside class="panel assets">
@@ -734,6 +765,7 @@ const PERPS = (() => {
         const b = ev.target.closest("[data-range]");
         if (!b) return;
         P.range = b.dataset.range;
+        $("#t-src").textContent = srcText(A[P.sel]);
         document.querySelectorAll("#t-range button").forEach((x) => x.classList.toggle("on", x === b));
         paintChart();
       };
@@ -796,10 +828,12 @@ const PERPS = (() => {
       a.live.push(a.price);
       if (a.live.length > 120) a.live.shift();
       a.hh[a.hh.length - 1] = a.price;
+      a.dd[a.dd.length - 1] = a.price;
     });
     if (++ticks % 3600 === 0) { // раз в час сдвигаем часовой график
       ASSETS.forEach((a) => { a.hh.push(a.price); a.hh.shift(); });
     }
+    if (ticks % 86400 === 0) ASSETS.forEach((a) => { a.dd.push(a.price); a.dd.shift(); });
     if (ticks % 5 === 0) savePrices();
     if (ticks % 3 === 0) paintFeeds();
     checkLiquidations();
@@ -841,7 +875,7 @@ const PERPS = (() => {
     const pick = ["BTC", "NVDA", "SBER", "XAU"].map((s) => A[s]);
     return `<div class="promo-trade">
       <div class="pt-text">
-        <h2>Трейдинг с плечом и без</h2>
+        <h2>Перпы с плечом и без</h2>
         <p>Бессрочные контракты на крипту, акции и сырьё. Long и Short, плечо до 100x, комиссия 0,05%.</p>
         <a class="cta primary" href="#trade">Открыть терминал</a>
       </div>
@@ -853,7 +887,7 @@ const PERPS = (() => {
   const realized = () => closed.reduce((s, c) => s + c.pnl, 0);
   const closedMargin = () => closed.reduce((s, c) => s + c.margin, 0);
   const count = () => closed.length + positions.length;
-  // Маржа в открытых позициях (деньги, которые сейчас «в игре» в трейдинге).
+  // Маржа в открытых позициях (деньги, которые сейчас «в игре» в перпах).
   const locked = () => positions.reduce((s, p) => s + p.margin, 0);
   function reset() { positions = []; closed = []; plog = []; persist(); }
   // Все сделки в виде строк для истории аккаунта.

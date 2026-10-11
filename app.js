@@ -60,7 +60,7 @@
     paintWallet();
     queueMicrotask(paintWallet); // ставки и позиции обновляются сразу после списания, поэтому повторяем после текущего кода
   }
-  // Шапка: «Портфель» — наличные плюс вложенное в пулы и трейдинг, «Наличные» — свободный баланс.
+  // Шапка: «Портфель» — наличные плюс вложенное в пулы и перпы, «Наличные» — свободный баланс.
   function paintWallet() {
     const cash = $("#balance"), port = $("#portfolio");
     if (!cash) return;
@@ -788,12 +788,12 @@
     box.innerHTML = `
       <div class="stat cash">
         <span class="stat-ic">${payIcon("crypto", 40)}</span>
-        <div><small>Наличные на балансе</small><b>${rub(balance)}</b><em>свободные деньги: можно сразу вложить в пул или трейдинг</em></div>
+        <div><small>Наличные на балансе</small><b>${rub(balance)}</b><em>свободные деньги: можно сразу вложить в пул или в перпы</em></div>
         <button class="pbtn" data-deposit>Пополнить</button>
       </div>
       <div class="stat play">
         <span class="stat-ic play-ic">${payIcon("sbp", 40)}</span>
-        <div><small>В пулах и трейдинге</small><b>${rub(inPlay)}</b><em>в пулах ${rub(inPools)} (${bets.length} ${bets.length === 1 ? "ставка" : "ставок"}) · в трейдинге ${rub(inTrade)} (маржа)</em></div>
+        <div><small>В пулах и перпах</small><b>${rub(inPlay)}</b><em>в пулах ${rub(inPools)} (${bets.length} ${bets.length === 1 ? "ставка" : "ставок"}) · в перпах ${rub(inTrade)} (маржа)</em></div>
       </div>
       <div class="stat-bar" title="Доля наличных в общих средствах">
         <div class="stat-bar-t"><span>Всего средств: <b>${rub(total)}</b></span><span>наличные ${share}% · в игре ${100 - share}%</span></div>
@@ -838,7 +838,7 @@
         : `<p class="empty" style="padding:18px">${deposits.length ? "По этому способу пополнений нет." : "Пополнений пока нет."} <a href="#account" style="color:var(--brand)" data-deposit>Пополнить баланс</a></p>`}`;
   }
 
-  // ---------- все операции аккаунта (рынки прогнозов, трейдинг и пополнения) ----------
+  // ---------- все операции аккаунта (рынки прогнозов, перпы и пополнения) ----------
   let accFilter = "all", accLimit = 15;
   function allTrades() {
     const rows = [];
@@ -856,17 +856,17 @@
     if (!box) return;
     const all = allTrades();
     const list = all.filter((r) => accFilter === "all" || r.sec === accFilter);
-    const tabs = [["all", "Все"], ["pred", "Рынки прогнозов"], ["perp", "Трейдинг"], ["dep", "Пополнения"]];
+    const tabs = [["all", "Все"], ["pred", "Рынки прогнозов"], ["perp", "Перпы"], ["dep", "Пополнения"]];
     $("#acc-txf").innerHTML = tabs.map(([id, n]) => `<button class="chip ${id === accFilter ? "on" : ""}" data-txf="${id}">${n} · ${id === "all" ? all.length : all.filter((r) => r.sec === id).length}</button>`).join("");
     if (!list.length) {
-      box.innerHTML = `<p class="empty" style="padding:18px">Сделок пока нет. Откройте <a href="#markets" style="color:var(--brand)">рынки</a> или <a href="#trade" style="color:var(--brand)">трейдинг</a>.</p>`;
+      box.innerHTML = `<p class="empty" style="padding:18px">Сделок пока нет. Откройте <a href="#markets" style="color:var(--brand)">рынки</a> или <a href="#trade" style="color:var(--brand)">перпы</a>.</p>`;
       return;
     }
     box.innerHTML = `<div class="table-wrap" style="margin:0"><table class="acc-tx"><thead><tr><th>Когда</th><th>Раздел</th><th>Событие</th><th>Сделка</th><th>Сумма</th><th>Вер. · коэф.</th><th>Результат</th></tr></thead><tbody>${list.slice(0, accLimit).map((r) => {
       const w = when(r.t);
       return `<tr>
         <td><span class="tx-when">${w.abs}</span><small>${w.rel}</small></td>
-        <td>${{ pred: "Прогноз", perp: "Трейдинг", dep: "Пополнение" }[r.sec]}</td>
+        <td>${{ pred: "Прогноз", perp: "Перпы", dep: "Пополнение" }[r.sec]}</td>
         <td class="ev">${esc(r.title)}</td>
         <td><span class="tag ${r.cls}">${esc(r.action)}</span></td>
         <td>${rub(r.amt)}</td>
