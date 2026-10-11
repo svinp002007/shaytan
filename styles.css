@@ -1,14 +1,17 @@
 :root{
-  --bg:#f4f5f8; --card:#fff; --ink:#12161f; --muted:#667085; --line:#e3e6ec;
-  --brand:#1d4ed8; --red:#d52b1e; --yes:#15803d; --no:#c62828; --soft:#eef1f7;
-  --hero-a:#0a1b45; --hero-b:#1e3fae; --hero-c:#c3281c;
+  /* тёмная тема по умолчанию; светлая включается через data-theme="light" */
+  --bg:#07090f; --card:#10141d; --ink:#eef1f6; --muted:#8f99ab; --line:#222937;
+  --brand:#7aa2ff; --brand-fill:#3b5fe0; --red:#ff4b3e; --yes:#3ddc84; --no:#ff6b6b; --soft:#171c28;
+  --hero-a:#04081a; --hero-b:#0b1c58; --hero-c:#6d1712;
   --display:"Unbounded","Manrope",system-ui,sans-serif;
   --body:"Manrope",system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+  color-scheme:dark;
 }
-@media (prefers-color-scheme: dark){
-  :root:not([data-theme="light"]){--bg:#0d1017; --card:#161a23; --ink:#e9ecf2; --muted:#98a2b3; --line:#272d39; --brand:#7aa2ff; --yes:#3ddc84; --no:#ff7070; --soft:#1d2230; color-scheme:dark}
+:root[data-theme="light"]{
+  --bg:#f4f5f8; --card:#fff; --ink:#12161f; --muted:#667085; --line:#e3e6ec;
+  --brand:#1d4ed8; --brand-fill:#1d4ed8; --red:#d52b1e; --yes:#15803d; --no:#c62828; --soft:#eef1f7;
+  --hero-a:#0a1b45; --hero-b:#1e3fae; --hero-c:#c3281c; color-scheme:light;
 }
-:root[data-theme="dark"]{--bg:#0d1017; --card:#161a23; --ink:#e9ecf2; --muted:#98a2b3; --line:#272d39; --brand:#7aa2ff; --yes:#3ddc84; --no:#ff7070; --soft:#1d2230; color-scheme:dark}
 
 *{box-sizing:border-box}
 body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.55 var(--body)}
@@ -140,7 +143,7 @@ textarea.field{resize:vertical;min-height:70px}
 .swatch{width:30px;height:30px;border-radius:50%;border:3px solid var(--card);outline:2px solid var(--line);cursor:pointer;padding:0}
 .swatch.on{outline-color:var(--ink)}
 .row-actions{display:flex;gap:10px;margin-top:16px;flex-wrap:wrap}
-.pbtn{border:0;border-radius:10px;background:var(--brand);color:#fff;padding:11px 18px;font:700 14px var(--body);cursor:pointer}
+.pbtn{border:0;border-radius:10px;background:var(--brand-fill);color:#fff;padding:11px 18px;font:700 14px var(--body);cursor:pointer}
 .sbtn{border:1px solid var(--line);border-radius:10px;background:none;color:var(--ink);padding:11px 18px;font:500 14px var(--body);cursor:pointer}
 .sbtn.danger{color:var(--no)}
 .kpis{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:18px}
@@ -170,7 +173,7 @@ textarea.field{resize:vertical;min-height:70px}
 .chip{border:1px solid var(--line);background:var(--soft);color:var(--ink);padding:7px 13px;border-radius:99px;cursor:pointer;font:500 14px var(--body)}
 .chip:hover{border-color:var(--brand)}
 .calc{display:flex;justify-content:space-between;gap:8px;font-size:13px;color:var(--muted);margin:10px 0 14px;flex-wrap:wrap}
-.submit{width:100%;padding:13px;border:0;border-radius:10px;background:var(--brand);color:#fff;font:700 15px var(--body);cursor:pointer}
+.submit{width:100%;padding:13px;border:0;border-radius:10px;background:var(--brand-fill);color:#fff;font:700 15px var(--body);cursor:pointer}
 .msg{margin-top:10px;font-size:13px;color:var(--yes);min-height:18px}
 .msg.err{color:var(--no)}
 .toast{position:fixed;left:50%;bottom:calc(24px + env(safe-area-inset-bottom,0px));transform:translateX(-50%);background:var(--ink);color:var(--bg);padding:10px 18px;border-radius:99px;font-weight:500;z-index:40;max-width:90vw}
@@ -266,7 +269,7 @@ footer{border-top:1px solid var(--line);padding:22px 0;color:var(--muted);font-s
 .impact b{text-align:right;font-variant-numeric:tabular-nums}
 
 /* сообщество */
-.tg{background:linear-gradient(115deg,#1b6fb0,#2aabee);color:#fff;border-radius:18px;padding:24px 28px;display:flex;align-items:center;gap:22px;flex-wrap:wrap}
+.tg{background:linear-gradient(115deg,#0d3a5e,#1673ad);color:#fff;border-radius:18px;padding:24px 28px;display:flex;align-items:center;gap:22px;flex-wrap:wrap}
 .tg-icon{flex:none;display:grid;place-items:center;width:84px;height:84px;border-radius:22px;background:#ffffff26}
 .tg-text{flex:1;min-width:220px}
 .tg-text h2{font-size:clamp(18px,2.6vw,24px);margin-bottom:6px}
@@ -345,7 +348,7 @@ footer{border-top:1px solid var(--line);padding:22px 0;color:var(--muted);font-s
 .promo-trade{display:grid;grid-template-columns:1fr 1.4fr;gap:20px;align-items:center;background:var(--card);border:1px solid var(--line);border-radius:18px;padding:24px}
 .pt-text h2{font-size:clamp(18px,2.6vw,24px);margin-bottom:8px}
 .pt-text p{margin:0 0 16px;color:var(--muted)}
-.pt-text .cta.primary{background:var(--brand);color:#fff}
+.pt-text .cta.primary{background:var(--brand-fill);color:#fff}
 .pt-tiles{display:grid;grid-template-columns:repeat(2,1fr);gap:10px}
 .pt-tile{display:grid;grid-template-columns:auto 1fr;grid-template-rows:auto auto;gap:2px 10px;align-items:center;border:1px solid var(--line);border-radius:12px;padding:10px 12px;text-decoration:none;background:var(--soft)}
 .pt-tile b{font-size:14px}.pt-tile span{grid-column:1/-1;font:700 15px var(--body);font-variant-numeric:tabular-nums}
@@ -508,7 +511,7 @@ footer{border-top:1px solid var(--line);padding:22px 0;color:var(--muted);font-s
 .dp-tabs button.on{border-color:var(--brand);background:var(--soft)}
 .dp-l{display:block;font-size:12px;font-weight:700;margin:12px 0 6px;opacity:.75}
 #dep-root select.field{width:100%}
-#dep-root .chip.on{background:var(--brand);color:var(--bg);border-color:var(--brand)}
+#dep-root .chip.on{background:var(--brand-fill);color:#fff;border-color:var(--brand-fill)}
 .dp-sum{display:flex;justify-content:space-between;align-items:baseline;gap:12px;margin:14px 0;padding:12px 14px;border-radius:12px;background:var(--soft);font-size:13px}
 .dp-sum b{font-size:17px;white-space:nowrap}
 .dp-fine{display:block;margin-top:10px;font-size:11px;opacity:.6}
@@ -573,7 +576,7 @@ footer{border-top:1px solid var(--line);padding:22px 0;color:var(--muted);font-s
 .stat-bar-t{display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap;font-size:12px;color:var(--muted);margin-bottom:6px}
 .stat-bar-t b{color:var(--ink)}
 .stat-bar-b{height:8px;border-radius:8px;background:var(--soft);overflow:hidden;border:1px solid var(--line)}
-.stat-bar-b i{display:block;height:100%;background:var(--brand);border-radius:8px}
+.stat-bar-b i{display:block;height:100%;background:var(--brand-fill);border-radius:8px}
 @media(max-width:720px){.acc-stats{grid-template-columns:1fr}.stat .pbtn{padding:8px 12px}}
 
 @media(max-width:1180px){.wbox{gap:16px}.wb-port{display:none}}
