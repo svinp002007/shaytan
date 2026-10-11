@@ -1049,9 +1049,10 @@ const PERPS = (() => {
   }
   function moreHTML(a) {
     const tab = P.moreTab || "perps";
-    const rel = (REL[a.sym] || []).map((s) => A[s]);
-    const others = ASSETS.filter((x) => x.sym !== a.sym && !rel.includes(x)).sort((x, y) => (x.cls === a.cls ? -1 : 0) - (y.cls === a.cls ? -1 : 0));
-    const perps = [...rel, ...others].slice(0, 8);
+    // только активы того же класса: у крипты крипта, у акций акции, у сырья сырьё; близкие по теме идут первыми
+    const same = ASSETS.filter((x) => x.cls === a.cls && x.sym !== a.sym);
+    const rel = (REL[a.sym] || []).map((s) => A[s]).filter((x) => x.cls === a.cls);
+    const perps = [...rel, ...same.filter((x) => !rel.includes(x))].slice(0, 8);
     const mk = relatedMarkets(a);
     return `<div class="mc-tabs" role="tablist"><button type="button" role="tab" data-mtab="perps" class="${tab === "perps" ? "on" : ""}">Другие перпы</button><button type="button" role="tab" data-mtab="markets" class="${tab === "markets" ? "on" : ""}">Связанные рынки${mk.length ? ` · ${mk.length}` : ""}</button></div>
       <div class="mc-row">${tab === "perps" ? perps.map(perpCard).join("") : mk.length ? mk.map(marketCard).join("") : '<p class="muted" style="padding:16px 4px">Для этого актива связанных рынков прогнозов пока нет.</p>'}</div>`;
