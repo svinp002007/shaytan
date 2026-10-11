@@ -16,6 +16,14 @@
     set(k, v) { try { localStorage.setItem("rp_" + k, JSON.stringify(v)); } catch {} }
   };
   let profile = { ...DEFAULT_PROFILE, ...store.get("profile", {}) };
+  // Настройки: оформление (dark | light | system) и скрытые категории рынков и классов перпов
+  let settings = { theme: "dark", hiddenCats: [], hiddenCls: [], ...store.get("settings", {}) };
+  if (!["dark", "light", "system"].includes(settings.theme)) settings.theme = "dark";
+  const catOn = (id) => !settings.hiddenCats.includes(id);
+  const clsOn = (id) => !settings.hiddenCls.includes(id);
+  const saveSettings = () => store.set("settings", settings);
+  const applyTheme = () => document.documentElement.setAttribute("data-theme", settings.theme);
+  applyTheme();
   let balance = Number(store.get("balance", 10000)) || 0;
   let bets = store.get("bets", []);
   let closed = store.get("closed", []);
@@ -537,7 +545,7 @@
   // Очки: та же категория, тот же значок (тема), общие слова в вопросе, близкий срок. Только открытые рынки.
   function similarTo(e, n = 4) {
     const w = new Set(wordsOf(e.q));
-    return EVENTS.filter((x) => x.id !== e.id && isOpen(x))
+    return EVENTS.filter((x) => x.id !== e.id && isOpen(x) && catOn(x.cat))
       .map((x) => {
         let s = (x.cat === e.cat ? 3 : 0) + (x.img === e.img ? 2 : 0);
         wordsOf(x.q).forEach((t) => { if (w.has(t)) s += 1; });
@@ -581,7 +589,7 @@
 
   // ---------- страницы ----------
   function viewHome() {
-    const hot = [...EVENTS].sort((a, b) => b.vol - a.vol);
+    const hot = EVENTS.filter((e) => catOn(e.cat) || e.id === MAIN_MARKET).sort((a, b) => b.vol - a.vol);
     const featured = (typeof MAIN_MARKET !== "undefined" && byId(MAIN_MARKET)) || hot[0];
     const news = (typeof MAIN_NEWS !== "undefined" && MAIN_NEWS[featured.id]) || [];
     const totalVol = EVENTS.reduce((s, e) => s + e.vol, 0);
@@ -632,7 +640,7 @@
 
       <section class="block cats-top">
         <div class="block-head"><h2>Категории</h2></div>
-        <div class="cats">${CATEGORIES.map((c) => {
+        <div class="cats">${CATEGORIES.filter((c) => catOn(c.id)).map((c) => {
           const n = EVENTS.filter((e) => e.cat === c.id);
           return `<a class="cat-tile" href="#markets" data-pick="${c.id}"><b>${c.name}</b><span>${n.length} рынков · пул ${short(n.reduce((s, e) => s + e.vol, 0))} ₽</span></a>`;
         }).join("")}</div>
@@ -645,7 +653,7 @@
 
       <section class="block">
         <div class="block-head"><h2>Скоро закроются</h2><a href="#markets" data-pick="soon">Все короткие рынки →</a></div>
-        <div class="grid" style="padding-bottom:0">${EVENTS.filter((e) => isOpen(e) && daysLeft(e) <= 14).sort((x, y) => x.closes.localeCompare(y.closes) || y.vol - x.vol).slice(0, 6).map(cardHTML).join("")}</div>
+        <div class="grid" style="padding-bottom:0">${EVENTS.filter((e) => catOn(e.cat) && isOpen(e) && daysLeft(e) <= 14).sort((x, y) => x.closes.localeCompare(y.closes) || y.vol - x.vol).slice(0, 6).map(cardHTML).join("")}</div>
       </section>
 
       <section class="block">
@@ -680,12 +688,13 @@
       closing: (a, b) => (isOpen(b) - isOpen(a)) || a.closes.localeCompare(b.closes), // сначала открытые, ближайший срок первым
       chance: (a, b) => b.yes - a.yes
     };
-    const inCat = (e) => state.cat === "all" || (state.cat === "soon" ? isOpen(e) && daysLeft(e) <= 14 : e.cat === state.cat);
+    if (state.cat !== "all" && state.cat !== "soon" && !catOn(state.cat)) state.cat = "all";
+    const inCat = (e) => catOn(e.cat) && (state.cat === "all" || (state.cat === "soon" ? isOpen(e) && daysLeft(e) <= 14 : e.cat === state.cat));
     return EVENTS.filter((e) => inCat(e) && (!q || e.q.toLowerCase().includes(q))).sort(state.cat === "soon" && state.sort === "volume" ? sorts.closing : sorts[state.sort]);
   }
 
   function viewMarkets() {
-    const tabs = [{ id: "all", name: "Все" }, { id: "soon", name: "Скоро закроются" }, ...CATEGORIES];
+    const tabs = [{ id: "all", name: "Все" }, { id: "soon", name: "Скоро закроются" }, ...CATEGORIES.filter((c) => catOn(c.id))];
     return `
     <div class="wrap">
       <h1 class="page-title">Рынки</h1>
@@ -903,6 +912,7 @@
             <div class="swatches" id="swatches">${COLORS.map((c) => `<button type="button" class="swatch ${c === profile.color ? "on" : ""}" data-color="${c}" style="background:${c}" aria-label="Цвет ${c}"></button>`).join("")}</div>
             <div class="row-actions">
               <button class="pbtn" type="submit">Сохранить</button>
+              <button class="sbtn" type="button" data-settings>Настройки</button>
               <button class="sbtn danger" type="button" id="reset">Сбросить аккаунт</button>
             </div>
           </form>
@@ -1313,6 +1323,45 @@
   const mmss = (s) => String(Math.floor(s / 60)).padStart(2, "0") + ":" + String(s % 60).padStart(2, "0");
   const depAmount = () => Math.floor(Number($("#dep").value));
 
+  // ---------- настройки: оформление и категории ----------
+  function openSettings() {
+    modalEvent = null;
+    const cnt = (id) => EVENTS.filter((e) => e.cat === id).length;
+    const sw = (key, id, on, name, sub) => `<label class="st-row"><span><b>${name}</b><small>${sub}</small></span><span class="sw"><input type="checkbox" data-${key}="${id}" ${on ? "checked" : ""}><i></i></span></label>`;
+    openSheet(`
+      <h2>Настройки</h2>
+      <h3 class="st-h">Оформление</h3>
+      <div class="st-themes" id="st-themes">${[["dark", "Тёмное"], ["light", "Светлое"], ["system", "Как в системе"]].map(([k, n]) => `<button type="button" class="st-th ${settings.theme === k ? "on" : ""}" data-th="${k}"><span class="st-prev st-${k}"><i></i><i></i><i></i></span><b>${n}</b></button>`).join("")}</div>
+      <h3 class="st-h">Категории рынков</h3>
+      <p class="st-note">Скрытые категории пропадают с главной и из списка рынков. Ваши ставки в них остаются в аккаунте.</p>
+      <div class="st-list" id="st-cats">${CATEGORIES.map((c) => sw("sc", c.id, catOn(c.id), c.name, `${cnt(c.id)} рынков`)).join("")}</div>
+      <div class="st-btns"><button type="button" class="sbtn" id="st-all">Включить все</button><button type="button" class="sbtn" id="st-fav">Только любимая</button></div>
+      <h3 class="st-h">Классы перпов</h3>
+      <div class="st-list" id="st-cls">${[["crypto", "Крипто"], ["stock", "Акции"], ["commodity", "Сырьё"]].map(([id, n]) => sw("sk", id, clsOn(id), n, "в разделе «Перпы»")).join("")}</div>`);
+    const sheet = $("#sheet-body");
+    const refresh = () => { saveSettings(); render(); };
+    $("#st-themes").onclick = (ev) => {
+      const b = ev.target.closest("[data-th]");
+      if (!b) return;
+      settings.theme = b.dataset.th; saveSettings(); applyTheme();
+      sheet.querySelectorAll(".st-th").forEach((x) => x.classList.toggle("on", x === b));
+    };
+    const toggle = (list, ids, ev, total) => {
+      const id = ev.target.dataset.sc || ev.target.dataset.sk, on = ev.target.checked;
+      const next = on ? settings[list].filter((x) => x !== id) : [...settings[list], id];
+      if (next.length >= total) { ev.target.checked = true; return toast("Должна остаться хотя бы одна"); }
+      settings[list] = next; refresh();
+    };
+    $("#st-cats").onchange = (ev) => ev.target.dataset.sc && toggle("hiddenCats", null, ev, CATEGORIES.length);
+    $("#st-cls").onchange = (ev) => ev.target.dataset.sk && toggle("hiddenCls", null, ev, 3);
+    $("#st-all").onclick = () => { settings.hiddenCats = []; refresh(); sheet.querySelectorAll("[data-sc]").forEach((x) => (x.checked = true)); };
+    $("#st-fav").onclick = () => {
+      if (!profile.fav || profile.fav === "all") return toast("Выберите любимую категорию в профиле");
+      settings.hiddenCats = CATEGORIES.filter((c) => c.id !== profile.fav).map((c) => c.id); refresh();
+      sheet.querySelectorAll("[data-sc]").forEach((x) => (x.checked = x.dataset.sc === profile.fav));
+    };
+  }
+
   function openDeposit() {
     modalEvent = null;
     dep.tok = null; dep.q = null;
@@ -1575,6 +1624,7 @@
     }
     const sell = t.closest("[data-sell]");
     if (sell) return confirmSell(sell.dataset.sell);
+    if (t.closest("[data-settings]") || t.closest("#settings")) return openSettings();
     if (t.closest("[data-deposit]") || t.closest("#wallet")) return openDeposit();
     const pick = t.closest("[data-pick]");
     if (pick) state.cat = pick.dataset.pick;
@@ -1610,6 +1660,7 @@
   window.RP = {
     store, rub, toast, askConfirm, openSheet, closeModal, chatHTML, chatBind,
     route: () => state.route,
+    clsOn,
     openMarket: (id) => openBet(id),
     getBalance: () => balance,
     setBalance: (v) => { setBalance(v); if (state.route === "account") paintAccountRight(); }

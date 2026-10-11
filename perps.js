@@ -1240,12 +1240,15 @@ const PERPS = (() => {
   }
 
   function view() {
+    // скрытые в настройках классы не показываем
+    const clsList = Object.entries(CLS).filter(([id]) => RP.clsOn(id));
+    if (!RP.clsOn(P.cls)) { P.cls = clsList[0][0]; P.sel = ASSETS.find((x) => x.cls === P.cls).sym; }
     return `<div class="wrap">
       <h1 class="page-title">Перпы</h1>
       <p class="page-sub">Бессрочные контракты на крипту, акции и сырьё. Торгуйте без плеча или с плечом, в рост (Long) и в падение (Short). Демо: игровые рубли. Цены живые там, где виден бейдж Live, остальные симулируются.</p>
       <div class="trade">
         <aside class="panel assets">
-          <div class="tabs" id="t-tabs" style="padding:0 0 10px">${Object.entries(CLS).map(([id, n]) => `<button class="tab ${id === P.cls ? "active" : ""}" data-tcls="${id}">${n}</button>`).join("")}</div>
+          <div class="tabs" id="t-tabs" style="padding:0 0 10px">${clsList.map(([id, n]) => `<button class="tab ${id === P.cls ? "active" : ""}" data-tcls="${id}">${n}</button>`).join("")}</div>
           <div id="t-list" class="alist">${listHTML()}</div>
         </aside>
         <section class="tmain" id="t-main">${mainHTML()}</section>
