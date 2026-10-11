@@ -153,3 +153,49 @@ function payHero(kind, title, sub, coin) {
   const bg = kind === "sbp" ? "linear-gradient(120deg,#4527c7,#1e6fe0)" : "linear-gradient(120deg,#b45309,#f59e0b)";
   return `<div class="dp-hero" style="background:${bg}"><svg viewBox="0 0 150 96" aria-hidden="true">${kind === "sbp" ? phone : wallet}</svg><div><b>${title}</b><span>${sub}</span></div></div>`;
 }
+
+// ---------- курсор на графике: вертикальная линия, точка, дата сверху и плашка со значением ----------
+// svg — график с .cross и .dot; g — геометрия (W, L, R, T, B, n, x(), y()); o: { time(i), val(v), name, onEnter, onLeave }
+function attachHover(svg, g, vals, o) {
+  const NS = "http://www.w3.org/2000/svg";
+  const el = (tag, cls, attrs = {}) => { const n = document.createElementNS(NS, tag); n.setAttribute("class", cls); Object.entries(attrs).forEach(([k, v]) => n.setAttribute(k, v)); return n; };
+  const cross = svg.querySelector(".cross"), dot = svg.querySelector(".dot"), old = svg.querySelector(".tip");
+  if (old) old.remove();
+  const time = el("text", "hv-time", { "text-anchor": "middle" });
+  const box = el("g", "hv-box");
+  const pill = el("rect", "hv-pill", { rx: 6, height: 24 });
+  const bar = el("rect", "hv-bar", { width: 3, height: 12, rx: 1.5 });
+  const txt = el("text", "hv-val");
+  box.append(pill, bar, txt);
+  svg.append(time, box);
+  const parts = [cross, dot, time, box];
+  const show = (on) => parts.forEach((p) => p.toggleAttribute("hidden", !on));
+  show(false);
+  const base = g.H - g.B;
+  const move = (ev) => {
+    const r = svg.getBoundingClientRect();
+    const px = ((ev.clientX - r.left) / r.width) * g.W;
+    const i = Math.min(g.n - 1, Math.max(0, Math.round(((px - g.L) / (g.W - g.L - g.R)) * (g.n - 1))));
+    const x = g.x(i), y = g.y(vals[i]);
+    cross.setAttribute("x1", x); cross.setAttribute("x2", x);
+    dot.setAttribute("cx", x); dot.setAttribute("cy", y);
+    time.textContent = o.time(i);
+    time.setAttribute("x", Math.min(g.W - 60, Math.max(g.L + 60, x))); time.setAttribute("y", g.T - 3);
+    txt.textContent = (o.name ? o.name + " " : "") + o.val(vals[i]);
+    show(true);
+    const w = txt.getComputedTextLength() + 24;
+    const right = x + 12 + w < g.W - g.R;
+    const bx = right ? x + 12 : x - 12 - w, by = Math.min(base - 24, Math.max(g.T, y - 12));
+    pill.setAttribute("width", w); pill.setAttribute("x", bx); pill.setAttribute("y", by);
+    bar.setAttribute("x", bx + 8); bar.setAttribute("y", by + 6);
+    txt.setAttribute("x", bx + 17); txt.setAttribute("y", by + 16);
+  };
+  svg.onpointerenter = () => o.onEnter && o.onEnter();
+  // мышь: подсказка исчезает, когда курсор ушёл; палец: остаётся после касания, пока не коснутесь вне графика
+  svg.onpointerleave = (ev) => { if (ev.pointerType === "touch") return; show(false); o.onLeave && o.onLeave(); };
+  svg.onpointerdown = (ev) => { move(ev); window.__hvHide = () => { show(false); o.onLeave && o.onLeave(); }; };
+  svg.onpointermove = move;
+}
+document.addEventListener("pointerdown", (ev) => {
+  if (window.__hvHide && !ev.target.closest || (window.__hvHide && !ev.target.closest(".chart-svg"))) { window.__hvHide(); window.__hvHide = null; }
+});

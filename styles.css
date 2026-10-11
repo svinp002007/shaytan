@@ -607,3 +607,13 @@ footer{border-top:1px solid var(--line);padding:22px 0;color:var(--muted);font-s
 @media(max-width:1180px){.logo{font-size:21px;letter-spacing:.04em;gap:9px}.logo-svg{width:34px;height:34px}}
 @media(max-width:640px){.logo{font-size:21px}.logo span{margin-right:0}}
 @media(max-width:1100px) and (min-width:901px){.bar{gap:12px}.nav{gap:0}.nav a{padding:6px 8px;font-size:13px}.logo{font-size:19px}.logo span{margin-right:4px}.wbox{gap:10px}.dep-btn{padding:0 14px}}
+/* курсор на графике */
+.chart-svg .cross{stroke:var(--muted);stroke-dasharray:none;opacity:.7}
+.chart-svg.up .dot{stroke:var(--yes);fill:var(--card)}.chart-svg.down .dot{stroke:var(--no);fill:var(--card)}
+.chart-svg .dot{stroke-width:3;r:5}
+.chart-svg .hv-time{fill:var(--muted);font:600 11px var(--body)}
+.chart-svg .hv-pill{fill:var(--card);stroke:var(--line);stroke-width:1}
+.chart-svg .hv-val{fill:var(--ink);font:700 12px var(--body)}
+.chart-svg.up .hv-bar{fill:var(--yes)}.chart-svg.down .hv-bar{fill:var(--no)}
+.chart-svg{cursor:crosshair}
+.chart-svg [hidden]{display:none}

@@ -559,7 +559,7 @@ const PERPS = (() => {
       ${ticks}${xl}${marks}
       <path class="ca" d="${line}L${g.x(n - 1).toFixed(1)} ${base}L${g.L} ${base}Z"/>
       <path class="cl" d="${line}"/>
-      <line class="cross" y1="${g.T}" y2="${base}" hidden/><circle class="dot" r="4.5" hidden/><text class="tip" hidden></text>
+      <line class="cross" y1="${g.T}" y2="${base}" hidden/><circle class="dot" r="4.5" hidden/>
     </svg>`;
   }
   function paintChart() {
@@ -568,22 +568,18 @@ const PERPS = (() => {
     const a = A[P.sel];
     host.innerHTML = chartHTML(a);
     const svg = $("svg", host), vals = seriesFor(a), g = pgeom(vals, a);
-    const cross = $(".cross", svg), dot = $(".dot", svg), tip = $(".tip", svg);
-    const show = (on) => [cross, dot, tip].forEach((el) => (el.hidden = !on));
-    svg.onpointerenter = () => (chartHover = true);
-    svg.onpointerleave = () => { chartHover = false; show(false); };
-    svg.onpointermove = (ev) => {
-      const r = svg.getBoundingClientRect();
-      const px = ((ev.clientX - r.left) / r.width) * g.W;
-      const i = clamp(Math.round(((px - g.L) / (g.W - g.L - g.R)) * (g.n - 1)), 0, g.n - 1);
-      const x = g.x(i), y = g.y(vals[i]);
-      cross.setAttribute("x1", x); cross.setAttribute("x2", x);
-      dot.setAttribute("cx", x); dot.setAttribute("cy", y);
-      tip.textContent = `${price(a, vals[i])} · ${labelAt(g.n, i)}`;
-      tip.setAttribute("x", clamp(x, 90, g.W - 90)); tip.setAttribute("y", Math.max(y - 10, g.T + 10));
-      tip.setAttribute("text-anchor", "middle");
-      show(true);
-    };
+    attachHover(svg, g, vals, {
+      val: (v) => price(a, v),
+      time: (i) => hoverTime(g.n, i),
+      onEnter: () => (chartHover = true),
+      onLeave: () => (chartHover = false)
+    });
+  }
+  // Полная подпись момента для курсора: дата и время (для длинных периодов только дата)
+  function hoverTime(n, i) {
+    if (P.range === "LIVE") return i === n - 1 ? "сейчас" : `${n - 1 - i} с назад`;
+    if (isDaily()) return new Date(Date.now() - (n - 1 - i) * 86400e3).toLocaleDateString("ru-RU", { day: "numeric", month: "short", year: "numeric" });
+    return new Date(Date.now() - (n - 1 - i) * 3600e3).toLocaleString("ru-RU", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
   }
 
   // ---------- интерфейс ----------

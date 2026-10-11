@@ -263,28 +263,19 @@
       <path class="cl" d="${line}"/>
       <line class="cross" y1="${g.T}" y2="${base}" hidden/>
       <circle class="dot" r="4.5" hidden/>
-      <text class="tip" hidden></text>
     </svg>`;
   }
+  let mChartHover = false;
   function bindChart(host, vals, key) {
     const svg = $("svg", host);
     if (!svg) return;
-    const g = geom(vals);
-    const cross = $(".cross", svg), dot = $(".dot", svg), tip = $(".tip", svg);
-    const show = (on) => [cross, dot, tip].forEach((el) => (el.hidden = !on));
-    svg.onpointerleave = () => show(false);
-    svg.onpointermove = (ev) => {
-      const r = svg.getBoundingClientRect();
-      const px = ((ev.clientX - r.left) / r.width) * g.W;
-      const i = clamp(Math.round(((px - g.L) / (g.W - g.L - g.R)) * (g.n - 1)), 0, g.n - 1);
-      const x = g.x(i), y = g.y(vals[i]);
-      cross.setAttribute("x1", x); cross.setAttribute("x2", x);
-      dot.setAttribute("cx", x); dot.setAttribute("cy", y);
-      tip.textContent = `${pct1(vals[i])}% · ${timeLabel(g.n, i, key)}`;
-      tip.setAttribute("x", clamp(x, 70, g.W - 70)); tip.setAttribute("y", Math.max(y - 10, g.T + 10));
-      tip.setAttribute("text-anchor", "middle");
-      show(true);
-    };
+    attachHover(svg, geom(vals), vals, {
+      name: "Да",
+      onEnter: () => (mChartHover = true),
+      onLeave: () => (mChartHover = false),
+      val: (v) => pct1(v) + "%",
+      time: (i) => new Date(Date.now() - (vals.length - 1 - i) * 3600e3).toLocaleString("ru-RU", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })
+    });
   }
 
   // ---------- подтверждение действий ----------
@@ -1543,7 +1534,7 @@
       addTrade(e, { nick: NICKS[Math.floor(Math.random() * NICKS.length)], side, kind: "buy", amt, price: q.avg });
     });
     refreshPrices();
-    if (modalEvent && $("#m-chart")) { paintChart(); paintModalLive(); }
+    if (modalEvent && $("#m-chart")) { if (!mChartHover) paintChart(); paintModalLive(); } // пока курсор на графике, не перерисовываем его
     if (state.route === "account" && $("#modal").hidden) paintAccountRight();
   }
   setInterval(tick, 5000);
