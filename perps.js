@@ -83,6 +83,7 @@ const PERPS = (() => {
       for (let i = 1; i < 90; i++) lv.unshift(lv[0] * Math.exp(-a.sig * gauss(r)));
       a.live = lv;
     });
+    drawings = RP.store.get("pdraw", {});
     positions = RP.store.get("ppos", []);
     closed = RP.store.get("pclosed", []);
     plog = RP.store.get("plog", []);
@@ -551,8 +552,32 @@ const PERPS = (() => {
     lo -= pad; hi += pad;
     return { W, H, L, R, T, B, n, lo, hi, x: (i) => L + (i * (W - L - R)) / (n - 1), y: (v) => T + ((hi - v) * (H - T - B)) / (hi - lo) };
   }
-  function chartHTML(a) {
-    const vals = seriesFor(a), g = pgeom(vals, a), n = vals.length;
+  // ---------- график: окно просмотра (масштаб и сдвиг) и привязка рисунков ко времени и цене ----------
+  let VW = { span: null, end: null, key: "" }; // сколько точек видно и где правый край; null — весь график, правый край у последней точки
+  let M = null, HV = null; // текущая раскладка графика и управление курсором
+  const T = { tool: "cursor", pending: null, sel: null, measure: null, busy: false, textOpen: false, emoji: "🚀", hist: [] };
+  let drawings = {}; // тикер -> список рисунков [{ id, type, pts: [{t, p}], text, emoji }]
+  const DCOL = "#f5c542";
+  const stepMs = () => (P.range === "LIVE" ? 1000 : P.range === "1Ч" ? 60e3 : isDaily() ? 86400e3 : 3600e3);
+  function viewWin(nF) {
+    const key = P.sel + P.range;
+    if (VW.key !== key) VW = { span: null, end: null, key };
+    const span = clamp(VW.span || nF, Math.min(10, nF), nF);
+    const end = clamp(VW.end == null ? nF - 1 : VW.end, span - 1, nF - 1);
+    return { span, end, i0: end - span + 1, nF, zoomed: span < nF };
+  }
+  function mapChart(a) {
+    const S = seriesFor(a), nF = S.length, w = viewWin(nF), vals = S.slice(w.i0, w.i0 + w.span), g = pgeom(vals, a);
+    const step = stepMs(), now = Date.now();
+    return {
+      a, S, nF, w, vals, g, step, now,
+      X: (t) => g.x(nF - 1 - (now - t) / step - w.i0),
+      Y: (p) => g.y(p),
+      inv: (px, py) => ({ t: now - (nF - 1 - (w.i0 + ((px - g.L) / (g.W - g.L - g.R)) * (g.n - 1))) * step, p: g.hi - ((py - g.T) * (g.hi - g.lo)) / (g.H - g.T - g.B) })
+    };
+  }
+  function chartHTML(a, m) {
+    const { g, vals, w, nF } = m, n = vals.length;
     const step = Math.max(1, Math.floor(n / 150));
     let line = "";
     for (let i = 0; i < n; i += step) line += (line ? "L" : "M") + g.x(i).toFixed(1) + " " + g.y(vals[i]).toFixed(1);
@@ -563,31 +588,346 @@ const PERPS = (() => {
       return `<line class="gl" x1="${g.L}" x2="${g.W - g.R}" y1="${g.y(v).toFixed(1)}" y2="${g.y(v).toFixed(1)}"/><text class="tx" x="${g.L - 6}" y="${(g.y(v) + 4).toFixed(1)}" text-anchor="end">${num(v, a.dec)}</text>`;
     }).join("");
     const xl = [[0, "start"], [Math.round((n - 1) / 2), "middle"], [n - 1, "end"]]
-      .map(([i, an]) => `<text class="tx" x="${g.x(i).toFixed(1)}" y="${g.H - 6}" text-anchor="${an}">${labelAt(n, i)}</text>`).join("");
+      .map(([i, an]) => `<text class="tx" x="${g.x(i).toFixed(1)}" y="${g.H - 6}" text-anchor="${an}">${labelAt(nF, w.i0 + i)}</text>`).join("");
     // линии входа и ликвидации открытых позиций по этому активу
     const marks = positions.filter((p) => p.sym === a.sym).map((p) => {
       const mk = (v, cls, txt) => (v > g.lo && v < g.hi ? `<line class="${cls}" x1="${g.L}" x2="${g.W - g.R}" y1="${g.y(v).toFixed(1)}" y2="${g.y(v).toFixed(1)}"/><text class="mk ${cls}" x="${g.W - g.R - 4}" y="${(g.y(v) - 4).toFixed(1)}" text-anchor="end">${txt}</text>` : "");
       return mk(p.entry, "m-entry", "вход") + mk(p.liq, "m-liq", "ликвидация") + (p.tp ? mk(p.tp, "m-tp", "тейк") : "") + (p.sl ? mk(p.sl, "m-sl", "стоп") : "");
     }).join("");
-    return `<svg viewBox="0 0 ${g.W} ${g.H}" class="chart-svg ${up ? "up" : "down"}" role="img" aria-label="График цены ${a.sym}">
+    return `<svg viewBox="0 0 ${g.W} ${g.H}" class="chart-svg ${up ? "up" : "down"} tool-${T.tool}" role="img" aria-label="График цены ${a.sym}">
+      <defs><clipPath id="dclip"><rect x="${g.L}" y="${g.T}" width="${g.W - g.L - g.R}" height="${base - g.T}"/></clipPath></defs>
       ${ticks}${xl}${marks}
       <path class="ca" d="${line}L${g.x(n - 1).toFixed(1)} ${base}L${g.L} ${base}Z"/>
       <path class="cl" d="${line}"/>
+      <g class="drw" clip-path="url(#dclip)"></g>
       <line class="cross" y1="${g.T}" y2="${base}" hidden/><circle class="dot" r="4.5" hidden/>
     </svg>`;
   }
+
+  // ---------- рисунки ----------
+  const FIB = [0, 0.236, 0.382, 0.5, 0.618, 0.786, 1];
+  const durTxt = (ms) => {
+    const s = Math.round(Math.abs(ms) / 1000);
+    if (s < 90) return s + " с";
+    const m = Math.round(s / 60);
+    if (m < 90) return m + " мин";
+    const h = Math.round(m / 60);
+    if (h < 48) return h + " ч";
+    return Math.round(h / 24) + " дн";
+  };
+  function dwSVG(d, m, pend) {
+    const { X, Y, a, g } = m;
+    const P2 = d.pts.map((q) => [X(q.t), Y(q.p)]);
+    const f = (v) => v.toFixed(1);
+    const hit = (inner) => `<g class="dh">${inner}</g>`;
+    let body = "", hitb = "";
+    const seg = (x1, y1, x2, y2, cls = "dl") => `<line class="${cls}" x1="${f(x1)}" y1="${f(y1)}" x2="${f(x2)}" y2="${f(y2)}"/>`;
+    const dots = P2.map(([x, y]) => `<circle class="dp" cx="${f(x)}" cy="${f(y)}" r="3"/>`).join("");
+    if (d.type === "line") {
+      const [[x1, y1], [x2, y2]] = P2;
+      body = seg(x1, y1, x2, y2) + dots; hitb = seg(x1, y1, x2, y2, "dh-l");
+    } else if (d.type === "fib") {
+      const [[x1, y1], [x2, y2]] = P2, xa = Math.min(x1, x2), xb = Math.max(x1, x2);
+      const [p1, p2] = [d.pts[0].p, d.pts[1].p];
+      body = FIB.map((l, k) => {
+        const pr = p2 - (p2 - p1) * l, y = Y(pr);
+        return `${k < FIB.length - 1 ? `<rect class="fz" x="${f(xa)}" y="${f(Math.min(y, Y(p2 - (p2 - p1) * FIB[k + 1])))}" width="${f(xb - xa)}" height="${f(Math.abs(Y(p2 - (p2 - p1) * FIB[k + 1]) - y))}" opacity="${k % 2 ? 0.05 : 0.11}"/>` : ""}${seg(xa, y, xb, y, "dl thin")}<text class="dt s" x="${f(xa + 4)}" y="${f(y - 3)}">${String(l).replace(".", ",")} · ${num(pr, a.dec)}</text>`;
+      }).join("") + seg(x1, y1, x2, y2, "dl dash") + dots;
+      hitb = FIB.map((l) => { const y = Y(p2 - (p2 - p1) * l); return seg(xa, y, xb, y, "dh-l"); }).join("");
+    } else if (d.type === "poly" || d.type === "brush") {
+      const path = P2.map(([x, y], i) => (i ? "L" : "M") + f(x) + " " + f(y)).join("");
+      body = `<path class="dl ${d.type === "brush" ? "brush" : ""}" d="${path}"/>` + (d.type === "poly" ? dots : "");
+      hitb = `<path class="dh-l" d="${path}"/>`;
+    } else if (d.type === "channel") {
+      const [[x1, y1], [x2, y2]] = P2, third = d.pts[2] || d.pts[1];
+      // сдвиг параллельной линии по цене: третья точка лежит на второй линии канала
+      const k = (d.pts[1].t - d.pts[0].t) || 1;
+      const pOnBase = d.pts[0].p + ((d.pts[1].p - d.pts[0].p) * (third.t - d.pts[0].t)) / k;
+      const dy = Y(third.p) - Y(pOnBase);
+      body = `<path class="fz" d="M${f(x1)} ${f(y1)}L${f(x2)} ${f(y2)}L${f(x2)} ${f(y2 + dy)}L${f(x1)} ${f(y1 + dy)}Z" opacity=".09"/>` +
+        seg(x1, y1, x2, y2) + seg(x1, y1 + dy, x2, y2 + dy) + seg(x1, y1 + dy / 2, x2, y2 + dy / 2, "dl dash thin") + dots;
+      hitb = seg(x1, y1, x2, y2, "dh-l") + seg(x1, y1 + dy, x2, y2 + dy, "dh-l");
+    } else if (d.type === "text") {
+      const [[x, y]] = P2;
+      body = `<text class="dt" x="${f(x)}" y="${f(y)}">${esc(d.text)}</text>`;
+      hitb = `<rect class="dh-r" x="${f(x - 4)}" y="${f(y - 16)}" width="${f(d.text.length * 8 + 8)}" height="22"/>`;
+    } else if (d.type === "emoji") {
+      const [[x, y]] = P2;
+      body = `<text class="de" x="${f(x)}" y="${f(y + 8)}" text-anchor="middle">${d.emoji}</text>`;
+      hitb = `<circle class="dh-r" cx="${f(x)}" cy="${f(y)}" r="16"/>`;
+    } else if (d.type === "measure") {
+      const [[x1, y1], [x2, y2]] = P2, dp = d.pts[1].p - d.pts[0].p, pc = (dp / d.pts[0].p) * 100, col = dp >= 0 ? "var(--yes)" : "var(--no)";
+      const lab1 = `${sg(dp, a.dec)} (${sg(pc)}%)`, lab2 = durTxt(d.pts[1].t - d.pts[0].t);
+      const bw = Math.max(lab1.length, lab2.length) * 6.6 + 16, bx = clamp(x2 + 10, g.L, g.W - g.R - bw), by = clamp(y2 - 18, g.T, g.H - g.B - 40);
+      body = `<rect class="fz" x="${f(Math.min(x1, x2))}" y="${f(Math.min(y1, y2))}" width="${f(Math.abs(x2 - x1))}" height="${f(Math.abs(y2 - y1))}" style="fill:${col}" opacity=".12"/>` +
+        `<line class="dl dash" x1="${f(x1)}" y1="${f(y1)}" x2="${f(x2)}" y2="${f(y2)}" style="stroke:${col}"/>${dots}` +
+        `<rect class="mbox" x="${f(bx)}" y="${f(by)}" width="${f(bw)}" height="38" rx="6"/><text class="dt s" x="${f(bx + 8)}" y="${f(by + 16)}" style="fill:${col}">${lab1}</text><text class="dt s" x="${f(bx + 8)}" y="${f(by + 31)}">${lab2}</text>`;
+    }
+    return `<g class="dw ${pend ? "pend" : ""} ${T.sel === d.id ? "sel" : ""}" data-id="${d.id || ""}">${body}${hitb ? hit(hitb) : ""}</g>`;
+  }
+  function renderDrawings() {
+    const g = $(".drw", $("#t-chart"));
+    if (!g || !M) return;
+    const list = drawings[P.sel] || [];
+    g.innerHTML = list.map((d) => dwSVG(d, M, false)).join("") + (T.measure ? dwSVG(T.measure, M, false) : "") + (T.pending ? dwSVG(T.pending, M, true) : "");
+  }
+  const saveDraw = () => RP.store.set("pdraw", drawings);
+  const snap = () => { T.hist.push({ sym: P.sel, json: JSON.stringify(drawings[P.sel] || []) }); if (T.hist.length > 40) T.hist.shift(); };
+  const newId = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 5);
+  function setTool(t) {
+    T.tool = t; T.pending = null; T.measure = null; T.sel = null; T.busy = false;
+    closeTextInput();
+    const bar = $("#t-tools");
+    if (bar) bar.querySelectorAll("[data-tool]").forEach((b) => b.classList.toggle("on", b.dataset.tool === t));
+    const emo = $("#t-emo"); if (emo) emo.hidden = t !== "emoji";
+    const hint = $("#t-hint"); if (hint) hint.textContent = HINTS[t];
+    paintChart();
+  }
+  const HINTS = {
+    cursor: "Колесо мыши или кнопки +/−: масштаб. Потяните график, чтобы сдвинуть. Нажмите на рисунок, чтобы выбрать, Delete удалит.",
+    line: "Линия тренда: нажмите и протяните или поставьте две точки кликами.",
+    fib: "Уровни Фибоначчи: от начала движения до его конца, две точки.",
+    poly: "Ломаная: ставьте точки кликами, двойной клик или Enter завершает.",
+    channel: "Параллельный канал: две точки задают линию, третий клик сдвигает вторую.",
+    brush: "Кисть: зажмите и рисуйте от руки.",
+    text: "Текст: нажмите в нужном месте и введите подпись.",
+    emoji: "Эмодзи: выберите значок и нажмите на график.",
+    measure: "Линейка: две точки покажут изменение цены, процент и время."
+  };
+  function commit(d) {
+    snap();
+    d.id = newId();
+    if (d.type !== "measure") { (drawings[P.sel] = drawings[P.sel] || []).push(d); saveDraw(); }
+    T.pending = null; T.busy = false;
+    setTool("cursor");
+    if (d.type === "measure") T.measure = d; else T.sel = d.id; // линейка временная: исчезает при следующем клике
+    renderDrawings();
+  }
+  function closeTextInput() { const i = $("#t-txt"); if (i) i.remove(); T.textOpen = false; }
+  function openTextInput(q, ev) {
+    closeTextInput();
+    const wrap = $("#t-drawmain"), host = $("#t-chart");
+    if (!wrap || !host) return;
+    const hr = host.getBoundingClientRect(), wr = wrap.getBoundingClientRect();
+    const inp = document.createElement("input");
+    inp.id = "t-txt"; inp.className = "draw-txt field"; inp.maxLength = 60; inp.placeholder = "Текст и Enter";
+    inp.style.left = Math.min(ev.clientX - wr.left, wr.width - 170) + "px";
+    inp.style.top = ev.clientY - wr.top - 14 + "px";
+    wrap.appendChild(inp);
+    T.textOpen = true;
+    inp.focus();
+    inp.onkeydown = (e) => {
+      if (e.key === "Enter") { const v = inp.value.trim(); closeTextInput(); if (v) commit({ type: "text", pts: [q], text: v }); else setTool("cursor"); }
+      if (e.key === "Escape") { closeTextInput(); setTool("cursor"); }
+    };
+    inp.onblur = () => setTimeout(() => { if ($("#t-txt")) { closeTextInput(); T.busy = false; } }, 120);
+  }
+
+  // ---------- масштаб и сдвиг ----------
+  function zoomBy(f, fx = 0.5) {
+    if (!M) return;
+    const w = M.w, nF = M.nF;
+    const ns = clamp(Math.round(w.span * f), Math.min(10, nF), nF);
+    const idx = w.i0 + fx * (w.span - 1);
+    const end = clamp(Math.round(idx - fx * (ns - 1) + ns - 1), ns - 1, nF - 1);
+    VW.span = ns >= nF ? null : ns;
+    VW.end = end >= nF - 1 ? null : end;
+    paintChart();
+  }
+  const zoomReset = () => { VW.span = null; VW.end = null; paintChart(); };
+
+  // ---------- мышь, палец и клавиатура на графике ----------
+  function bindHost(host) {
+    if (host.__bound) return;
+    host.__bound = true;
+    const ptrs = new Map();
+    let pan = null, pinch = null, brushing = false, dragged = null;
+    const toPt = (ev) => {
+      const svg = $("svg", host), r = svg.getBoundingClientRect(), g = M.g;
+      const px = clamp(((ev.clientX - r.left) / r.width) * g.W, g.L, g.W - g.R), py = clamp(((ev.clientY - r.top) / r.height) * g.H, g.T, g.H - g.B);
+      const q = M.inv(px, py);
+      return { t: q.t, p: q.p, px, py };
+    };
+    const strip = (q) => ({ t: q.t, p: q.p });
+    const refreshPend = () => renderDrawings();
+    host.addEventListener("pointerenter", () => (chartHover = true));
+    host.addEventListener("pointerleave", (ev) => { if (ev.pointerType !== "touch") { chartHover = false; if (HV && !pan) HV.hide(); } });
+    host.addEventListener("pointerdown", (ev) => {
+      if (!M || ev.button > 0) return;
+      ptrs.set(ev.pointerId, { x: ev.clientX, y: ev.clientY });
+      if (ptrs.size === 2) { // два пальца: масштаб щипком
+        const [p1, p2] = [...ptrs.values()];
+        pinch = { d0: Math.hypot(p1.x - p2.x, p1.y - p2.y), span0: M.w.span };
+        pan = null; T.busy = true;
+        return;
+      }
+      const q = toPt(ev), tool = T.tool;
+      if (tool === "cursor") {
+        const dw = ev.target.closest(".dw");
+        if (dw && dw.dataset.id) { T.sel = dw.dataset.id; renderDrawings(); return; }
+        if (T.sel || T.measure) { T.sel = null; T.measure = null; renderDrawings(); }
+        HV && HV.move(ev);
+        if (M.w.zoomed) { pan = { x0: ev.clientX, end0: M.w.end, moved: false }; T.busy = true; host.setPointerCapture(ev.pointerId); }
+        return;
+      }
+      T.busy = true;
+      host.setPointerCapture(ev.pointerId);
+      if (tool === "text") { openTextInput(strip(q), ev); return; }
+      if (tool === "emoji") { commit({ type: "emoji", pts: [strip(q)], emoji: T.emoji }); return; }
+      if (tool === "brush") { T.pending = { type: "brush", pts: [strip(q)] }; brushing = true; refreshPend(); return; }
+      if (tool === "poly") {
+        if (!T.pending) T.pending = { type: "poly", pts: [strip(q), strip(q)] };
+        else { T.pending.pts[T.pending.pts.length - 1] = strip(q); T.pending.pts.push(strip(q)); }
+        refreshPend(); return;
+      }
+      if (tool === "channel" && T.pending && T.pending.stage === 1) { T.pending.pts[1] = strip(q); T.pending.stage = 2; T.pending.pts[2] = strip(q); refreshPend(); return; }
+      if (tool === "channel" && T.pending && T.pending.stage === 2) { T.pending.pts[2] = strip(q); const d = T.pending; delete d.stage; commit(d); return; }
+      if (T.pending && (tool === "line" || tool === "fib" || tool === "measure")) { T.pending.pts[1] = strip(q); commit(T.pending); return; }
+      if (tool === "measure") T.measure = null;
+      T.pending = { type: tool, pts: [strip(q), strip(q)], stage: tool === "channel" ? 1 : undefined };
+      dragged = { x: ev.clientX, y: ev.clientY, moved: false };
+      refreshPend();
+    });
+    host.addEventListener("pointermove", (ev) => {
+      if (!M) return;
+      if (ptrs.has(ev.pointerId)) ptrs.set(ev.pointerId, { x: ev.clientX, y: ev.clientY });
+      if (pinch && ptrs.size >= 2) {
+        const [p1, p2] = [...ptrs.values()], d = Math.hypot(p1.x - p2.x, p1.y - p2.y) || 1;
+        const ns = clamp(Math.round(pinch.span0 * (pinch.d0 / d)), Math.min(10, M.nF), M.nF);
+        if (ns !== M.w.span) { VW.span = ns >= M.nF ? null : ns; VW.end = M.w.end >= M.nF - 1 ? null : M.w.end; paintChart(); }
+        return;
+      }
+      if (pan) {
+        const r = $("svg", host).getBoundingClientRect(), g = M.g;
+        const dIdx = (((ev.clientX - pan.x0) / r.width) * g.W / (g.W - g.L - g.R)) * (M.w.span - 1);
+        if (Math.abs(ev.clientX - pan.x0) > 3) pan.moved = true;
+        const end = clamp(Math.round(pan.end0 - dIdx), M.w.span - 1, M.nF - 1);
+        if (end !== M.w.end) { VW.end = end >= M.nF - 1 ? null : end; paintChart(); }
+        return;
+      }
+      if (HV) HV.move(ev);
+      if (!T.pending) return;
+      const q = strip(toPt(ev)), p = T.pending;
+      if (dragged && Math.hypot(ev.clientX - dragged.x, ev.clientY - dragged.y) > 6) dragged.moved = true;
+      if (p.type === "brush") { if (brushing) { const l = p.pts[p.pts.length - 1]; if (Math.hypot(M.X(q.t) - M.X(l.t), M.Y(q.p) - M.Y(l.p)) > 2) p.pts.push(q); } }
+      else if (p.type === "poly") p.pts[p.pts.length - 1] = q;
+      else if (p.type === "channel" && p.stage === 2) p.pts[2] = q;
+      else p.pts[1] = q;
+      refreshPend();
+    });
+    const up = (ev) => {
+      ptrs.delete(ev.pointerId);
+      if (ptrs.size < 2) pinch = null;
+      if (pan) { const moved = pan.moved; pan = null; T.busy = false; if (!moved) return; return; }
+      if (brushing) { brushing = false; const p = T.pending; if (p && p.pts.length > 1) commit(p); else { T.pending = null; T.busy = false; refreshPend(); } return; }
+      if (dragged) {
+        const dg = dragged; dragged = null;
+        const p = T.pending;
+        if (p && dg.moved) { // протянули: линия готова (у канала дальше третья точка)
+          if (p.type === "channel") { p.stage = 2; p.pts[2] = p.pts[1]; refreshPend(); }
+          else commit(p);
+        }
+      }
+      if (!T.pending && !T.textOpen && T.tool === "cursor") T.busy = false;
+    };
+    host.addEventListener("pointerup", up);
+    host.addEventListener("pointercancel", up);
+    host.addEventListener("dblclick", () => {
+      const p = T.pending;
+      if (p && p.type === "poly") { p.pts.pop(); p.pts.pop(); if (p.pts.length >= 2) commit(p); else { T.pending = null; T.busy = false; refreshPend(); } }
+    });
+    host.addEventListener("wheel", (ev) => {
+      if (!M) return;
+      ev.preventDefault();
+      const svg = $("svg", host), r = svg.getBoundingClientRect(), g = M.g;
+      const fx = clamp((((ev.clientX - r.left) / r.width) * g.W - g.L) / (g.W - g.L - g.R), 0, 1);
+      zoomBy(ev.deltaY > 0 ? 1.2 : 1 / 1.2, fx);
+    }, { passive: false });
+    host.addEventListener("contextmenu", (ev) => { if (T.pending) { ev.preventDefault(); T.pending = null; T.busy = false; renderDrawings(); } });
+  }
+  function onKey(ev) {
+    if (RP.route() !== "trade") return;
+    const tag = (ev.target.tagName || "").toLowerCase();
+    if (tag === "input" || tag === "textarea" || tag === "select") return;
+    if (ev.key === "Escape") { if (T.pending || T.tool !== "cursor") setTool("cursor"); else { T.sel = null; renderDrawings(); } }
+    else if (ev.key === "Enter" && T.pending && T.pending.type === "poly") { const p = T.pending; p.pts.pop(); if (p.pts.length >= 2) commit(p); else setTool("cursor"); }
+    else if ((ev.key === "Delete" || ev.key === "Backspace") && T.sel) { ev.preventDefault(); deleteSelected(); }
+    else if ((ev.ctrlKey || ev.metaKey) && ev.key.toLowerCase() === "z") { ev.preventDefault(); undoDraw(); }
+  }
+  function deleteSelected() {
+    const list = drawings[P.sel] || [], i = list.findIndex((d) => d.id === T.sel);
+    if (i < 0) return;
+    snap(); list.splice(i, 1); T.sel = null; saveDraw(); renderDrawings();
+  }
+  function undoDraw() {
+    const h = T.hist.pop();
+    if (!h) return RP.toast("Нечего отменять");
+    drawings[h.sym] = JSON.parse(h.json); T.sel = null; saveDraw();
+    if (h.sym === P.sel) renderDrawings();
+  }
+  function trashDraw() {
+    if (T.sel) return deleteSelected();
+    const list = drawings[P.sel] || [];
+    if (!list.length) return RP.toast("На этом графике пока нет рисунков");
+    snap(); drawings[P.sel] = []; T.measure = null; saveDraw(); renderDrawings();
+    RP.toast("Рисунки удалены. Кнопка «Отменить» вернёт их.");
+  }
+
+  // ---------- панель инструментов ----------
+  const ICON = {
+    cursor: '<path d="M12 3v6M12 15v6M3 12h6M15 12h6"/>',
+    line: '<circle cx="5.5" cy="18.5" r="2.2"/><circle cx="18.5" cy="5.5" r="2.2"/><path d="M7.2 16.8l9.6-9.6"/>',
+    fib: '<path d="M3 5h12M3 12h18M9 19h12"/><circle cx="19" cy="5" r="2.2"/><circle cx="5" cy="19" r="2.2"/>',
+    poly: '<circle cx="5" cy="17" r="2"/><circle cx="9" cy="6" r="2"/><circle cx="17" cy="9" r="2"/><circle cx="20" cy="18" r="2"/><path d="M5.6 15l2.4-7M11 6.6l4.2 1.6M17.4 11l2 5M7 17.4l11 .4"/>',
+    channel: '<path d="M3 6h14M7 18h14"/><path d="M5 14l14-4" stroke-dasharray="2.5 2.5"/><circle cx="19" cy="6" r="2"/><circle cx="5" cy="18" r="2"/>',
+    brush: '<path d="M4 20c3.5 0 5-1.2 5-4.2l7-7 3.2 3.2-7 7C11 20.3 8 21 4 20z"/><path d="M15 6.2l2.8 2.8M18 3.5l2.5 2.5"/>',
+    text: '<path d="M5 7V4h14v3M12 4v16M9 20h6"/>',
+    emoji: '<circle cx="12" cy="12" r="9"/><path d="M8.2 14c1 2.2 6.6 2.2 7.6 0"/><path d="M9 9.6h.01M15 9.6h.01" stroke-width="3"/>',
+    measure: '<path d="M3.5 16.5L16.5 3.5l4 4-13 13z"/><path d="M7.5 12.5l2 2M10.5 9.5l2 2M13.5 6.5l2 2"/>',
+    undo: '<path d="M9 6L4 11l5 5"/><path d="M4 11h10a6 6 0 0 1 0 9h-3"/>',
+    trash: '<path d="M4 7h16M10 7V4h4v3M6.5 7l1 13h9l1-13"/>',
+    zin: '<circle cx="11" cy="11" r="6.5"/><path d="M16 16l5 5M11 8v6M8 11h6"/>',
+    zout: '<circle cx="11" cy="11" r="6.5"/><path d="M16 16l5 5M8 11h6"/>',
+    fit: '<path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/>'
+  };
+  const TOOLS = [["cursor", "Курсор"], ["line", "Линия тренда"], ["fib", "Уровни Фибоначчи"], ["poly", "Ломаная"], ["channel", "Параллельный канал"], ["brush", "Кисть"], ["text", "Текст"], ["emoji", "Эмодзи"], ["measure", "Линейка"]];
+  const EMOJIS = ["🚀", "📈", "📉", "💰", "🔥", "⚠️", "✅", "❌", "🐂", "🐻", "🎯", "💎"];
+  function toolsHTML() {
+    return `<div class="draw-tb" id="t-tools" role="toolbar" aria-label="Инструменты рисования">
+      ${TOOLS.map(([k, n]) => `<button type="button" class="dtb ${T.tool === k ? "on" : ""}" data-tool="${k}" title="${n}" aria-label="${n}"><svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${ICON[k]}</svg></button>`).join("")}
+      <span class="dtb-sep"></span>
+      ${[["undo", "Отменить (Ctrl+Z)"], ["trash", "Удалить выбранное или все рисунки"], ["zin", "Приблизить"], ["zout", "Отдалить"], ["fit", "Показать весь график"]].map(([k, n]) => `<button type="button" class="dtb" data-act="${k}" title="${n}" aria-label="${n}"><svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${ICON[k]}</svg></button>`).join("")}
+    </div>`;
+  }
+  function bindTools() {
+    const bar = $("#t-tools");
+    if (!bar) return;
+    bar.onclick = (ev) => {
+      const t = ev.target.closest("[data-tool]"), a = ev.target.closest("[data-act]");
+      if (t) return setTool(T.tool === t.dataset.tool && t.dataset.tool !== "cursor" ? "cursor" : t.dataset.tool);
+      if (!a) return;
+      ({ undo: undoDraw, trash: trashDraw, zin: () => zoomBy(1 / 1.5), zout: () => zoomBy(1.5), fit: zoomReset })[a.dataset.act]();
+    };
+    const emo = $("#t-emo");
+    if (emo) emo.onclick = (ev) => { const b = ev.target.closest("[data-emo]"); if (!b) return; T.emoji = b.dataset.emo; emo.querySelectorAll("button").forEach((x) => x.classList.toggle("on", x === b)); };
+    if (!document.__pdKey) { document.__pdKey = true; document.addEventListener("keydown", onKey); }
+  }
+
   function paintChart() {
     const host = $("#t-chart");
     if (!host) return;
     const a = A[P.sel];
-    host.innerHTML = chartHTML(a);
-    const svg = $("svg", host), vals = seriesFor(a), g = pgeom(vals, a);
-    attachHover(svg, g, vals, {
+    M = mapChart(a);
+    host.innerHTML = chartHTML(a, M);
+    host.style.touchAction = T.tool !== "cursor" || M.w.zoomed ? "none" : "pan-y";
+    const svg = $("svg", host);
+    HV = attachHover(svg, M.g, M.vals, {
+      manual: true,
       val: (v) => price(a, v),
-      time: (i) => hoverTime(g.n, i),
-      onEnter: () => (chartHover = true),
-      onLeave: () => (chartHover = false)
+      time: (i) => hoverTime(M.nF, M.w.i0 + i)
     });
+    renderDrawings();
+    bindHost(host);
   }
   // Полная подпись момента для курсора: дата и время (для длинных периодов только дата)
   function hoverTime(n, i) {
@@ -624,7 +964,14 @@ const PERPS = (() => {
         <div class="th-r"><b id="t-price">${price(a, a.price)}</b><span id="t-ch">${chText(a)} за 24 ч</span></div>
       </div>
       <div class="range" id="t-range">${rangeHTML(a)}</div>
-      <div class="chart" id="t-chart"></div>
+      <div class="draw-wrap">
+        ${toolsHTML()}
+        <div class="draw-main" id="t-drawmain">
+          <div class="chart" id="t-chart"></div>
+          <div class="draw-emo" id="t-emo" ${T.tool === "emoji" ? "" : "hidden"}>${EMOJIS.map((e) => `<button type="button" data-emo="${e}" class="${e === T.emoji ? "on" : ""}">${e}</button>`).join("")}</div>
+        </div>
+      </div>
+      <div class="draw-hint" id="t-hint">${HINTS[T.tool]}</div>
       <div class="t-stats"><span>Макс. плечо <b>${a.maxLev}x</b></span><span>Комиссия <b>0,05%</b></span><span>Фандинг <b>${num(a.fund * 100, 3)}% / 8 ч</b></span></div>
       <div class="t-src" id="t-src">${srcText(a)}</div>
     </div>
@@ -772,6 +1119,7 @@ const PERPS = (() => {
       if (e) openEdit(e.dataset.edit);
     };
     function bindMain() {
+      bindTools();
       $("#t-range").onclick = (ev) => {
         const b = ev.target.closest("[data-range]");
         if (!b) return;
@@ -870,7 +1218,7 @@ const PERPS = (() => {
     if ($("#t-range").dataset.k !== rk) { $("#t-range").dataset.k = rk; $("#t-range").innerHTML = rangeHTML(a); }
     $("#t-price").textContent = price(a, a.price);
     $("#t-ch").innerHTML = chText(a) + " за 24 ч";
-    if (!chartHover) paintChart();
+    if (!chartHover && !T.busy && !T.textOpen) paintChart();
     paintSummary();
     positions.forEach((pos) => {
       const row = $(`tr[data-pid="${pos.id}"]`);

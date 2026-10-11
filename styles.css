@@ -619,3 +619,43 @@ footer{border-top:1px solid var(--line);padding:22px 0;color:var(--muted);font-s
 .chart-svg [hidden]{display:none}
 #t-range{display:flex;flex-wrap:nowrap;width:max-content;max-width:100%;overflow-x:auto}
 #t-range button{padding:5px 10px;flex:none}
+/* рисование на графике перпов */
+.draw-wrap{display:flex;gap:8px;align-items:flex-start}
+.draw-main{position:relative;flex:1;min-width:0}
+.draw-main .chart{margin-bottom:6px}
+.draw-tb{display:flex;flex-direction:column;gap:2px;flex:none;width:42px;padding:4px;border-radius:12px;background:var(--soft);border:1px solid var(--line)}
+.dtb{display:grid;place-items:center;width:34px;height:34px;border:0;border-radius:9px;background:none;color:var(--muted);cursor:pointer;padding:0}
+.dtb:hover{background:var(--card);color:var(--ink)}
+.dtb.on{background:var(--line);color:var(--ink)}
+.dtb-sep{height:1px;margin:4px 6px;background:var(--line)}
+.draw-hint{margin:2px 0 8px;font-size:12px;color:var(--muted);line-height:1.4}
+.draw-emo{position:absolute;left:8px;top:8px;z-index:3;display:flex;flex-wrap:wrap;gap:2px;max-width:210px;padding:6px;border-radius:12px;background:var(--card);border:1px solid var(--line);box-shadow:0 6px 20px #0006}
+.draw-emo button{border:0;background:none;font-size:20px;line-height:1;padding:5px;border-radius:8px;cursor:pointer}
+.draw-emo button:hover,.draw-emo button.on{background:var(--soft)}
+.draw-emo[hidden]{display:none}
+.draw-txt{position:absolute;z-index:4;width:170px;padding:6px 10px;font-size:13px}
+.chart-svg .drw{--dcol:#f5c542}
+.chart-svg .drw .dl{fill:none;stroke:var(--dcol);stroke-width:1.6;stroke-linecap:round;stroke-linejoin:round}
+.chart-svg .drw .dl.thin{stroke-width:1;opacity:.85}
+.chart-svg .drw .dl.dash{stroke-dasharray:4 4}
+.chart-svg .drw .dl.brush{stroke-width:2.2}
+.chart-svg .drw .dp{fill:var(--card);stroke:var(--dcol);stroke-width:1.6}
+.chart-svg .drw .fz{fill:var(--dcol);stroke:none}
+.chart-svg .drw .dt{fill:var(--dcol);font:700 13px var(--body);paint-order:stroke;stroke:var(--card);stroke-width:3px}
+.chart-svg .drw .dt.s{font-size:11px;font-weight:600}
+.chart-svg .drw .de{font-size:22px}
+.chart-svg .drw .mbox{fill:var(--card);stroke:var(--line)}
+.chart-svg .drw .dw.sel .dl{stroke-width:2.8}
+.chart-svg .drw .dw.sel .dp{fill:var(--dcol)}
+.chart-svg .drw .dw.sel .dt,.chart-svg .drw .dw.sel .de{filter:drop-shadow(0 0 4px var(--dcol))}
+.chart-svg .drw .dw.pend{pointer-events:none}
+.chart-svg .drw .dh-l{fill:none;stroke:transparent;stroke-width:12;pointer-events:stroke}
+.chart-svg .drw .dh-r{fill:transparent;pointer-events:all}
+.chart-svg.tool-text{cursor:text}
+.chart-svg.tool-cursor .dw{cursor:pointer}
+@media(max-width:720px){
+  .draw-wrap{flex-direction:column}
+  .draw-tb{flex-direction:row;width:100%;overflow-x:auto;padding:4px}
+  .dtb-sep{width:1px;height:22px;margin:6px 4px;flex:none}
+  .dtb{flex:none}
+}

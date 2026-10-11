@@ -190,6 +190,7 @@ function attachHover(svg, g, vals, o) {
     bar.setAttribute("x", bx + 8); bar.setAttribute("y", by + 6);
     txt.setAttribute("x", bx + 17); txt.setAttribute("y", by + 16);
   };
+  if (o.manual) return { move, hide: () => show(false) }; // события на график вешает вызывающий код
   svg.onpointerenter = () => o.onEnter && o.onEnter();
   // мышь: подсказка исчезает, когда курсор ушёл; палец: остаётся после касания, пока не коснутесь вне графика
   svg.onpointerleave = (ev) => { if (ev.pointerType === "touch") return; show(false); o.onLeave && o.onLeave(); };
