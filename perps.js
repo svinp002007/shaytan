@@ -73,6 +73,12 @@ const PERPS = (() => {
       for (let i = 1; i < 365; i++) dd.push(dd[i - 1] * Math.exp(ds * gauss(r)));
       const kd = a.price / dd[364];
       a.dd = dd.map((v) => v * kd);
+      // минутный график за час (60 точек)
+      const mv = a.sig * Math.sqrt(60);
+      const mm = [1];
+      for (let i = 1; i < 60; i++) mm.push(mm[i - 1] * Math.exp(mv * gauss(r)));
+      const km = a.price / mm[59];
+      a.mm = mm.map((v) => v * km);
       const lv = [a.price];
       for (let i = 1; i < 90; i++) lv.unshift(lv[0] * Math.exp(-a.sig * gauss(r)));
       a.live = lv;
@@ -102,6 +108,7 @@ const PERPS = (() => {
     });
     a.hh = a.hh.map((v) => v * ratio);
     a.dd = a.dd.map((v) => v * ratio);
+    a.mm = a.mm.map((v) => v * ratio);
     a.live = Array(30).fill(p);
     a.price = p;
     a.base = p;
@@ -151,6 +158,11 @@ const PERPS = (() => {
       closes[167] = a.price;
       a.hh = closes;
       a.realHist = true;
+    } catch {}
+    try {
+      const k = await getJSON(`${bnHost}/api/v3/klines?symbol=${SRC[a.sym].bn}&interval=1m&limit=60`);
+      const m = k.map((x) => Number(x[4])).filter((v) => v > 0);
+      if (m.length >= 30) { while (m.length < 60) m.unshift(m[0]); m[59] = a.price; a.mm = m; a.realMin = true; }
     } catch {}
     try {
       const k = await getJSON(`${bnHost}/api/v3/klines?symbol=${SRC[a.sym].bn}&interval=1d&limit=365`);
@@ -322,11 +334,11 @@ const PERPS = (() => {
   // Откуда взят график за выбранный период: настоящие свечи или симуляция (честно помечаем).
   const histNote = (a) => {
     if (P.range === "LIVE") return "";
-    const real = isDaily() ? a.realDaily : a.realHist;
+    const real = P.range === "1Ч" ? a.realMin : isDaily() ? a.realDaily : a.realHist;
     return real ? ` История за период: настоящие свечи Binance.` : ` История за период смоделирована (демо), это не реальные котировки.`;
   };
   const srcText = (a) => (fresh(a) ? "Источник цены: " + SRC_NAME[a.srcKey] : "Источник цены: симуляция. " + (SRC[a.sym] ? "Живой источник не ответил: причина в разделе «Статус источников цен» внизу страницы." : "Для этого актива бесплатного живого источника нет.") + histNote(a));
-  const RANGES = ["LIVE", "1Д", "1Н", "1М", "3М", "1Г"]; // день, неделя, месяц, 3 месяца, год
+  const RANGES = ["LIVE", "1Ч", "1Д", "1Н", "1М", "3М", "1Г"]; // час, день, неделя, месяц, 3 месяца, год
   const rangesFor = () => RANGES;
   const rangeHTML = (a) => { if (!rangesFor(a).includes(P.range)) P.range = "LIVE"; return rangesFor(a).map((k) => `<button data-range="${k}" class="${k === P.range ? "on" : ""}">${k === "LIVE" ? "Live" : k}</button>`).join(""); };
 
@@ -514,6 +526,7 @@ const PERPS = (() => {
   function seriesFor(a) {
     if (P.range === "LIVE") return a.live;
     switch (P.range) {
+      case "1Ч": return a.mm;
       case "1Д": return a.hh.slice(-24);
       case "1Н": return a.hh;
       case "1М": return a.dd.slice(-30);
@@ -525,6 +538,7 @@ const PERPS = (() => {
   function labelAt(n, i) {
     if (P.range === "LIVE") return i === n - 1 ? "сейчас" : `−${n - 1 - i} с`;
     if (isDaily()) return new Date(Date.now() - (n - 1 - i) * 86400e3).toLocaleDateString("ru-RU", P.range === "1Г" ? { day: "numeric", month: "short", year: "2-digit" } : { day: "numeric", month: "short" });
+    if (P.range === "1Ч") return new Date(Date.now() - (n - 1 - i) * 60e3).toLocaleTimeString("ru-RU", { hour: "2-digit", minute: "2-digit" });
     const d = new Date(Date.now() - (n - 1 - i) * 3600e3);
     return P.range === "1Д"
       ? d.toLocaleTimeString("ru-RU", { hour: "2-digit", minute: "2-digit" })
@@ -579,6 +593,7 @@ const PERPS = (() => {
   function hoverTime(n, i) {
     if (P.range === "LIVE") return i === n - 1 ? "сейчас" : `${n - 1 - i} с назад`;
     if (isDaily()) return new Date(Date.now() - (n - 1 - i) * 86400e3).toLocaleDateString("ru-RU", { day: "numeric", month: "short", year: "numeric" });
+    if (P.range === "1Ч") return new Date(Date.now() - (n - 1 - i) * 60e3).toLocaleTimeString("ru-RU", { hour: "2-digit", minute: "2-digit" });
     return new Date(Date.now() - (n - 1 - i) * 3600e3).toLocaleString("ru-RU", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
   }
 
@@ -825,10 +840,12 @@ const PERPS = (() => {
       if (a.live.length > 120) a.live.shift();
       a.hh[a.hh.length - 1] = a.price;
       a.dd[a.dd.length - 1] = a.price;
+      a.mm[a.mm.length - 1] = a.price;
     });
     if (++ticks % 3600 === 0) { // раз в час сдвигаем часовой график
       ASSETS.forEach((a) => { a.hh.push(a.price); a.hh.shift(); });
     }
+    if (ticks % 60 === 0) ASSETS.forEach((a) => { a.mm.push(a.price); a.mm.shift(); });
     if (ticks % 86400 === 0) ASSETS.forEach((a) => { a.dd.push(a.price); a.dd.shift(); });
     if (ticks % 5 === 0) savePrices();
     if (ticks % 3 === 0) paintFeeds();

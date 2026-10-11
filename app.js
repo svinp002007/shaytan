@@ -5,7 +5,7 @@
   const FEE = 0.02; // комиссия за продажу позиции
   const WIN_FEE = 0.02; // комиссия платформы с выигрыша: 2% от (выплата минус ставка)
   const HOURS = 720; // история цены: 30 дней по часам
-  const RANGES = { "1Д": 24, "1Н": 168, "1М": 720 };
+  const RANGES = { "1Ч": 60, "1Д": 24, "1Н": 168, "1М": 720 }; // 1Ч — 60 минутных точек, остальные почасовые
   const state = { cat: "all", q: "", sort: "volume", route: "home" };
   let modalEvent = null; // рынок, открытый в окне
   let modalRange = "1Н";
@@ -96,6 +96,14 @@
     return out.map((v) => Math.round(v * 10) / 10);
   }
   EVENTS.forEach((e) => { e.hist = makeHistory(e.id, e.yes); });
+  // Минутный график за последний час: мост от значения час назад до текущего, шум зависит от рынка и часа (не дрожит при перерисовке).
+  function minuteSeries(e) {
+    const rnd = mulberry(e.id * 7919 + Math.floor(Date.now() / 3600e3)), n = 60;
+    const a0 = e.hist[e.hist.length - 2], b0 = e.yes;
+    const w = [0];
+    for (let i = 1; i < n; i++) w.push(w[i - 1] + (rnd() - 0.5) * 0.35);
+    return w.map((x, i) => { const k = i / (n - 1); return i === n - 1 ? b0 : Math.round(clamp(a0 + (b0 - a0) * k + (x - w[n - 1] * k), 1, 99) * 10) / 10; });
+  }
 
   // ---------- механизм цены (автоматический маркет-мейкер) ----------
   // В каждом рынке есть два резерва: y (доли «Да») и n (доли «Нет»). Вероятность «Да» = n / (y + n).
@@ -232,8 +240,8 @@
     return `<svg viewBox="0 0 100 32" preserveAspectRatio="none" class="spark ${up ? "up" : "down"}" aria-hidden="true"><path class="sa" d="${line}L100 32L0 32Z"/><path class="sl" d="${line}"/></svg>`;
   }
   function timeLabel(n, i, key) {
-    const d = new Date(Date.now() - (n - 1 - i) * 3600e3);
-    return key === "1Д"
+    const d = new Date(Date.now() - (n - 1 - i) * (key === "1Ч" ? 60e3 : 3600e3));
+    return key === "1Д" || key === "1Ч"
       ? d.toLocaleTimeString("ru-RU", { hour: "2-digit", minute: "2-digit" })
       : d.toLocaleDateString("ru-RU", { day: "numeric", month: "short" });
   }
@@ -274,7 +282,7 @@
       onEnter: () => (mChartHover = true),
       onLeave: () => (mChartHover = false),
       val: (v) => pct1(v) + "%",
-      time: (i) => new Date(Date.now() - (vals.length - 1 - i) * 3600e3).toLocaleString("ru-RU", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })
+      time: (i) => new Date(Date.now() - (vals.length - 1 - i) * (key === "1Ч" ? 60e3 : 3600e3)).toLocaleString("ru-RU", key === "1Ч" ? { hour: "2-digit", minute: "2-digit" } : { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })
     });
   }
 
@@ -1181,7 +1189,7 @@
 
   function paintChart() {
     if (!modalEvent) return;
-    const vals = modalEvent.hist.slice(-RANGES[modalRange]);
+    const vals = modalRange === "1Ч" ? minuteSeries(modalEvent) : modalEvent.hist.slice(-RANGES[modalRange]);
     const host = $("#m-chart");
     host.innerHTML = chartMarkup(vals, modalRange);
     bindChart(host, vals, modalRange);

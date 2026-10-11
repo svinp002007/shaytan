@@ -617,3 +617,5 @@ footer{border-top:1px solid var(--line);padding:22px 0;color:var(--muted);font-s
 .chart-svg.up .hv-bar{fill:var(--yes)}.chart-svg.down .hv-bar{fill:var(--no)}
 .chart-svg{cursor:crosshair}
 .chart-svg [hidden]{display:none}
+#t-range{display:flex;flex-wrap:nowrap;width:max-content;max-width:100%;overflow-x:auto}
+#t-range button{padding:5px 10px;flex:none}
