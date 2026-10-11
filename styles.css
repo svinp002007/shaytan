@@ -659,3 +659,18 @@ footer{border-top:1px solid var(--line);padding:22px 0;color:var(--muted);font-s
   .dtb-sep{width:1px;height:22px;margin:6px 4px;flex:none}
   .dtb{flex:none}
 }
+/* обзор актива в перпах */
+.tmain>.ov{grid-column:1/-1}
+.ov h3{font:700 16px var(--display);margin:0 0 12px}
+.ov-grid{display:flex;flex-wrap:wrap;justify-content:space-between;gap:16px 18px}
+.ov-grid small{white-space:nowrap}
+.ov-grid>div{flex:0 0 auto}
+.ov-grid small{display:block;font-size:12px;color:var(--muted);font-weight:600;margin-bottom:3px}
+.ov-grid b{display:block;font:700 15px var(--body);font-variant-numeric:tabular-nums;white-space:nowrap}
+.ov-sl{color:var(--muted);font-weight:400}
+.ov-fund{text-decoration:underline;text-underline-offset:3px}
+.ov-cd{margin-left:6px}
+.ov-demo{display:inline-block;margin-left:4px;padding:0 4px;border-radius:4px;background:var(--line);color:var(--muted);font:600 8px var(--body);font-style:normal;vertical-align:1px;text-transform:uppercase;letter-spacing:.04em}
+.ov-grid{gap:16px 14px}.ov-grid b{font-size:14px}.ov-grid small{font-size:11.5px}.ov-cd{margin-left:4px}
+.ov-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:16px 14px}
+@media(max-width:520px){.ov-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}

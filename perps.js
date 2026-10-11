@@ -190,6 +190,7 @@ const PERPS = (() => {
           if (!a || !(Number(d.lastPrice) > 0)) return;
           const first = !a.adopted;
           bnHost = host;
+          if (Number(d.highPrice) > 0 && Number(d.lowPrice) > 0) a.t24 = { hi: Number(d.highPrice), lo: Number(d.lowPrice), vol: Number(d.quoteVolume), at: Date.now() };
           setReal(a.sym, Number(d.lastPrice), Number(d.priceChangePercent), "bn");
           n++;
           if (first && a.adopted) loadKlines(a);
@@ -940,6 +941,46 @@ const PERPS = (() => {
   // ---------- интерфейс ----------
   const $ = (s, r = document) => r.querySelector(s);
   const badge = (a) => `<span class="abadge c-${a.cls}">${a.sym.length > 4 ? a.sym.slice(0, 4) : a.sym}</span>`;
+  // ---------- обзор: цена, изменение, объём, максимум и минимум за 24 ч, открытый интерес, фандинг ----------
+  // Настоящие значения: максимум, минимум и объём у крипты с живой ценой Binance. Остальное считается из графика или смоделировано (помечено «демо»).
+  const DEMO_VOL = { BTC: 2.4e10, ETH: 1.1e10, SOL: 3.2e9, SBER: 4.5e9, GAZP: 3e9, YDEX: 1.6e9, LKOH: 1.8e9, AAPL: 6e9, NVDA: 2e10, TSLA: 1.5e10, BRENT: 1.2e10, XAU: 2.8e10, XAG: 4e9, NG: 1.1e9, WHEAT: 5e8 };
+  const bigNum = (v, a) => {
+    const t = v >= 1e9 ? num(v / 1e9, 2) + " млрд" : v >= 1e6 ? num(v / 1e6, 1) + " млн" : num(v, 0);
+    return a.ccy === "₽" ? t + " ₽" : "$" + t;
+  };
+  function stats24(a) {
+    const real = fresh(a) && a.t24 && Date.now() - a.t24.at < 120000 ? a.t24 : null;
+    const day = a.hh.slice(-24);
+    const hi = Math.max(real ? real.hi : Math.max(...day), a.price), lo = Math.min(real ? real.lo : Math.min(...day), a.price);
+    const dayK = 0.85 + 0.3 * mulberry(seedOf(a.sym) + Math.floor(Date.now() / 86400e3))();
+    const vol = real ? real.vol : (DEMO_VOL[a.sym] || 1e9) * dayK;
+    return {
+      hi, lo, vol, oi: (DEMO_VOL[a.sym] || 1e9) * 0.42 * (0.9 + 0.2 * dayK),
+      hiReal: !!real || (isRealHistNow(a)), volReal: !!real
+    };
+  }
+  const isRealHistNow = (a) => !!(a.realHist && fresh(a));
+  const fundCountdown = () => {
+    const left = Math.floor((8 * 3600e3 - (Date.now() % (8 * 3600e3))) / 1000);
+    return Math.floor(left / 3600) + ":" + String(Math.floor((left % 3600) / 60)).padStart(2, "0") + ":" + String(left % 60).padStart(2, "0");
+  };
+  function overviewHTML(a) {
+    const st = stats24(a), c = change24(a);
+    const demo = '<i class="ov-demo" title="Значение смоделировано: живого источника для него нет">демо</i>';
+    const prev = c === null ? null : a.price / (1 + c / 100);
+    const chg = c === null ? '<span class="muted">—</span>' : `<span class="${c >= 0 ? "pos" : "neg"}">${sg(a.price - prev, a.dec)}</span> <span class="ov-sl">/</span> <span class="${c >= 0 ? "pos" : "neg"}">${sg(c)}%</span>`;
+    const cell = (k, v) => `<div><small>${k}</small><b>${v}</b></div>`;
+    return `<h3>Обзор</h3><div class="ov-grid">
+      ${cell("Цена", price(a, a.price))}
+      ${cell("Изм. 24 ч", chg)}
+      ${cell("Объём 24 ч" + (st.volReal ? "" : demo), bigNum(st.vol, a))}
+      ${cell("Макс. 24 ч" + (st.hiReal ? "" : demo), price(a, st.hi))}
+      ${cell("Мин. 24 ч" + (st.hiReal ? "" : demo), price(a, st.lo))}
+      ${cell("Откр. интерес" + demo, bigNum(st.oi, a))}
+      ${cell("Фандинг" + demo + ' <span class="ov-sl">/</span> Таймер', `<span class="${a.fund >= 0 ? "pos" : "neg"} ov-fund">${num(a.fund * 100, 4)}%</span> <span class="ov-cd">${fundCountdown()}</span>`)}
+    </div>`;
+  }
+  const paintOverview = () => { const el = $("#t-ov"); if (el && P.sel) el.innerHTML = overviewHTML(A[P.sel]); };
   const chText = (a) => { const c = change24(a); return c === null ? '<span class="muted">—</span>' : `<span class="${c >= 0 ? "pos" : "neg"}">${sg(c)}%</span>`; };
 
   function listHTML() {
@@ -972,7 +1013,7 @@ const PERPS = (() => {
         </div>
       </div>
       <div class="draw-hint" id="t-hint">${HINTS[T.tool]}</div>
-      <div class="t-stats"><span>Макс. плечо <b>${a.maxLev}x</b></span><span>Комиссия <b>0,05%</b></span><span>Фандинг <b>${num(a.fund * 100, 3)}% / 8 ч</b></span></div>
+      <div class="t-stats"><span>Макс. плечо <b>${a.maxLev}x</b></span><span>Комиссия <b>0,05%</b></span></div>
       <div class="t-src" id="t-src">${srcText(a)}</div>
     </div>
     <div class="panel torder">
@@ -1001,6 +1042,7 @@ const PERPS = (() => {
       <p class="fee-note warn" id="t-warn" hidden></p>
       <p class="fee-note">Плечо увеличивает и прибыль, и убыток. Если цена дойдёт до цены ликвидации, вся маржа сгорает. Без плеча (1x) ликвидация почти невозможна.</p>
     </div>
+    <div class="panel ov" id="t-ov">${overviewHTML(a)}</div>
     <div class="panel tchat" id="t-chat"></div>
     <div class="panel tsugg" id="t-sugg">
       <h3>Другие активы</h3>
@@ -1218,6 +1260,7 @@ const PERPS = (() => {
     if ($("#t-range").dataset.k !== rk) { $("#t-range").dataset.k = rk; $("#t-range").innerHTML = rangeHTML(a); }
     $("#t-price").textContent = price(a, a.price);
     $("#t-ch").innerHTML = chText(a) + " за 24 ч";
+    paintOverview();
     if (!chartHover && !T.busy && !T.textOpen) paintChart();
     paintSummary();
     positions.forEach((pos) => {
