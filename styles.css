@@ -698,3 +698,11 @@ footer{border-top:1px solid var(--line);padding:22px 0;color:var(--muted);font-s
 .mc{flex-basis:calc((100% - 42px) / 4)}
 .mc-pr{font-size:13px;white-space:nowrap}.mc-pr em{margin-left:2px}
 .mk .mc-pr{white-space:normal}
+/* японские свечи и переключатель типа графика */
+.rangebar{display:flex;justify-content:space-between;align-items:center;gap:8px 12px;flex-wrap:wrap;margin-bottom:8px}
+.tchart .rangebar .range{margin-bottom:0}
+.ctype{display:inline-flex}
+.ctype button{display:grid;place-items:center;padding:5px 9px}
+.chart-svg .cnd .wk{stroke-width:1.3}
+.chart-svg .cnd .cu .wk{stroke:var(--yes)}.chart-svg .cnd .cu .bd{fill:var(--yes)}
+.chart-svg .cnd .cd .wk{stroke:var(--no)}.chart-svg .cnd .cd .bd{fill:var(--no)}

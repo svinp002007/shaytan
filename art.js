@@ -181,11 +181,11 @@ function attachHover(svg, g, vals, o) {
     dot.setAttribute("cx", x); dot.setAttribute("cy", y);
     time.textContent = o.time(i);
     time.setAttribute("x", Math.min(g.W - 60, Math.max(g.L + 60, x))); time.setAttribute("y", g.T - 3);
-    txt.textContent = (o.name ? o.name + " " : "") + o.val(vals[i]);
+    txt.textContent = (o.name ? o.name + " " : "") + o.val(vals[i], i);
     show(true);
     const w = txt.getComputedTextLength() + 24;
     const right = x + 12 + w < g.W - g.R;
-    const bx = right ? x + 12 : x - 12 - w, by = Math.min(base - 24, Math.max(g.T, y - 12));
+    const bx = Math.max(4, Math.min(g.W - w - 4, right ? x + 12 : x - 12 - w)), by = Math.min(base - 24, Math.max(g.T, y - 12));
     pill.setAttribute("width", w); pill.setAttribute("x", bx); pill.setAttribute("y", by);
     bar.setAttribute("x", bx + 8); bar.setAttribute("y", by + 6);
     txt.setAttribute("x", bx + 17); txt.setAttribute("y", by + 16);

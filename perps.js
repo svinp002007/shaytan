@@ -42,7 +42,7 @@ const PERPS = (() => {
   const YF_SCALE = { "ZW=F": 0.01 }; // пшеница на Yahoo в центах за бушель, у нас в долларах
   const SRC_NAME = { bn: "Binance, обновление каждые 2 с", cb: "Coinbase, обновление каждые 2 с", kr: "Kraken, обновление каждые 2 с", pm: "Polymarket Perps (mark-цена контракта), обновление каждые 3 с", moex: "Мосбиржа (ISS), бесплатные данные с задержкой ~15 мин", fh: "Finnhub, обновление каждые 15 с", td: "Twelve Data, обновление раз в минуту", yf: "Yahoo Finance через ваш прокси, обновление каждые 15 с (у некоторых бирж задержка до 15 мин)" };
   const SRC_TTL = { bn: 15000, cb: 15000, kr: 15000, pm: 20000, moex: 45000, fh: 60000, td: 180000, yf: 90000 }; // через сколько цена считается устаревшей
-  const P = { sel: "BTC", cls: "crypto", range: "LIVE", dir: "long", lev: 1, margin: 1000, tp: "", sl: "" };
+  const P = { sel: "BTC", cls: "crypto", ctype: "line", range: "LIVE", dir: "long", lev: 1, margin: 1000, tp: "", sl: "" };
   let positions = [], closed = [], plog = [], ticks = 0, chartHover = false, ready = false;
 
   const nf = new Intl.NumberFormat("ru-RU");
@@ -84,6 +84,7 @@ const PERPS = (() => {
       a.live = lv;
     });
     drawings = RP.store.get("pdraw", {});
+    P.ctype = RP.store.get("pctype", "line") === "candles" ? "candles" : "line";
     positions = RP.store.get("ppos", []);
     closed = RP.store.get("pclosed", []);
     plog = RP.store.get("plog", []);
@@ -150,6 +151,13 @@ const PERPS = (() => {
   }
   const BN_HOSTS = ["https://api.binance.com", "https://data-api.binance.vision"]; // второй адрес Binance отдаёт те же публичные данные
   let bnHost = BN_HOSTS[0];
+  // Настоящие свечи (открытие, максимум, минимум, закрытие) от Binance для режима «Свечи».
+  function saveOhlc(a, key, k, len) {
+    const arr = k.filter((x) => Number(x[4]) > 0).map((x) => [Number(x[1]), Number(x[2]), Number(x[3]), Number(x[4])]);
+    while (arr.length < len) arr.unshift(arr[0].slice());
+    const L = arr[len - 1]; L[3] = a.price; L[1] = Math.max(L[1], a.price); L[2] = Math.min(L[2], a.price);
+    (a.ohlcReal = a.ohlcReal || {})[key] = arr;
+  }
   async function loadKlines(a) {
     try {
       const k = await getJSON(`${bnHost}/api/v3/klines?symbol=${SRC[a.sym].bn}&interval=1h&limit=168`);
@@ -159,11 +167,12 @@ const PERPS = (() => {
       closes[167] = a.price;
       a.hh = closes;
       a.realHist = true;
+      saveOhlc(a, "hh", k, 168);
     } catch {}
     try {
       const k = await getJSON(`${bnHost}/api/v3/klines?symbol=${SRC[a.sym].bn}&interval=1m&limit=60`);
       const m = k.map((x) => Number(x[4])).filter((v) => v > 0);
-      if (m.length >= 30) { while (m.length < 60) m.unshift(m[0]); m[59] = a.price; a.mm = m; a.realMin = true; }
+      if (m.length >= 30) { while (m.length < 60) m.unshift(m[0]); m[59] = a.price; a.mm = m; a.realMin = true; saveOhlc(a, "mm", k, 60); }
     } catch {}
     try {
       const k = await getJSON(`${bnHost}/api/v3/klines?symbol=${SRC[a.sym].bn}&interval=1d&limit=365`);
@@ -173,6 +182,7 @@ const PERPS = (() => {
       d[364] = a.price;
       a.dd = d;
       a.realDaily = true;
+      saveOhlc(a, "dd", k, 365);
     } catch {}
   }
   const errTxt = (e) => (e && e.name === "AbortError" ? "AbortError" : (e && e.message) || String(e));
@@ -546,9 +556,9 @@ const PERPS = (() => {
       ? d.toLocaleTimeString("ru-RU", { hour: "2-digit", minute: "2-digit" })
       : d.toLocaleDateString("ru-RU", { day: "numeric", month: "short" });
   }
-  function pgeom(vals, a) {
+  function pgeom(vals, a, ext) {
     const W = 560, H = 380, L = 64, R = 10, T = 12, B = 24, n = vals.length;
-    let lo = Math.min(...vals), hi = Math.max(...vals);
+    let lo = Math.min(...(ext || vals)), hi = Math.max(...(ext || vals));
     const pad = (hi - lo) * 0.12 || hi * 0.001;
     lo -= pad; hi += pad;
     return { W, H, L, R, T, B, n, lo, hi, x: (i) => L + (i * (W - L - R)) / (n - 1), y: (v) => T + ((hi - v) * (H - T - B)) / (hi - lo) };
@@ -567,15 +577,56 @@ const PERPS = (() => {
     const end = clamp(VW.end == null ? nF - 1 : VW.end, span - 1, nF - 1);
     return { span, end, i0: end - span + 1, nF, zoomed: span < nF };
   }
+  const RK = { "1Ч": ["mm", 0], "1Д": ["hh", 24], "1Н": ["hh", 0], "1М": ["dd", 30], "3М": ["dd", 90], "1Г": ["dd", 0] };
+  // Свечи на весь ряд: настоящие от Binance, где они есть, иначе из ряда цен с восстановленными тенями (демо, помечается).
+  function ohlcFull(a, S) {
+    const n = S.length, k = RK[P.range], step = stepMs(), now = Date.now();
+    let real = null;
+    if (k && a.ohlcReal && a.ohlcReal[k[0]]) { const arr = a.ohlcReal[k[0]]; real = k[1] ? arr.slice(-k[1]) : arr; if (real.length !== n) real = null; }
+    let unit = 0;
+    for (let i = 1; i < n; i++) unit += Math.abs(S[i] - S[i - 1]);
+    unit = unit / Math.max(1, n - 1) || S[n - 1] * 0.0005;
+    const out = new Array(n);
+    for (let i = 0; i < n; i++) {
+      if (real) { out[i] = real[i].slice(); continue; }
+      const c = S[i], o = i ? S[i - 1] : S[0];
+      if (P.range === "LIVE") { out[i] = [o, Math.max(o, c), Math.min(o, c), c]; continue; } // тики: тени получатся при объединении
+      const rnd = mulberry(seedOf(a.sym) + Math.floor((now - (n - 1 - i) * step) / step) * 7 + 3);
+      out[i] = [o, Math.max(o, c) + unit * (0.15 + 0.9 * rnd()), Math.min(o, c) - unit * (0.15 + 0.9 * rnd()), c];
+    }
+    const L = out[n - 1]; L[3] = S[n - 1]; L[1] = Math.max(L[1], L[3]); L[2] = Math.min(L[2], L[3]);
+    return out;
+  }
+  function buildCandles(a, S, w) {
+    const O = ohlcFull(a, S), step = stepMs(), now = Date.now(), vis = O.slice(w.i0, w.i0 + w.span);
+    const gs = Math.max(1, Math.ceil(vis.length / 70)), cs = [];
+    let curKey = null;
+    vis.forEach((q, j) => {
+      const key = Math.floor(Math.floor((now - (w.nF - 1 - (w.i0 + j)) * step) / step) / gs);
+      if (key !== curKey) { cs.push({ i0: j, i1: j, o: q[0], h: q[1], l: q[2], c: q[3] }); curKey = key; }
+      else { const c = cs[cs.length - 1]; c.i1 = j; c.h = Math.max(c.h, q[1]); c.l = Math.min(c.l, q[2]); c.c = q[3]; }
+    });
+    const ext = [];
+    cs.forEach((c) => ext.push(c.h, c.l));
+    return { cs, gs, ext, real: !!(a.ohlcReal && RK[P.range] && a.ohlcReal[RK[P.range][0]]) };
+  }
   function mapChart(a) {
-    const S = seriesFor(a), nF = S.length, w = viewWin(nF), vals = S.slice(w.i0, w.i0 + w.span), g = pgeom(vals, a);
+    const S = seriesFor(a), nF = S.length, w = viewWin(nF), vals = S.slice(w.i0, w.i0 + w.span);
+    const cd = P.ctype === "candles" ? buildCandles(a, S, w) : null, g = pgeom(vals, a, cd ? cd.ext : null);
     const step = stepMs(), now = Date.now();
     return {
-      a, S, nF, w, vals, g, step, now,
+      a, S, nF, w, vals, g, step, now, cd,
       X: (t) => g.x(nF - 1 - (now - t) / step - w.i0),
       Y: (p) => g.y(p),
       inv: (px, py) => ({ t: now - (nF - 1 - (w.i0 + ((px - g.L) / (g.W - g.L - g.R)) * (g.n - 1))) * step, p: g.hi - ((py - g.T) * (g.hi - g.lo)) / (g.H - g.T - g.B) })
     };
+  }
+  function candlesSVG(m) {
+    const { g, cd } = m, n = m.vals.length, slot = ((g.W - g.L - g.R) / Math.max(1, n - 1)) * cd.gs, bw = Math.max(1.6, Math.min(16, slot * 0.68));
+    return `<g class="cnd">${cd.cs.map((c) => {
+      const x = g.x((c.i0 + c.i1) / 2), up = c.c >= c.o, yo = g.y(c.o), yc = g.y(c.c);
+      return `<g class="${up ? "cu" : "cd"}"><line class="wk" x1="${x.toFixed(1)}" x2="${x.toFixed(1)}" y1="${g.y(c.h).toFixed(1)}" y2="${g.y(c.l).toFixed(1)}"/><rect class="bd" x="${(x - bw / 2).toFixed(1)}" y="${Math.min(yo, yc).toFixed(1)}" width="${bw.toFixed(1)}" height="${Math.max(1.2, Math.abs(yo - yc)).toFixed(1)}"/></g>`;
+    }).join("")}</g>`;
   }
   function chartHTML(a, m) {
     const { g, vals, w, nF } = m, n = vals.length;
@@ -598,8 +649,8 @@ const PERPS = (() => {
     return `<svg viewBox="0 0 ${g.W} ${g.H}" class="chart-svg ${up ? "up" : "down"} tool-${T.tool}" role="img" aria-label="График цены ${a.sym}">
       <defs><clipPath id="dclip"><rect x="${g.L}" y="${g.T}" width="${g.W - g.L - g.R}" height="${base - g.T}"/></clipPath></defs>
       ${ticks}${xl}${marks}
-      <path class="ca" d="${line}L${g.x(n - 1).toFixed(1)} ${base}L${g.L} ${base}Z"/>
-      <path class="cl" d="${line}"/>
+      ${m.cd ? candlesSVG(m) : `<path class="ca" d="${line}L${g.x(n - 1).toFixed(1)} ${base}L${g.L} ${base}Z"/>
+      <path class="cl" d="${line}"/>`}
       <g class="drw" clip-path="url(#dclip)"></g>
       <line class="cross" y1="${g.T}" y2="${base}" hidden/><circle class="dot" r="4.5" hidden/>
     </svg>`;
@@ -924,7 +975,12 @@ const PERPS = (() => {
     const svg = $("svg", host);
     HV = attachHover(svg, M.g, M.vals, {
       manual: true,
-      val: (v) => price(a, v),
+      val: (v, i) => {
+        if (!M.cd) return price(a, v);
+        const c = M.cd.cs.find((q) => i >= q.i0 && i <= q.i1) || M.cd.cs[M.cd.cs.length - 1];
+        const f = (v) => num(v, a.dec);
+        return `O ${f(c.o)}  H ${f(c.h)}  L ${f(c.l)}  C ${f(c.c)}`;
+      },
       time: (i) => hoverTime(M.nF, M.w.i0 + i)
     });
     renderDrawings();
@@ -1008,6 +1064,7 @@ const PERPS = (() => {
     const n = $(".mc-row", el);
     if (n) n.scrollLeft = left;
   }
+  const shiftOhlc = (a, key) => { const arr = a.ohlcReal && a.ohlcReal[key]; if (arr) { arr.push([a.price, a.price, a.price, a.price]); arr.shift(); } };
   // ---------- обзор: цена, изменение, объём, максимум и минимум за 24 ч, открытый интерес, фандинг ----------
   // Настоящие значения: максимум, минимум и объём у крипты с живой ценой Binance. Остальное считается из графика или смоделировано (помечено «демо»).
   const DEMO_VOL = { BTC: 2.4e10, ETH: 1.1e10, SOL: 3.2e9, SBER: 4.5e9, GAZP: 3e9, YDEX: 1.6e9, LKOH: 1.8e9, AAPL: 6e9, NVDA: 2e10, TSLA: 1.5e10, BRENT: 1.2e10, XAU: 2.8e10, XAG: 4e9, NG: 1.1e9, WHEAT: 5e8 };
@@ -1071,7 +1128,13 @@ const PERPS = (() => {
         </div>
         <div class="th-r"><b id="t-price">${price(a, a.price)}</b><span id="t-ch">${chText(a)} за 24 ч</span></div>
       </div>
-      <div class="range" id="t-range">${rangeHTML(a)}</div>
+      <div class="rangebar">
+        <div class="range" id="t-range">${rangeHTML(a)}</div>
+        <div class="range ctype" id="t-ctype" role="group" aria-label="Тип графика">
+          <button type="button" data-ct="line" class="${P.ctype === "line" ? "on" : ""}" title="Линия" aria-label="Линия"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 17l5-6 4 3 8-9"/></svg></button>
+          <button type="button" data-ct="candles" class="${P.ctype === "candles" ? "on" : ""}" title="Японские свечи" aria-label="Японские свечи"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M7 3v4M7 17v4M17 6v3M17 18v3"/><rect x="4.5" y="7" width="5" height="10" rx="1"/><rect x="14.5" y="9" width="5" height="9" rx="1"/></svg></button>
+        </div>
+      </div>
       <div class="draw-wrap">
         ${toolsHTML()}
         <div class="draw-main" id="t-drawmain">
@@ -1227,6 +1290,14 @@ const PERPS = (() => {
     };
     function bindMain() {
       bindTools();
+      $("#t-ctype").onclick = (ev) => {
+        const b = ev.target.closest("[data-ct]");
+        if (!b || b.dataset.ct === P.ctype) return;
+        P.ctype = b.dataset.ct;
+        RP.store.set("pctype", P.ctype);
+        document.querySelectorAll("#t-ctype button").forEach((x) => x.classList.toggle("on", x === b));
+        paintChart();
+      };
       $("#t-range").onclick = (ev) => {
         const b = ev.target.closest("[data-range]");
         if (!b) return;
@@ -1300,12 +1371,13 @@ const PERPS = (() => {
       a.hh[a.hh.length - 1] = a.price;
       a.dd[a.dd.length - 1] = a.price;
       a.mm[a.mm.length - 1] = a.price;
+      if (a.ohlcReal) Object.values(a.ohlcReal).forEach((arr) => { const L = arr[arr.length - 1]; L[3] = a.price; if (a.price > L[1]) L[1] = a.price; if (a.price < L[2]) L[2] = a.price; });
     });
     if (++ticks % 3600 === 0) { // раз в час сдвигаем часовой график
-      ASSETS.forEach((a) => { a.hh.push(a.price); a.hh.shift(); });
+      ASSETS.forEach((a) => { a.hh.push(a.price); a.hh.shift(); shiftOhlc(a, "hh"); });
     }
-    if (ticks % 60 === 0) ASSETS.forEach((a) => { a.mm.push(a.price); a.mm.shift(); });
-    if (ticks % 86400 === 0) ASSETS.forEach((a) => { a.dd.push(a.price); a.dd.shift(); });
+    if (ticks % 60 === 0) ASSETS.forEach((a) => { a.mm.push(a.price); a.mm.shift(); shiftOhlc(a, "mm"); });
+    if (ticks % 86400 === 0) ASSETS.forEach((a) => { a.dd.push(a.price); a.dd.shift(); shiftOhlc(a, "dd"); });
     if (ticks % 5 === 0) savePrices();
     if (ticks % 3 === 0) paintFeeds();
     checkLiquidations();
