@@ -941,6 +941,73 @@ const PERPS = (() => {
   // ---------- интерфейс ----------
   const $ = (s, r = document) => r.querySelector(s);
   const badge = (a) => `<span class="abadge c-${a.cls}">${a.sym.length > 4 ? a.sym.slice(0, 4) : a.sym}</span>`;
+  // ---------- «Другие перпы» и «Связанные рынки» ----------
+  const MK_KEYS = {
+    BTC: [[/биткоин|bitcoin/i, 3], [/крипт|стейбл|хешрейт|доминирован/i, 1]],
+    ETH: [[/эфир|ethereum/i, 3], [/крипт/i, 1]],
+    SOL: [[/solana/i, 3], [/крипт/i, 1]],
+    SBER: [[/сбер/i, 3], [/мосбирж|imoex|ключев/i, 2], [/банк россии/i, 1]],
+    GAZP: [[/газпром/i, 3], [/мосбирж|imoex/i, 2], [/газ\b|нефт|brent/i, 1]],
+    YDEX: [[/яндекс|алис/i, 3], [/мосбирж|imoex/i, 1]],
+    LKOH: [[/лукойл/i, 3], [/нефт|brent/i, 2], [/мосбирж|imoex/i, 1]],
+    AAPL: [[/apple|iphone|ios/i, 3], [/s&p|акции/i, 1]],
+    NVDA: [[/nvidia|nvda/i, 3], [/s&p|капитализац|акции/i, 1]],
+    TSLA: [[/tesla/i, 3], [/s&p|акции/i, 1]],
+    BRENT: [[/нефт|brent/i, 3]],
+    XAU: [[/золот/i, 3]],
+    XAG: [[/серебр/i, 3], [/золот/i, 1]],
+    NG: [[/газ\b|природн/i, 3], [/нефт|brent/i, 1]],
+    WHEAT: [[/пшениц/i, 3]]
+  };
+  const MK_CATS = { crypto: ["crypto"], stock: ["tech", "world", "russia"], commodity: ["world"] };
+  function relatedMarkets(a) {
+    if (typeof EVENTS === "undefined") return [];
+    const open = EVENTS.filter((e) => !e.resolved);
+    const score = (e) => (MK_KEYS[a.sym] || []).reduce((t, [re, w]) => t + (re.test(e.q) ? w : 0), 0);
+    const hits = open.map((e) => [e, score(e)]).filter(([, sc]) => sc > 0).sort((x, y) => y[1] - x[1] || y[0].vol - x[0].vol).map(([e]) => e);
+    const out = hits.slice(0, 8);
+    if (out.length < 4) { // не хватает по ключевым словам: добавляем самые крупные рынки близких категорий
+      (MK_CATS[a.cls] || []).forEach((c) => open.filter((e) => e.cat === c && !out.includes(e)).sort((x, y) => y.vol - x.vol).forEach((e) => { if (out.length < 6) out.push(e); }));
+    }
+    return out;
+  }
+  function miniSpark(vals, up) {
+    const W = 220, H = 84, lo = Math.min(...vals), hi = Math.max(...vals), sp = hi - lo || 1;
+    const d = vals.map((v, i) => (i ? "L" : "M") + ((i * W) / (vals.length - 1)).toFixed(1) + " " + (4 + ((hi - v) * (H - 8)) / sp).toFixed(1)).join("");
+    return `<svg class="mc-sp ${up ? "up" : "dn"}" viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" aria-hidden="true"><path d="${d}"/></svg>`;
+  }
+  const tri = (c) => (c === null ? "" : c >= 0 ? "▲" : "▼");
+  function perpCard(x) {
+    const c = change24(x), up = c === null ? x.price >= x.hh[x.hh.length - 25] : c >= 0;
+    return `<button type="button" class="mc" data-sg="${x.sym}"><span class="mc-top">${badge(x)}</span><b class="mc-t">${x.sym}</b>
+      <span class="mc-pr">${price(x, x.price)} <em class="${up ? "pos" : "neg"}">${c === null ? "" : tri(c) + " " + num(Math.abs(c), 2) + "%"}</em></span>${miniSpark(x.hh.slice(-24), up)}</button>`;
+  }
+  function marketCard(e) {
+    const st = typeof CAT_STYLE !== "undefined" && CAT_STYLE[e.cat] ? CAT_STYLE[e.cat] : ["#3b5bdb", "#5f3dc4"];
+    const g = typeof GLYPHS !== "undefined" ? GLYPHS[e.img] || GLYPHS.globe : "";
+    const d = e.hist[e.hist.length - 1] - e.hist[Math.max(0, e.hist.length - 25)], up = d >= 0;
+    const cat = typeof CATEGORIES !== "undefined" ? (CATEGORIES.find((c) => c.id === e.cat) || {}).name || "" : "";
+    return `<button type="button" class="mc mk" data-mk="${e.id}"><span class="mc-top"><span class="mk-ic" style="background:linear-gradient(135deg,${st[0]},${st[1]})"><svg viewBox="0 0 64 64" width="26" height="26" fill="none" stroke="#fff" stroke-width="4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${g}</svg></span><small class="mk-cat">${esc(cat)}</small></span>
+      <b class="mc-q">${esc(e.q)}</b>
+      <span class="mc-pr">Да ${num(e.yes, 1)}% <em class="${up ? "pos" : "neg"}">${tri(d)} ${num(Math.abs(d), 1)} п.п.</em></span>${miniSpark(e.hist.slice(-48), up)}</button>`;
+  }
+  function moreHTML(a) {
+    const tab = P.moreTab || "perps";
+    const rel = (REL[a.sym] || []).map((s) => A[s]);
+    const others = ASSETS.filter((x) => x.sym !== a.sym && !rel.includes(x)).sort((x, y) => (x.cls === a.cls ? -1 : 0) - (y.cls === a.cls ? -1 : 0));
+    const perps = [...rel, ...others].slice(0, 8);
+    const mk = relatedMarkets(a);
+    return `<div class="mc-tabs" role="tablist"><button type="button" role="tab" data-mtab="perps" class="${tab === "perps" ? "on" : ""}">Другие перпы</button><button type="button" role="tab" data-mtab="markets" class="${tab === "markets" ? "on" : ""}">Связанные рынки${mk.length ? ` · ${mk.length}` : ""}</button></div>
+      <div class="mc-row">${tab === "perps" ? perps.map(perpCard).join("") : mk.length ? mk.map(marketCard).join("") : '<p class="muted" style="padding:16px 4px">Для этого актива связанных рынков прогнозов пока нет.</p>'}</div>`;
+  }
+  function paintMore() {
+    const el = $("#t-sugg");
+    if (!el) return;
+    const row = $(".mc-row", el), left = row ? row.scrollLeft : 0;
+    el.innerHTML = moreHTML(A[P.sel]);
+    const n = $(".mc-row", el);
+    if (n) n.scrollLeft = left;
+  }
   // ---------- обзор: цена, изменение, объём, максимум и минимум за 24 ч, открытый интерес, фандинг ----------
   // Настоящие значения: максимум, минимум и объём у крипты с живой ценой Binance. Остальное считается из графика или смоделировано (помечено «демо»).
   const DEMO_VOL = { BTC: 2.4e10, ETH: 1.1e10, SOL: 3.2e9, SBER: 4.5e9, GAZP: 3e9, YDEX: 1.6e9, LKOH: 1.8e9, AAPL: 6e9, NVDA: 2e10, TSLA: 1.5e10, BRENT: 1.2e10, XAU: 2.8e10, XAG: 4e9, NG: 1.1e9, WHEAT: 5e8 };
@@ -1043,11 +1110,9 @@ const PERPS = (() => {
       <p class="fee-note">Плечо увеличивает и прибыль, и убыток. Если цена дойдёт до цены ликвидации, вся маржа сгорает. Без плеча (1x) ликвидация почти невозможна.</p>
     </div>
     <div class="panel ov" id="t-ov">${overviewHTML(a)}</div>
+    <div class="panel tmore" id="t-sugg">${moreHTML(a)}</div>
     <div class="panel tchat" id="t-chat"></div>
-    <div class="panel tsugg" id="t-sugg">
-      <h3>Другие активы</h3>
-      <div class="sugg">${(REL[a.sym] || []).map((s) => { const x = A[s]; return `<button class="sg" data-sg="${x.sym}">${badge(x)}<span class="sg-info"><b>${x.sym}-PERP</b><small>${esc(x.name)} · ${CLS[x.cls]}</small></span><span class="sg-pr"><b data-sp="${x.sym}">${price(x, x.price)}</b><small data-sc="${x.sym}">${chText(x)}</small></span></button>`; }).join("")}</div>
-    </div>`;
+`;
   }
   function paintSummary() {
     const a = A[P.sel];
@@ -1199,6 +1264,10 @@ const PERPS = (() => {
       RP.chatBind($("#t-chat"), "t-" + P.sel);
       $("#t-open").onclick = confirmOpen;
       $("#t-sugg").onclick = (ev) => {
+        const tabBtn = ev.target.closest("[data-mtab]");
+        if (tabBtn) { P.moreTab = tabBtn.dataset.mtab; return paintMore(); }
+        const mk = ev.target.closest("[data-mk]");
+        if (mk) return RP.openMarket(Number(mk.dataset.mk));
         const b = ev.target.closest("[data-sg]");
         if (!b) return;
         P.sel = b.dataset.sg;
@@ -1261,6 +1330,7 @@ const PERPS = (() => {
     $("#t-price").textContent = price(a, a.price);
     $("#t-ch").innerHTML = chText(a) + " за 24 ч";
     paintOverview();
+    if (ticks % 5 === 0) paintMore();
     if (!chartHover && !T.busy && !T.textOpen) paintChart();
     paintSummary();
     positions.forEach((pos) => {

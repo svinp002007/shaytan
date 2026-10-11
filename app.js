@@ -1610,6 +1610,7 @@
   window.RP = {
     store, rub, toast, askConfirm, openSheet, closeModal, chatHTML, chatBind,
     route: () => state.route,
+    openMarket: (id) => openBet(id),
     getBalance: () => balance,
     setBalance: (v) => { setBalance(v); if (state.route === "account") paintAccountRight(); }
   };
