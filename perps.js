@@ -1,4 +1,4 @@
-// Перпы: бессрочные контракты (perps) на крипту, акции и сырьё. Демо на игровые рубли.
+// Перпы: бессрочные контракты (perps) на крипту, индексы, акции и сырьё. Демо на игровые рубли.
 // Цены живые, если открыт доступ к источнику (бейдж Live); иначе актив торгуется по симулированной цене (бейдж Демо).
 // Использует общие функции приложения через window.RP (баланс, подтверждение, уведомления, хранилище).
 const PERPS = (() => {
@@ -6,12 +6,12 @@ const PERPS = (() => {
   const MMR = 0.005; // поддерживающая маржа 0,5%
   const mulberry = (a) => () => { a |= 0; a = (a + 0x6d2b79f5) | 0; let t = Math.imul(a ^ (a >>> 15), 1 | a); t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t; return ((t ^ (t >>> 14)) >>> 0) / 4294967296; };
   const seedOf = (s) => [...s].reduce((x, c) => (x * 31 + c.charCodeAt(0)) >>> 0, 11);
-  // Классы активов. «S&P 500» собирается из бумаг с флагом sp (см. inClass); у каждого актива один основной класс.
-  const CLS = { crypto: "Крипто", index: "Индексы", ru: "Акции РФ", world: "Акции мира", sp500: "S&P 500", commodity: "Сырьё" };
-  const inClass = (a, c) => a.cls === c || (c === "sp500" && !!a.sp);
+  // Классы активов: у каждого актива один класс.
+  const CLS = { crypto: "Крипто", index: "Индексы", ru: "Акции РФ", world: "Акции мира", commodity: "Сырьё" };
+  const inClass = (a, c) => a.cls === c;
   // Активы строятся из каталога assets.js (индексы, крипта, акции РФ, акции мира, S&P 500) плюс сырьё ниже.
   // Волатильность и фандинг для разных классов разные; у нескольких старых активов значения подобраны вручную.
-  const CLASS_P = { crypto: [0.0008, 0.0001], index: [0.00008, 0.00003], ru: [0.0002, 0.00005], world: [0.00025, 0.00005], sp500: [0.00024, 0.00005] };
+  const CLASS_P = { crypto: [0.0008, 0.0001], index: [0.00008, 0.00003], ru: [0.0002, 0.00005], world: [0.00025, 0.00005] };
   const TUNED = { BTC: [0.0004, 0.0001], ETH: [0.00045, 0.0001], SOL: [0.0006, 0.00012], SBER: [0.00018, 0.00005], GAZP: [0.0002, 0.00005], YDEX: [0.00022, 0.00005], LKOH: [0.00016, 0.00005], AAPL: [0.0002, 0.00005], NVDA: [0.0003, 0.00006], TSLA: [0.00038, 0.00006] };
   const BN_NO = new Set(["HYPE", "XMR"]); // у этих монет нет пары к USDT на Binance
   const decFor = (p) => (p >= 1000 ? 1 : p >= 100 ? 2 : p >= 10 ? 3 : p >= 1 ? 4 : p >= 0.1 ? 5 : p >= 0.01 ? 6 : 8);
@@ -29,8 +29,6 @@ const PERPS = (() => {
         ccy: cls === "ru" ? "₽" : cls === "index" ? "" : "$",
         dec: cls === "index" ? (base < 3000 ? 2 : 1) : cls === "crypto" ? decFor(base) : base < 1 ? 3 : 2
       };
-      if (flags.includes("s")) a.sp = true;
-      if (cls === "sp500") a.sp = true;
       ASSETS.push(a);
       // источники живых цен
       if (cls === "crypto") SRC[sym] = BN_NO.has(sym) ? {} : { bn: sym + "USDT" };
@@ -40,7 +38,7 @@ const PERPS = (() => {
     });
   }
   const L = ASSET_LISTS;
-  addList("crypto", L.crypto); addList("index", L.index); addList("ru", L.ru); addList("world", L.world); addList("sp500", L.sp);
+  addList("crypto", L.crypto); addList("index", L.index); addList("ru", L.ru); addList("world", L.world);
   // сырьё: несколько контрактов, подобранных вручную
   [
     { sym: "BRENT", name: "Нефть Brent",   base: 72,   sig: 0.00018, dec: 2, fund: 0.00004 },
@@ -70,7 +68,7 @@ const PERPS = (() => {
   const YF_SCALE = { "ZW=F": 0.01 }; // пшеница на Yahoo в центах за бушель, у нас в долларах
   const SRC_NAME = { bn: "Binance, обновление каждые 2 с", cb: "Coinbase, обновление каждые 2 с", kr: "Kraken, обновление каждые 2 с", pm: "Polymarket Perps (mark-цена контракта), обновление каждые 3 с", moex: "Мосбиржа (ISS), бесплатные данные с задержкой ~15 мин", fh: "Finnhub, обновление каждые 15 с", td: "Twelve Data, обновление раз в минуту", yf: "Yahoo Finance через ваш прокси, обновление каждые 15 с (у некоторых бирж задержка до 15 мин)" };
   const SRC_TTL = { bn: 15000, cb: 15000, kr: 15000, pm: 20000, moex: 45000, fh: 60000, td: 180000, yf: 90000 }; // через сколько цена считается устаревшей
-  const P = { sel: "BTC", cls: "crypto", q: "", listN: 40, ctype: "line", range: "LIVE", dir: "long", lev: 1, margin: 1000, tp: "", sl: "" };
+  const P = { sel: "BTC", cls: "crypto", view: "discover", cat: "all", sort: { key: "vol", dir: 1 }, prev: null, openTerm: false, q: "", listN: 50, ctype: "line", range: "LIVE", dir: "long", lev: 1, margin: 1000, tp: "", sl: "" };
   let positions = [], closed = [], plog = [], ticks = 0, chartHover = false, ready = false;
 
   const nf = new Intl.NumberFormat("ru-RU");
@@ -110,6 +108,7 @@ const PERPS = (() => {
       a.live = lv;
     });
     drawings = RP.store.get("pdraw", {});
+    favs = RP.store.get("pfav", []);
     P.ctype = RP.store.get("pctype", "line") === "candles" ? "candles" : "line";
     positions = RP.store.get("ppos", []);
     closed = RP.store.get("pclosed", []);
@@ -342,7 +341,8 @@ const PERPS = (() => {
     positions.forEach((pos) => add(A[pos.sym]));
     ASSETS.filter((a) => a.cls === "commodity" || a.cls === "index").forEach(add);
     ["AAPL", "NVDA", "TSLA"].forEach((s) => add(A[s]));
-    listAssets().slice(0, P.listN || 40).forEach(add);
+    [...FEATURED, ...NEW_LISTINGS].forEach((x) => add(A[x]));
+    if (P.view === "list") currentRows().slice(0, P.listN).forEach(add);
     return [...out].slice(0, 60);
   }
   async function pollYahoo(base) {
@@ -1069,7 +1069,7 @@ const PERPS = (() => {
     NG: [[/газ\b|природн/i, 3], [/нефт|brent/i, 1]],
     WHEAT: [[/пшениц/i, 3]]
   };
-  const MK_CATS = { crypto: ["crypto"], ru: ["russia", "tech"], world: ["tech", "world"], sp500: ["tech", "world"], index: ["world", "russia"], commodity: ["world"] };
+  const MK_CATS = { crypto: ["crypto"], ru: ["russia", "tech"], world: ["tech", "world"], index: ["world", "russia"], commodity: ["world"] };
   const escRe = (t) => t.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
   // слова для поиска связанных рынков: подобранные вручную или первое слово названия и тикер
   function marketKeys(a) {
@@ -1113,8 +1113,8 @@ const PERPS = (() => {
   }
   function moreHTML(a) {
     const tab = P.moreTab || "perps";
-    // только активы того же класса (для бумаг S&P 500 — из S&P 500); близкие по теме и соседи по размеру идут первыми
-    const cl = inClass(a, P.cls) ? P.cls : a.cls;
+    // только активы того же класса; близкие по теме и соседи по размеру идут первыми
+    const cl = a.cls;
     const list = classAssets(cl), at = new Map(list.map((x, i) => [x, i])), me = at.get(a) || 0;
     const rel = (REL[a.sym] || []).map((s) => A[s]).filter((x) => x && at.has(x));
     const near = list.filter((x) => x !== a && !rel.includes(x)).sort((x, y) => Math.abs(at.get(x) - me) - Math.abs(at.get(y) - me));
@@ -1135,7 +1135,7 @@ const PERPS = (() => {
   // ---------- обзор: цена, изменение, объём, максимум и минимум за 24 ч, открытый интерес, фандинг ----------
   // Настоящие значения: максимум, минимум и объём у крипты с живой ценой Binance. Остальное считается из графика или смоделировано (помечено «демо»).
   const DEMO_VOL = { BTC: 2.4e10, ETH: 1.1e10, SOL: 3.2e9, SBER: 4.5e9, GAZP: 3e9, YDEX: 1.6e9, LKOH: 1.8e9, AAPL: 6e9, NVDA: 2e10, TSLA: 1.5e10, BRENT: 1.2e10, XAU: 2.8e10, XAG: 4e9, NG: 1.1e9, WHEAT: 5e8 };
-  const demoVol = (a) => DEMO_VOL[a.sym] || ({ crypto: 6e9, index: 2e10, ru: 6e8, world: 4e9, sp500: 8e8, commodity: 3e9 }[a.cls] || 1e9) / (1 + (a.rank || 0) * 0.12);
+  const demoVol = (a) => DEMO_VOL[a.sym] || ({ crypto: 6e9, index: 2e10, ru: 6e8, world: 4e9, commodity: 3e9 }[a.cls] || 1e9) / (1 + (a.rank || 0) * 0.12);
   const bigNum = (v, a) => {
     const t = v >= 1e9 ? num(v / 1e9, 2) + " млрд" : v >= 1e6 ? num(v / 1e6, 1) + " млн" : num(v, 0);
     return a.ccy === "₽" ? t + " ₽" : "$" + t;
@@ -1175,26 +1175,8 @@ const PERPS = (() => {
   const paintOverview = () => { const el = $("#t-ov"); if (el && P.sel) el.innerHTML = overviewHTML(A[P.sel]); };
   const chText = (a) => { const c = change24(a); return c === null ? '<span class="muted">—</span>' : `<span class="${c >= 0 ? "pos" : "neg"}">${sg(c)}%</span>`; };
 
-  // Активы выбранного класса по порядку (крупные первыми). В S&P 500 сначала идут американские бумаги из «Акций мира».
-  function classAssets(cls) {
-    const list = ASSETS.filter((a) => inClass(a, cls));
-    return cls === "sp500" ? [...list.filter((a) => a.cls !== "sp500"), ...list.filter((a) => a.cls === "sp500")] : list;
-  }
-  function listAssets() {
-    const q = P.q.trim().toLowerCase();
-    const all = classAssets(P.cls);
-    return q ? all.filter((a) => a.sym.toLowerCase().includes(q) || a.name.toLowerCase().includes(q)) : all;
-  }
-  function listHTML() {
-    const all = listAssets(), shown = all.slice(0, P.listN);
-    const more = all.length > shown.length ? `<button type="button" class="arow-more" data-more>Показать ещё ${Math.min(40, all.length - shown.length)} из ${all.length - shown.length}</button>` : "";
-    return (shown.length ? "" : '<p class="muted" style="padding:12px">Ничего не найдено.</p>') + shown.map((a) => `
-      <button class="arow ${a.sym === P.sel ? "on" : ""}" data-asset="${a.sym}">
-        ${badge(a)}
-        <span class="ainfo"><b>${a.sym}-PERP <span data-lv="${a.sym}">${liveBadge(a)}</span></b><small>${esc(a.name)}</small></span>
-        <span class="aprice"><b data-pr="${a.sym}">${price(a, a.price)}</b><small data-ch="${a.sym}">${chText(a)}</small></span>
-      </button>`).join("") + more;
-  }
+  // Активы класса по порядку (крупные первыми).
+  function classAssets(cls) { return ASSETS.filter((a) => inClass(a, cls)); }
   function mainHTML() {
     const a = A[P.sel];
     P.lev = clamp(P.lev, 1, a.maxLev);
@@ -1321,23 +1303,241 @@ const PERPS = (() => {
       : `<p class="empty" style="padding:18px">Закрытых сделок пока нет.</p>`;
   }
 
+  // ---------- «Обзор» перпов, списки по категориям и терминал ----------
+  const FEATURED = ["BTC", "SPX", "NVDA", "XAU"]; // «Избранные» карточки сверху
+  const NEW_LISTINGS = ["HYPE", "ONDO", "ARM", "PLTR"]; // «Новые листинги»
+  let favs = [];
+  const isFav = (sym) => favs.includes(sym);
+  const saveFavs = () => RP.store.set("pfav", favs);
+  const enabled = () => ASSETS.filter((a) => RP.clsOn(a.cls));
+  const GLYPH_OF = { BTC: "btc", ETH: "eth", SOL: "sol", XAU: "gold", XAG: "gold", BRENT: "oil", WHEAT: "wheat", NG: "growth" };
+  const ICON_BG = ["#6d28d9,#a855f7", "#0e7490,#22d3ee", "#b45309,#f59e0b", "#15803d,#4ade80", "#be123c,#fb7185", "#1d4ed8,#60a5fa", "#7c2d12,#fb923c", "#4338ca,#818cf8"];
+  // Значок актива: рисованный глиф для главных активов, у остальных буквы тикера на цветной плашке (логотипы компаний не используются)
+  function assetIcon(a, size = 40) {
+    const h = seedOf(a.sym) % ICON_BG.length;
+    const bg = a.cls === "index" ? "#334155,#64748b" : a.cls === "commodity" ? "#92400e,#f59e0b" : ICON_BG[h];
+    const g = GLYPH_OF[a.sym] ? (typeof GLYPHS !== "undefined" ? GLYPHS[GLYPH_OF[a.sym]] : "") : a.cls === "index" ? (typeof GLYPHS !== "undefined" ? GLYPHS.stocks : "") : "";
+    const inner = g
+      ? `<svg viewBox="0 0 64 64" width="${size * 0.6}" height="${size * 0.6}" fill="none" stroke="#fff" stroke-width="4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${g}</svg>`
+      : `<b style="font-size:${size * (a.sym.length > 3 ? 0.27 : 0.34)}px">${esc(a.sym.replace(/[^A-Za-z0-9]/g, "").slice(0, 4))}</b>`;
+    return `<span class="ai" style="width:${size}px;height:${size}px;background:linear-gradient(135deg,${bg.split(",")[0]},${bg.split(",")[1]})">${inner}</span>`;
+  }
+  const dayVals = (a) => a.hh.slice(-24);
+  const isUp = (a) => { const c = change24(a); return c === null ? a.price >= a.hh[a.hh.length - 25] : c >= 0; };
+  const absChg = (a) => { const c = change24(a); return c === null ? null : a.price - a.price / (1 + c / 100); };
+  const pctTxt = (a) => { const c = change24(a); return c === null ? "—" : sg(c) + "%"; };
+  // график за сутки: заливка, точечная линия на уровне открытия
+  function areaSpark(a, w = 300, h = 120) {
+    const v = dayVals(a), up = isUp(a), lo = Math.min(...v), hi = Math.max(...v), sp = hi - lo || 1, id = "sg" + seedOf(a.sym);
+    const pts = v.map((x, i) => [(i * w) / (v.length - 1), 8 + ((hi - x) * (h - 20)) / sp]);
+    const line = pts.map(([x, y], i) => (i ? "L" : "M") + x.toFixed(1) + " " + y.toFixed(1)).join("");
+    const yo = 8 + ((hi - v[0]) * (h - 20)) / sp;
+    return `<svg class="as ${up ? "up" : "dn"}" viewBox="0 0 ${w} ${h}" preserveAspectRatio="none" aria-hidden="true"><defs><linearGradient id="${id}" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="currentColor" stop-opacity=".28"/><stop offset="1" stop-color="currentColor" stop-opacity="0"/></linearGradient></defs>
+      <line class="as-base" x1="0" x2="${w}" y1="${yo.toFixed(1)}" y2="${yo.toFixed(1)}"/><path d="${line}L${w} ${h}L0 ${h}Z" fill="url(#${id})"/><path class="as-l" d="${line}"/></svg>`;
+  }
+  const star = (a) => `<button type="button" class="fav ${isFav(a.sym) ? "on" : ""}" data-fav="${a.sym}" title="${isFav(a.sym) ? "Убрать из избранного" : "В избранное"}" aria-label="Избранное"><svg viewBox="0 0 24 24" width="20" height="20" fill="${isFav(a.sym) ? "currentColor" : "none"}" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" aria-hidden="true"><path d="M12 3l2.7 5.6 6.1.9-4.4 4.3 1 6.1L12 17l-5.4 2.9 1-6.1L3.2 9.5l6.1-.9z"/></svg></button>`;
+  function featCard(a) {
+    const c = change24(a);
+    return `<div class="fc" data-asset="${a.sym}" role="button" tabindex="0">
+      <div class="fc-top">${assetIcon(a, 42)}<span class="fc-n"><b>${esc(a.sym)}</b><small>${esc(a.name)}</small></span>${star(a)}</div>
+      ${areaSpark(a)}
+      <div class="fc-bot"><span class="fc-p">${price(a, a.price)} <em class="${c === null ? "muted" : c >= 0 ? "pos" : "neg"}">${pctTxt(a)}</em></span><span class="lvp">${a.maxLev}x</span></div>
+    </div>`;
+  }
+  function moverRow(a) {
+    const c = change24(a), d = absChg(a), cls = c >= 0 ? "pos" : "neg";
+    return `<div class="gr" data-asset="${a.sym}" role="button" tabindex="0">${assetIcon(a, 40)}<span class="gr-n"><b>${esc(a.sym)}</b><small>${esc(a.name)}</small></span>
+      <span class="gr-sp">${areaSpark(a, 140, 44)}</span>
+      <span class="gr-p"><b>${price(a, a.price)}</b><em class="${cls}">${sg(d, a.dec)} (${sg(c)}%)</em></span></div>`;
+  }
+  function discoverHTML() {
+    const en = enabled();
+    const pick = (list) => list.map((s) => A[s]).filter((a) => a && RP.clsOn(a.cls));
+    let feat = pick(FEATURED);
+    if (feat.length < 4) en.slice(0, 4).forEach((a) => { if (feat.length < 4 && !feat.includes(a)) feat.push(a); });
+    const withCh = en.filter((a) => change24(a) !== null);
+    const gain = withCh.slice().sort((x, y) => change24(y) - change24(x)).slice(0, 4);
+    const lose = withCh.slice().sort((x, y) => change24(x) - change24(y)).slice(0, 4);
+    const neu = pick(NEW_LISTINGS);
+    return `<h2 class="pf-h">Популярные</h2>
+      <div class="fc-row">${feat.map(featCard).join("")}</div>
+      <div class="pf-two">
+        <div><div class="pf-hr"><h2 class="pf-h">Лидеры роста</h2><button type="button" class="pf-link" data-go="gainers">Смотреть все</button></div>${gain.map(moverRow).join("")}</div>
+        <div><div class="pf-hr"><h2 class="pf-h">Лидеры падения</h2><button type="button" class="pf-link" data-go="losers">Смотреть все</button></div>${lose.map(moverRow).join("")}</div>
+      </div>
+      <h2 class="pf-h">Новые листинги</h2>
+      <div class="fc-row">${neu.map(featCard).join("")}</div>
+      <p class="pf-note">Графики показывают последние 24 часа. Где нет бейджа Live, цена и история смоделированы (демо).</p>`;
+  }
+  // список для раздела: все активы, избранное или один класс; сортировка по объёму, цене или изменению
+  function currentRows() {
+    const en = enabled(), q = P.q.trim().toLowerCase();
+    let rows = P.cat === "fav" ? en.filter((a) => isFav(a.sym)) : P.cat === "all" ? en : en.filter((a) => a.cls === P.cat);
+    if (q) rows = rows.filter((a) => a.sym.toLowerCase().includes(q) || a.name.toLowerCase().includes(q));
+    const key = { vol: (a) => stats24(a).vol, price: (a) => a.price, chg: (a) => { const c = change24(a); return c === null ? -1e9 : c; } }[P.sort.key];
+    const vals = new Map(rows.map((a) => [a, key(a)]));
+    return rows.slice().sort((x, y) => (vals.get(y) - vals.get(x)) * P.sort.dir);
+  }
+  const catTitle = () => (P.cat === "all" ? "Все активы" : P.cat === "fav" ? "Избранное" : CLS[P.cat]);
+  function listViewHTML() {
+    const rows = currentRows(), shown = rows.slice(0, P.listN);
+    const sh = (k, n) => `<button type="button" class="lt-sort ${P.sort.key === k ? "on" : ""}" data-sort="${k}">${n}${P.sort.key === k ? (P.sort.dir === 1 ? " ↓" : " ↑") : ""}</button>`;
+    const body = shown.map((a) => {
+      const c = change24(a);
+      return `<div class="lt-row" data-asset="${a.sym}" role="button" tabindex="0">${star(a)}
+        <span class="lt-name">${assetIcon(a, 36)}<span><b>${esc(a.sym)}</b><small>${esc(a.name)}</small></span></span>
+        <span class="lt-sp">${areaSpark(a, 120, 40)}</span><span class="lt-pr">${price(a, a.price)}</span>
+        <span class="lt-ch ${c === null ? "muted" : c >= 0 ? "pos" : "neg"}">${pctTxt(a)}</span><span class="lt-vol">${bigNum(stats24(a).vol, a)}</span><span class="lvp">${a.maxLev}x</span></div>`;
+    }).join("");
+    return `<div class="pf-hr"><h2 class="pf-h">${catTitle()} <span class="pf-cnt">${rows.length}</span></h2></div>
+      <div class="lt"><div class="lt-head"><span></span><span>Актив</span><span>За сутки</span>${sh("price", "Цена")}${sh("chg", "Изм. 24 ч")}${sh("vol", "Объём 24 ч")}<span>Плечо</span></div>
+      ${body || `<p class="muted" style="padding:24px 8px">${P.cat === "fav" ? "Избранное пусто: нажмите ★ на карточке актива." : "Ничего не найдено."}</p>`}</div>
+      ${rows.length > shown.length ? `<button type="button" class="sbtn" style="margin-top:12px" data-more>Показать ещё ${Math.min(50, rows.length - shown.length)}</button>` : ""}`;
+  }
+  const NAV_ICON = {
+    discover: '<path d="M13 2L4 14h7l-1 8 9-12h-7z"/>', board: '<path d="M7 4h10v5a5 5 0 0 1-10 0zM7 6H4v2a3 3 0 0 0 3 3M17 6h3v2a3 3 0 0 1-3 3M12 14v4M8 21h8M10 18h4"/>',
+    all: '<path d="M6 4v16M12 8v10M18 5v14"/>', fav: '<path d="M12 3l2.7 5.6 6.1.9-4.4 4.3 1 6.1L12 17l-5.4 2.9 1-6.1L3.2 9.5l6.1-.9z"/>',
+    crypto: '<circle cx="12" cy="12" r="8"/><path d="M10 8v8M10 8h3a2 2 0 0 1 0 4h-3m0 0h3.5a2 2 0 0 1 0 4H10"/>', index: '<rect x="3" y="5" width="18" height="14" rx="3"/><path d="M7 14l3-3 3 2 4-5"/>',
+    ru: '<path d="M4 20h16M6 20V10M10 20V10M14 20V10M18 20V10M3 10l9-6 9 6z"/>', world: '<circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3c3 3 3 15 0 18M12 3c-3 3-3 15 0 18"/>',
+    commodity: '<path d="M12 3c3 4 5 6 5 9a5 5 0 0 1-10 0c0-3 2-5 5-9z"/>'
+  };
+  function sideHTML() {
+    const en = enabled(), cnt = (c) => en.filter((a) => a.cls === c).length;
+    const item = (id, name, n, on) => `<button type="button" class="pf-it ${on ? "on" : ""}" data-nav="${id}"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${NAV_ICON[id] || NAV_ICON.world}</svg><span>${name}</span>${n === null ? "" : `<small>${n}</small>`}</button>`;
+    const on = (id) => (id === "discover" ? P.view === "discover" : P.view === "list" && P.cat === id);
+    return `${item("discover", "Обзор", null, on("discover"))}<a class="pf-it" href="#leaderboard"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${NAV_ICON.board}</svg><span>Лидеры</span></a>
+      <div class="pf-sep"></div><div class="pf-lab">Активы</div>
+      ${item("all", "Все активы", en.length, on("all"))}${item("fav", "Избранное", en.filter((a) => isFav(a.sym)).length, on("fav"))}
+      ${Object.entries(CLS).filter(([id]) => RP.clsOn(id)).map(([id, n]) => item(id, n, cnt(id), on(id))).join("")}`;
+  }
+  function headHTML() {
+    return `<div class="pf-head">${P.view === "term" ? '<button type="button" class="pf-back" data-back>← Все активы</button>' : ""}
+      <div class="pf-search"><input class="field" id="pf-q" type="search" placeholder="Поиск актива: тикер или название" autocomplete="off" aria-label="Поиск актива" value="${esc(P.q)}"><div class="pf-res" id="pf-res" hidden></div></div></div>`;
+  }
+  const terminalHTML = () => `<section class="tmain" id="t-main">${mainHTML()}</section><div class="twide" id="t-wide">${wideHTML(A[P.sel])}</div>`;
+  const bodyHTML = () => (P.view === "term" ? terminalHTML() : P.view === "list" ? listViewHTML() : discoverHTML());
+  function renderPane() {
+    const pf = $("#pf");
+    if (!pf) return;
+    pf.classList.toggle("term", P.view === "term");
+    $("#pf-side").innerHTML = sideHTML();
+    $("#pf-headbox").innerHTML = headHTML();
+    $("#pf-body").innerHTML = bodyHTML();
+    bindSearch();
+    if (P.view === "term") initTerminal();
+  }
+  function paintBody() { // обновление цен на «Обзоре» и в списках без сброса поиска
+    const el = $("#pf-body");
+    if (!el || P.view === "term") return;
+    const y = el.scrollTop;
+    el.innerHTML = bodyHTML();
+    el.scrollTop = y;
+  }
+  function paintSide() { const el = $("#pf-side"); if (el) el.innerHTML = sideHTML(); }
+  function enterTerminal(sym) {
+    if (!A[sym]) return;
+    if (P.view !== "term") P.prev = { view: P.view, cat: P.cat };
+    P.sel = sym; P.cls = A[sym].cls; P.view = "term"; P.tp = ""; P.sl = ""; P.q = "";
+    renderPane();
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  }
+  function initTerminal() { bindMain(); paintChart(); paintSummary(); }
+  function rebuildMain() { P.tp = ""; P.sl = ""; $("#t-main").innerHTML = mainHTML(); $("#t-wide").innerHTML = wideHTML(A[P.sel]); bindMain(); paintChart(); paintSummary(); }
+  // поиск с выпадающим списком: тикер или название, до 8 результатов
+  function bindSearch() {
+    const inp = $("#pf-q"), res = $("#pf-res");
+    if (!inp) return;
+    const show = () => {
+      const q = inp.value.trim().toLowerCase();
+      P.q = inp.value;
+      if (P.view === "list") { res.hidden = true; P.listN = 50; paintBody(); return; }
+      if (!q) { res.hidden = true; return; }
+      const hit = enabled().filter((a) => a.sym.toLowerCase().includes(q) || a.name.toLowerCase().includes(q))
+        .sort((x, y) => (x.sym.toLowerCase().startsWith(q) ? 0 : 1) - (y.sym.toLowerCase().startsWith(q) ? 0 : 1)).slice(0, 8);
+      res.innerHTML = hit.length ? hit.map((a) => `<button type="button" class="pf-r" data-res="${a.sym}">${assetIcon(a, 28)}<span><b>${esc(a.sym)}</b><small>${esc(a.name)} · ${CLS[a.cls]}</small></span><em>${price(a, a.price)}</em></button>`).join("") : '<p class="muted" style="padding:10px 12px;margin:0">Ничего не найдено</p>';
+      res.hidden = false;
+    };
+    inp.oninput = show;
+    inp.onfocus = () => { if (inp.value.trim()) show(); };
+    inp.onkeydown = (ev) => { if (ev.key === "Enter") { const f = $(".pf-r", res); if (f) enterTerminal(f.dataset.res); } if (ev.key === "Escape") res.hidden = true; };
+    res.onclick = (ev) => { const b = ev.target.closest("[data-res]"); if (b) enterTerminal(b.dataset.res); };
+  }
+
+  function bindMain() {
+    bindTools();
+    $("#t-ctype").onclick = (ev) => {
+      const b = ev.target.closest("[data-ct]");
+      if (!b || b.dataset.ct === P.ctype) return;
+      P.ctype = b.dataset.ct;
+      RP.store.set("pctype", P.ctype);
+      document.querySelectorAll("#t-ctype button").forEach((x) => x.classList.toggle("on", x === b));
+      paintChart();
+    };
+    $("#t-range").onclick = (ev) => {
+      const b = ev.target.closest("[data-range]");
+      if (!b) return;
+      P.range = b.dataset.range;
+      $("#t-src").textContent = srcText(A[P.sel]);
+      document.querySelectorAll("#t-range button").forEach((x) => x.classList.toggle("on", x === b));
+      paintChart();
+    };
+    $("#t-dir").onclick = (ev) => { const b = ev.target.closest("[data-dir]"); if (b) { P.dir = b.dataset.dir; paintSummary(); } };
+    $("#t-margin").oninput = (ev) => { P.margin = Number(ev.target.value) || 0; paintSummary(); };
+    $("#t-pct").onclick = (ev) => {
+      const b = ev.target.closest("[data-pct]");
+      if (!b) return;
+      P.margin = Math.floor((maxMargin() * Number(b.dataset.pct)) / 100);
+      $("#t-margin").value = P.margin;
+      paintSummary();
+    };
+    $("#t-lev").oninput = (ev) => { P.lev = Number(ev.target.value); paintSummary(); };
+    $("#t-levchips").onclick = (ev) => { const b = ev.target.closest("[data-lev]"); if (b) { P.lev = Number(b.dataset.lev); paintSummary(); } };
+    $("#t-tp").oninput = (ev) => { P.tp = ev.target.value; paintSummary(); };
+    $("#t-sl").oninput = (ev) => { P.sl = ev.target.value; paintSummary(); };
+    const roeChips = (id, field, sign) => {
+      $(id).onclick = (ev) => {
+        const b = ev.target.closest("[data-roe]");
+        if (!b) return;
+        const a = A[P.sel], v = priceFromRoe(a, P.dir, P.lev, a.price, sign * Number(b.dataset.roe));
+        P[field] = fmtIn(a, v);
+        $("#t-" + field).value = P[field];
+        paintSummary();
+      };
+    };
+    roeChips("#t-tpchips", "tp", 1);
+    roeChips("#t-slchips", "sl", -1);
+    $("#t-chat").innerHTML = RP.chatHTML("t-" + P.sel);
+    RP.chatBind($("#t-chat"), "t-" + P.sel);
+    $("#t-open").onclick = confirmOpen;
+    $("#t-sugg").onclick = (ev) => {
+      const tabBtn = ev.target.closest("[data-mtab]");
+      if (tabBtn) { P.moreTab = tabBtn.dataset.mtab; return paintMore(); }
+      const mk = ev.target.closest("[data-mk]");
+      if (mk) return RP.openMarket(Number(mk.dataset.mk));
+      const b = ev.target.closest("[data-sg]");
+      if (!b) return;
+      P.sel = b.dataset.sg;
+      P.cls = A[P.sel].cls;
+      rebuildMain();
+      window.scrollTo({ top: 0, behavior: "smooth" });
+    };
+  }
+
   function view() {
-    // скрытые в настройках классы не показываем
-    const clsList = Object.entries(CLS).filter(([id]) => RP.clsOn(id));
-    if (!RP.clsOn(P.cls)) { P.cls = clsList[0][0]; P.sel = classAssets(P.cls)[0].sym; }
-    if (!inClass(A[P.sel], P.cls)) P.sel = classAssets(P.cls)[0].sym;
+    // классы, скрытые в настройках, не показываем
+    const first = enabled()[0];
+    if (!RP.clsOn(A[P.sel].cls)) { P.sel = first.sym; P.cls = first.cls; }
+    P.view = P.openTerm ? "term" : "discover";
+    P.openTerm = false;
     return `<div class="wrap">
       <h1 class="page-title">Перпы</h1>
-      <p class="page-sub">Бессрочные контракты на крипту, индексы, акции России и мира, S&P 500 и сырьё. Торгуйте без плеча или с плечом, в рост (Long) и в падение (Short). Демо: игровые рубли. Цены живые там, где виден бейдж Live, остальные симулируются.</p>
-      <div class="trade">
-        <aside class="panel assets">
-          <div class="tabs" id="t-tabs" style="padding:0 0 10px">${clsList.map(([id, n]) => `<button class="tab ${id === P.cls ? "active" : ""}" data-tcls="${id}">${n}<small>${classAssets(id).length}</small></button>`).join("")}</div>
-          <input class="field alist-q" id="t-q" type="search" placeholder="Поиск: тикер или название" value="${esc(P.q)}" aria-label="Поиск актива" autocomplete="off">
-          <div id="t-list" class="alist">${listHTML()}</div>
-        </aside>
-        <section class="tmain" id="t-main">${mainHTML()}</section>
+      <div class="pf ${P.view === "term" ? "term" : ""}" id="pf">
+        <aside class="pf-side" id="pf-side">${sideHTML()}</aside>
+        <div class="pf-main">
+          <div id="pf-headbox">${headHTML()}</div>
+          <div id="pf-body">${bodyHTML()}</div>
+        </div>
       </div>
-      <div class="twide" id="t-wide">${wideHTML(A[P.sel])}</div>
       <div class="panel" style="margin:16px 0 40px">
         <h3>Открытые позиции</h3>
         <div id="t-pos"></div>
@@ -1352,97 +1552,42 @@ const PERPS = (() => {
   }
 
   function bind() {
-    const root = $("#view");
-    const rebuildMain = () => { P.tp = ""; P.sl = ""; $("#t-main").innerHTML = mainHTML(); $("#t-wide").innerHTML = wideHTML(A[P.sel]); bindMain(); paintChart(); paintSummary(); };
-    $("#t-tabs").onclick = (ev) => {
-      const b = ev.target.closest("[data-tcls]");
-      if (!b) return;
-      P.cls = b.dataset.tcls; P.q = ""; P.listN = 40;
-      if ($("#t-q")) $("#t-q").value = "";
-      document.querySelectorAll("#t-tabs .tab").forEach((t) => t.classList.toggle("active", t === b));
-      if (!inClass(A[P.sel], P.cls)) P.sel = classAssets(P.cls)[0].sym;
-      $("#t-list").innerHTML = listHTML();
-      rebuildMain();
+    const pf = $("#pf");
+    pf.onclick = (ev) => {
+      const t = ev.target;
+      const fav = t.closest("[data-fav]");
+      if (fav) {
+        const sym = fav.dataset.fav;
+        favs = isFav(sym) ? favs.filter((x) => x !== sym) : [...favs, sym];
+        saveFavs(); paintSide(); paintBody();
+        return;
+      }
+      const nav = t.closest("[data-nav]");
+      if (nav) {
+        P.q = ""; P.listN = 50;
+        if (nav.dataset.nav === "discover") P.view = "discover";
+        else { P.view = "list"; P.cat = nav.dataset.nav; P.sort = { key: "vol", dir: 1 }; }
+        return renderPane();
+      }
+      const go = t.closest("[data-go]");
+      if (go) { P.view = "list"; P.cat = "all"; P.sort = { key: "chg", dir: go.dataset.go === "gainers" ? 1 : -1 }; P.listN = 50; P.q = ""; return renderPane(); }
+      const asset = t.closest("[data-asset]");
+      if (asset) return enterTerminal(asset.dataset.asset);
+      const sort = t.closest("[data-sort]");
+      if (sort) { const k = sort.dataset.sort; P.sort = { key: k, dir: P.sort.key === k ? -P.sort.dir : 1 }; return paintBody(); }
+      if (t.closest("[data-more]")) { P.listN += 50; return paintBody(); }
+      if (t.closest("[data-back]")) { const pv = P.prev || { view: "discover" }; P.view = pv.view; if (pv.cat) P.cat = pv.cat; P.q = ""; renderPane(); }
     };
-    $("#t-q").oninput = (ev) => { P.q = ev.target.value; P.listN = 40; $("#t-list").innerHTML = listHTML(); };
-    $("#t-list").onclick = (ev) => {
-      if (ev.target.closest("[data-more]")) { P.listN += 40; $("#t-list").innerHTML = listHTML(); return; }
-      const b = ev.target.closest("[data-asset]");
-      if (!b) return;
-      P.sel = b.dataset.asset;
-      document.querySelectorAll(".arow").forEach((r) => r.classList.toggle("on", r === b));
-      rebuildMain();
-    };
+    pf.onkeydown = (ev) => { if ((ev.key === "Enter" || ev.key === " ") && ev.target.matches("[data-asset]")) { ev.preventDefault(); enterTerminal(ev.target.dataset.asset); } };
+    document.addEventListener("click", (ev) => { const res = $("#pf-res"); if (res && !ev.target.closest(".pf-search")) res.hidden = true; });
+    bindSearch();
     $("#t-pos").onclick = (ev) => {
       const c = ev.target.closest("[data-close]");
       if (c) return confirmClose(c.dataset.close);
       const e = ev.target.closest("[data-edit]");
       if (e) openEdit(e.dataset.edit);
     };
-    function bindMain() {
-      bindTools();
-      $("#t-ctype").onclick = (ev) => {
-        const b = ev.target.closest("[data-ct]");
-        if (!b || b.dataset.ct === P.ctype) return;
-        P.ctype = b.dataset.ct;
-        RP.store.set("pctype", P.ctype);
-        document.querySelectorAll("#t-ctype button").forEach((x) => x.classList.toggle("on", x === b));
-        paintChart();
-      };
-      $("#t-range").onclick = (ev) => {
-        const b = ev.target.closest("[data-range]");
-        if (!b) return;
-        P.range = b.dataset.range;
-        $("#t-src").textContent = srcText(A[P.sel]);
-        document.querySelectorAll("#t-range button").forEach((x) => x.classList.toggle("on", x === b));
-        paintChart();
-      };
-      $("#t-dir").onclick = (ev) => { const b = ev.target.closest("[data-dir]"); if (b) { P.dir = b.dataset.dir; paintSummary(); } };
-      $("#t-margin").oninput = (ev) => { P.margin = Number(ev.target.value) || 0; paintSummary(); };
-      $("#t-pct").onclick = (ev) => {
-        const b = ev.target.closest("[data-pct]");
-        if (!b) return;
-        P.margin = Math.floor((maxMargin() * Number(b.dataset.pct)) / 100);
-        $("#t-margin").value = P.margin;
-        paintSummary();
-      };
-      $("#t-lev").oninput = (ev) => { P.lev = Number(ev.target.value); paintSummary(); };
-      $("#t-levchips").onclick = (ev) => { const b = ev.target.closest("[data-lev]"); if (b) { P.lev = Number(b.dataset.lev); paintSummary(); } };
-      $("#t-tp").oninput = (ev) => { P.tp = ev.target.value; paintSummary(); };
-      $("#t-sl").oninput = (ev) => { P.sl = ev.target.value; paintSummary(); };
-      const roeChips = (id, field, sign) => {
-        $(id).onclick = (ev) => {
-          const b = ev.target.closest("[data-roe]");
-          if (!b) return;
-          const a = A[P.sel], v = priceFromRoe(a, P.dir, P.lev, a.price, sign * Number(b.dataset.roe));
-          P[field] = fmtIn(a, v);
-          $("#t-" + field).value = P[field];
-          paintSummary();
-        };
-      };
-      roeChips("#t-tpchips", "tp", 1);
-      roeChips("#t-slchips", "sl", -1);
-      $("#t-chat").innerHTML = RP.chatHTML("t-" + P.sel);
-      RP.chatBind($("#t-chat"), "t-" + P.sel);
-      $("#t-open").onclick = confirmOpen;
-      $("#t-sugg").onclick = (ev) => {
-        const tabBtn = ev.target.closest("[data-mtab]");
-        if (tabBtn) { P.moreTab = tabBtn.dataset.mtab; return paintMore(); }
-        const mk = ev.target.closest("[data-mk]");
-        if (mk) return RP.openMarket(Number(mk.dataset.mk));
-        const b = ev.target.closest("[data-sg]");
-        if (!b) return;
-        P.sel = b.dataset.sg;
-        if (!inClass(A[P.sel], P.cls)) P.cls = A[P.sel].cls;
-        document.querySelectorAll("#t-tabs .tab").forEach((t) => t.classList.toggle("active", t.dataset.tcls === P.cls));
-        $("#t-list").innerHTML = listHTML();
-        rebuildMain();
-        window.scrollTo({ top: 0, behavior: "smooth" });
-      };
-    }
-    bindMain();
-    paintChart();
-    paintSummary();
+    if (P.view === "term") initTerminal();
     paintPositions();
     $("#t-feeds").ontoggle = paintFeeds;
   }
@@ -1473,11 +1618,8 @@ const PERPS = (() => {
     if (ticks % 3 === 0) paintFeeds();
     checkLiquidations();
     checkTpSl();
-    if (RP.route() !== "trade" || !$("#t-main")) return;
-    // обновляем только строки списка, которые сейчас на экране
-    document.querySelectorAll("#t-list [data-pr]").forEach((el) => { const x = A[el.dataset.pr]; if (x) el.textContent = price(x, x.price); });
-    document.querySelectorAll("#t-list [data-ch]").forEach((el) => { const x = A[el.dataset.ch]; if (x) el.innerHTML = chText(x); });
-    document.querySelectorAll("#t-list [data-lv]").forEach((el) => { const x = A[el.dataset.lv]; if (x) el.innerHTML = liveBadge(x); });
+    if (RP.route() !== "trade") return;
+    if (P.view === "term" && $("#t-main")) {
     const a = A[P.sel];
     $("#t-lv").innerHTML = liveBadge(a);
     $("#t-src").textContent = srcText(a);
@@ -1489,6 +1631,7 @@ const PERPS = (() => {
     if (ticks % 5 === 0) paintMore();
     if (!chartHover && !T.busy && !T.textOpen) paintChart();
     paintSummary();
+    } else if (ticks % 5 === 0) paintBody();
     positions.forEach((pos) => {
       const row = $(`tr[data-pid="${pos.id}"]`);
       if (!row) return;
@@ -1512,7 +1655,7 @@ const PERPS = (() => {
       <div class="pt-tiles">${pick.map((a) => `<a class="pt-tile" href="#trade" data-goasset="${a.sym}">${badge(a)}<b>${a.sym}-PERP</b><span>${price(a, a.price)}</span><small>${chText(a)}</small></a>`).join("")}</div>
     </div>`;
   }
-  function select(sym) { if (A[sym]) { P.sel = sym; if (!inClass(A[sym], P.cls)) P.cls = A[sym].cls; } }
+  function select(sym) { if (A[sym]) { P.sel = sym; P.cls = A[sym].cls; P.openTerm = true; } }
 
   const realized = () => closed.reduce((s, c) => s + c.pnl, 0);
   const closedMargin = () => closed.reduce((s, c) => s + c.margin, 0);
