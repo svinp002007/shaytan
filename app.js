@@ -1337,7 +1337,7 @@
       <div class="st-list" id="st-cats">${CATEGORIES.map((c) => sw("sc", c.id, catOn(c.id), c.name, `${cnt(c.id)} рынков`)).join("")}</div>
       <div class="st-btns"><button type="button" class="sbtn" id="st-all">Включить все</button><button type="button" class="sbtn" id="st-fav">Только любимая</button></div>
       <h3 class="st-h">Классы перпов</h3>
-      <div class="st-list" id="st-cls">${[["crypto", "Крипто"], ["stock", "Акции"], ["commodity", "Сырьё"]].map(([id, n]) => sw("sk", id, clsOn(id), n, "в разделе «Перпы»")).join("")}</div>`);
+      <div class="st-list" id="st-cls">${Object.entries(PERPS.classes).map(([id, n]) => sw("sk", id, clsOn(id), n, "в разделе «Перпы»")).join("")}</div>`);
     const sheet = $("#sheet-body");
     const refresh = () => { saveSettings(); render(); };
     $("#st-themes").onclick = (ev) => {
@@ -1353,7 +1353,7 @@
       settings[list] = next; refresh();
     };
     $("#st-cats").onchange = (ev) => ev.target.dataset.sc && toggle("hiddenCats", null, ev, CATEGORIES.length);
-    $("#st-cls").onchange = (ev) => ev.target.dataset.sk && toggle("hiddenCls", null, ev, 3);
+    $("#st-cls").onchange = (ev) => ev.target.dataset.sk && toggle("hiddenCls", null, ev, Object.keys(PERPS.classes).length);
     $("#st-all").onclick = () => { settings.hiddenCats = []; refresh(); sheet.querySelectorAll("[data-sc]").forEach((x) => (x.checked = true)); };
     $("#st-fav").onclick = () => {
       if (!profile.fav || profile.fav === "all") return toast("Выберите любимую категорию в профиле");

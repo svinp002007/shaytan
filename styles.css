@@ -320,7 +320,7 @@ footer{border-top:1px solid var(--line);padding:22px 0;color:var(--muted);font-s
 .aprice{display:flex;flex-direction:column;align-items:flex-end;line-height:1.25;font-variant-numeric:tabular-nums}
 .aprice b{font-size:13px}.aprice small{font-size:12px;font-weight:700}
 .abadge{display:grid;place-items:center;flex:none;min-width:38px;height:28px;padding:0 6px;border-radius:8px;color:#fff;font:700 10px var(--body);letter-spacing:.02em}
-.c-crypto{background:#7c3aed}.c-stock{background:#1d4ed8}.c-commodity{background:#b45309}
+.c-crypto{background:#7c3aed}.c-stock{background:#1d4ed8}.c-commodity{background:#b45309}.c-ru{background:#c2410c}.c-world{background:#1d4ed8}.c-sp500{background:#0f766e}.c-index{background:#475569}
 .tmain{display:grid;grid-template-columns:1.6fr 1fr;gap:16px;min-width:0;align-items:start}
 .tmain>.panel{min-width:0}
 .th{display:flex;justify-content:space-between;align-items:flex-start;gap:12px;flex-wrap:wrap;margin-bottom:10px}
@@ -754,3 +754,12 @@ footer{border-top:1px solid var(--line);padding:22px 0;color:var(--muted);font-s
 @media(max-width:520px){.ov-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
 .mc{flex-basis:calc((100% - 56px) / 5)}
 @media(max-width:860px){.mc{flex-basis:62%}}
+
+/* большие списки активов: поиск, прокрутка, «Показать ещё» */
+.alist-q{width:100%;margin:2px 0 10px}
+.alist{max-height:640px;overflow-y:auto;padding-right:2px}
+.arow-more{border:1px dashed var(--line);background:none;color:var(--muted);border-radius:12px;padding:10px;cursor:pointer;font:600 13px var(--body)}
+.arow-more:hover{color:var(--ink);border-color:var(--muted)}
+#t-tabs{flex-wrap:wrap;overflow:visible;gap:6px}
+#t-tabs .tab{padding:6px 12px;font-size:13px}
+#t-tabs .tab small{margin-left:6px;opacity:.6;font-size:11px}

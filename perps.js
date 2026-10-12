@@ -4,24 +4,60 @@
 const PERPS = (() => {
   const FEE = 0.0005; // комиссия 0,05% от размера позиции при открытии и при закрытии
   const MMR = 0.005; // поддерживающая маржа 0,5%
-  const CLS = { crypto: "Крипто", stock: "Акции", commodity: "Сырьё" };
-  const ASSETS = [
-    { sym: "BTC",   name: "Биткоин",         cls: "crypto",    base: 96500, sig: 0.00040, maxLev: 100, ccy: "$", dec: 1, fund: 0.0001 },
-    { sym: "ETH",   name: "Эфириум",         cls: "crypto",    base: 3600,  sig: 0.00045, maxLev: 100, ccy: "$", dec: 2, fund: 0.0001 },
-    { sym: "SOL",   name: "Solana",          cls: "crypto",    base: 210,   sig: 0.00060, maxLev: 100, ccy: "$", dec: 2, fund: 0.00012 },
-    { sym: "SBER",  name: "Сбербанк",        cls: "stock",     base: 305,   sig: 0.00018, maxLev: 50, ccy: "₽", dec: 2, fund: 0.00005 },
-    { sym: "GAZP",  name: "Газпром",         cls: "stock",     base: 135,   sig: 0.00020, maxLev: 50, ccy: "₽", dec: 2, fund: 0.00005 },
-    { sym: "YDEX",  name: "Яндекс",          cls: "stock",     base: 4800,  sig: 0.00022, maxLev: 50, ccy: "₽", dec: 1, fund: 0.00005 },
-    { sym: "LKOH",  name: "Лукойл",          cls: "stock",     base: 7000,  sig: 0.00016, maxLev: 50, ccy: "₽", dec: 0, fund: 0.00005 },
-    { sym: "AAPL",  name: "Apple",           cls: "stock",     base: 230,   sig: 0.00020, maxLev: 50, ccy: "$", dec: 2, fund: 0.00005 },
-    { sym: "NVDA",  name: "Nvidia",          cls: "stock",     base: 180,   sig: 0.00030, maxLev: 50, ccy: "$", dec: 2, fund: 0.00006 },
-    { sym: "TSLA",  name: "Tesla",           cls: "stock",     base: 330,   sig: 0.00038, maxLev: 50, ccy: "$", dec: 2, fund: 0.00006 },
-    { sym: "BRENT", name: "Нефть Brent",     cls: "commodity", base: 72,    sig: 0.00018, maxLev: 50, ccy: "$", dec: 2, fund: 0.00004 },
-    { sym: "XAU",   name: "Золото",          cls: "commodity", base: 4150,  sig: 0.00010, maxLev: 50, ccy: "$", dec: 1, fund: 0.00004 },
-    { sym: "XAG",   name: "Серебро",         cls: "commodity", base: 48,    sig: 0.00018, maxLev: 50, ccy: "$", dec: 2, fund: 0.00004 },
-    { sym: "NG",    name: "Природный газ",   cls: "commodity", base: 3.2,   sig: 0.00030, maxLev: 50, ccy: "$", dec: 3, fund: 0.00004 },
-    { sym: "WHEAT", name: "Пшеница",         cls: "commodity", base: 5.6,   sig: 0.00015, maxLev: 50, ccy: "$", dec: 2, fund: 0.00004 }
-  ];
+  const mulberry = (a) => () => { a |= 0; a = (a + 0x6d2b79f5) | 0; let t = Math.imul(a ^ (a >>> 15), 1 | a); t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t; return ((t ^ (t >>> 14)) >>> 0) / 4294967296; };
+  const seedOf = (s) => [...s].reduce((x, c) => (x * 31 + c.charCodeAt(0)) >>> 0, 11);
+  // Классы активов. «S&P 500» собирается из бумаг с флагом sp (см. inClass); у каждого актива один основной класс.
+  const CLS = { crypto: "Крипто", index: "Индексы", ru: "Акции РФ", world: "Акции мира", sp500: "S&P 500", commodity: "Сырьё" };
+  const inClass = (a, c) => a.cls === c || (c === "sp500" && !!a.sp);
+  // Активы строятся из каталога assets.js (индексы, крипта, акции РФ, акции мира, S&P 500) плюс сырьё ниже.
+  // Волатильность и фандинг для разных классов разные; у нескольких старых активов значения подобраны вручную.
+  const CLASS_P = { crypto: [0.0008, 0.0001], index: [0.00008, 0.00003], ru: [0.0002, 0.00005], world: [0.00025, 0.00005], sp500: [0.00024, 0.00005] };
+  const TUNED = { BTC: [0.0004, 0.0001], ETH: [0.00045, 0.0001], SOL: [0.0006, 0.00012], SBER: [0.00018, 0.00005], GAZP: [0.0002, 0.00005], YDEX: [0.00022, 0.00005], LKOH: [0.00016, 0.00005], AAPL: [0.0002, 0.00005], NVDA: [0.0003, 0.00006], TSLA: [0.00038, 0.00006] };
+  const BN_NO = new Set(["HYPE", "XMR"]); // у этих монет нет пары к USDT на Binance
+  const decFor = (p) => (p >= 1000 ? 1 : p >= 100 ? 2 : p >= 10 ? 3 : p >= 1 ? 4 : p >= 0.1 ? 5 : p >= 0.01 ? 6 : 8);
+  const ASSETS = [], SRC = {};
+  function addList(cls, text) {
+    text.trim().split("\n").forEach((line, rank) => {
+      const [sym, name, priceTxt, ...flags] = line.split("|");
+      const base = Number(priceTxt), kv = Object.fromEntries(flags.filter((f) => f.includes("=")).map((f) => f.split("=")));
+      if (!sym || !(base > 0)) return;
+      const r = mulberry(seedOf(sym) + 17), tuned = TUNED[sym], cp = CLASS_P[cls];
+      const sig = tuned ? tuned[0] : cls === "crypto" ? (0.0005 + 0.0006 * Math.min(1, rank / 50)) * (0.85 + 0.3 * r()) : cp[0] * (0.8 + 0.4 * r());
+      const a = {
+        sym, name, cls, rank, base, sig, fund: tuned ? tuned[1] : cp[1],
+        maxLev: cls === "crypto" && rank < 20 ? 100 : 50,
+        ccy: cls === "ru" ? "₽" : cls === "index" ? "" : "$",
+        dec: cls === "index" ? (base < 3000 ? 2 : 1) : cls === "crypto" ? decFor(base) : base < 1 ? 3 : 2
+      };
+      if (flags.includes("s")) a.sp = true;
+      if (cls === "sp500") a.sp = true;
+      ASSETS.push(a);
+      // источники живых цен
+      if (cls === "crypto") SRC[sym] = BN_NO.has(sym) ? {} : { bn: sym + "USDT" };
+      else if (cls === "ru") SRC[sym] = { moex: kv.moex || sym };
+      else if (cls === "index") SRC[sym] = { yf: kv.yf };
+      else SRC[sym] = { yf: kv.yf || sym };
+    });
+  }
+  const L = ASSET_LISTS;
+  addList("crypto", L.crypto); addList("index", L.index); addList("ru", L.ru); addList("world", L.world); addList("sp500", L.sp);
+  // сырьё: несколько контрактов, подобранных вручную
+  [
+    { sym: "BRENT", name: "Нефть Brent",   base: 72,   sig: 0.00018, dec: 2, fund: 0.00004 },
+    { sym: "XAU",   name: "Золото",        base: 4150, sig: 0.0001,  dec: 1, fund: 0.00004 },
+    { sym: "XAG",   name: "Серебро",       base: 48,   sig: 0.00018, dec: 2, fund: 0.00004 },
+    { sym: "NG",    name: "Природный газ", base: 3.2,  sig: 0.0003,  dec: 3, fund: 0.00004 },
+    { sym: "WHEAT", name: "Пшеница",       base: 5.6,  sig: 0.00015, dec: 2, fund: 0.00004 }
+  ].forEach((c, rank) => ASSETS.push({ ...c, cls: "commodity", rank, maxLev: 50, ccy: "$" }));
+  // старые активы: дополнительные источники цен (резервные биржи, Finnhub, Polymarket, Twelve Data)
+  Object.assign(SRC.BTC, { cb: "BTC-USD", kr: "XBT", yf: "BTC-USD" });
+  Object.assign(SRC.ETH, { cb: "ETH-USD", kr: "ETH", yf: "ETH-USD" });
+  Object.assign(SRC.SOL, { cb: "SOL-USD", kr: "SOL", yf: "SOL-USD" });
+  Object.assign(SRC.AAPL, { fh: "AAPL", pm: "AAPL-USD" }); Object.assign(SRC.NVDA, { fh: "NVDA", pm: "NVDA-USD" }); Object.assign(SRC.TSLA, { fh: "TSLA", pm: "TSLA-USD" });
+  Object.assign(SRC, {
+    XAU: { td: "XAU/USD", yf: "GC=F", pm: "GOLD-USD" }, XAG: { td: "XAG/USD", yf: "SI=F", pm: "SILVER-USD" },
+    BRENT: { yf: "BZ=F" }, NG: { yf: "NG=F" }, WHEAT: { yf: "ZW=F" }
+  });
   const A = Object.fromEntries(ASSETS.map((a) => [a.sym, a]));
   // Что предложить рядом с выбранным активом: близкие по теме и «соседи» из других классов.
   const REL = {
@@ -31,18 +67,10 @@ const PERPS = (() => {
     BRENT: ["LKOH", "GAZP", "NG", "XAU"], XAU: ["XAG", "BTC", "BRENT", "SBER"], XAG: ["XAU", "BRENT", "TSLA", "BTC"],
     NG: ["BRENT", "GAZP", "WHEAT", "LKOH"], WHEAT: ["NG", "BRENT", "XAU", "SBER"]
   };
-  // Откуда берутся живые цены. Нет источника или ключа: актив остаётся на симуляции.
-  const SRC = {
-    BTC: { bn: "BTCUSDT", cb: "BTC-USD", kr: "XBT", yf: "BTC-USD" }, ETH: { bn: "ETHUSDT", cb: "ETH-USD", kr: "ETH", yf: "ETH-USD" }, SOL: { bn: "SOLUSDT", cb: "SOL-USD", kr: "SOL", yf: "SOL-USD" },
-    SBER: { moex: "SBER" }, GAZP: { moex: "GAZP" }, YDEX: { moex: "YDEX" }, LKOH: { moex: "LKOH" },
-    AAPL: { fh: "AAPL", yf: "AAPL", pm: "AAPL-USD" }, NVDA: { fh: "NVDA", yf: "NVDA", pm: "NVDA-USD" }, TSLA: { fh: "TSLA", yf: "TSLA", pm: "TSLA-USD" },
-    XAU: { td: "XAU/USD", yf: "GC=F", pm: "GOLD-USD" }, XAG: { td: "XAG/USD", yf: "SI=F", pm: "SILVER-USD" },
-    BRENT: { yf: "BZ=F" }, NG: { yf: "NG=F" }, WHEAT: { yf: "ZW=F" }
-  };
   const YF_SCALE = { "ZW=F": 0.01 }; // пшеница на Yahoo в центах за бушель, у нас в долларах
   const SRC_NAME = { bn: "Binance, обновление каждые 2 с", cb: "Coinbase, обновление каждые 2 с", kr: "Kraken, обновление каждые 2 с", pm: "Polymarket Perps (mark-цена контракта), обновление каждые 3 с", moex: "Мосбиржа (ISS), бесплатные данные с задержкой ~15 мин", fh: "Finnhub, обновление каждые 15 с", td: "Twelve Data, обновление раз в минуту", yf: "Yahoo Finance через ваш прокси, обновление каждые 15 с (у некоторых бирж задержка до 15 мин)" };
   const SRC_TTL = { bn: 15000, cb: 15000, kr: 15000, pm: 20000, moex: 45000, fh: 60000, td: 180000, yf: 90000 }; // через сколько цена считается устаревшей
-  const P = { sel: "BTC", cls: "crypto", ctype: "line", range: "LIVE", dir: "long", lev: 1, margin: 1000, tp: "", sl: "" };
+  const P = { sel: "BTC", cls: "crypto", q: "", listN: 40, ctype: "line", range: "LIVE", dir: "long", lev: 1, margin: 1000, tp: "", sl: "" };
   let positions = [], closed = [], plog = [], ticks = 0, chartHover = false, ready = false;
 
   const nf = new Intl.NumberFormat("ru-RU");
@@ -50,15 +78,13 @@ const PERPS = (() => {
   const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
   const num = (v, d) => new Intl.NumberFormat("ru-RU", { minimumFractionDigits: d, maximumFractionDigits: d }).format(v);
   const fee2 = (v) => (v < 10 ? "₽ " + num(v, 2) : RP.rub(v));
-  const price = (a, v) => (a.ccy === "₽" ? num(v, a.dec) + " ₽" : "$" + num(v, a.dec));
+  const price = (a, v) => (a.ccy === "₽" ? num(v, a.dec) + " ₽" : a.ccy === "" ? num(v, a.dec) : "$" + num(v, a.dec));
   const sg = (v, d = 2) => (v > 0 ? "+" : v < 0 ? "−" : "") + num(Math.abs(v), d);
-  const mulberry = (a) => () => { a |= 0; a = (a + 0x6d2b79f5) | 0; let t = Math.imul(a ^ (a >>> 15), 1 | a); t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t; return ((t ^ (t >>> 14)) >>> 0) / 4294967296; };
   const gauss = (r = Math.random) => Math.sqrt(-2 * Math.log(1 - r())) * Math.cos(2 * Math.PI * r());
-  const seedOf = (s) => [...s].reduce((x, c) => (x * 31 + c.charCodeAt(0)) >>> 0, 11);
 
   // ---------- рынок ----------
   function init() {
-    const saved = RP.store.get("prices", {});
+    const saved = RP.store.get("prices2", {});
     ASSETS.forEach((a) => {
       a.price = Number(saved[a.sym]) > 0 ? Number(saved[a.sym]) : a.base;
       const r = mulberry(seedOf(a.sym));
@@ -97,7 +123,7 @@ const PERPS = (() => {
     if (a.isLive && !a.realHist) return null; // у живой цены нет настоящего изменения за 24 часа, выдумывать его не будем
     return (a.price / a.hh[a.hh.length - 25] - 1) * 100;
   };
-  const savePrices = () => RP.store.set("prices", Object.fromEntries(ASSETS.map((a) => [a.sym, a.price])));
+  const savePrices = () => RP.store.set("prices2", Object.fromEntries(ASSETS.map((a) => [a.sym, a.price])));
 
   // ---------- живые цены ----------
   const PRI = { pm: 4, bn: 3, moex: 3, fh: 3, td: 3, yf: 2, cb: 2, kr: 2 }; // при двух источниках побеждает более надёжный
@@ -188,29 +214,39 @@ const PERPS = (() => {
   const errTxt = (e) => (e && e.name === "AbortError" ? "AbortError" : (e && e.message) || String(e));
   // Крипта: Binance, затем его запасной адрес, затем Coinbase, затем Kraken. Берётся первый, кто ответил.
   async function pollCrypto() {
-    const list = ASSETS.filter((a) => SRC[a.sym] && SRC[a.sym].bn);
+    const list = ASSETS.filter((a) => SRC[a.sym] && SRC[a.sym].bn && !a.bnBad);
     const errs = [];
+    const take = (a, d) => {
+      if (!a || !(Number(d.lastPrice) > 0)) return 0;
+      if (Number(d.highPrice) > 0 && Number(d.lowPrice) > 0) a.t24 = { hi: Number(d.highPrice), lo: Number(d.lowPrice), vol: Number(d.quoteVolume), at: Date.now() };
+      setReal(a.sym, Number(d.lastPrice), Number(d.priceChangePercent), "bn");
+      return 1;
+    };
     for (const host of BN_HOSTS) {
       try {
-        const syms = encodeURIComponent(JSON.stringify(list.map((a) => SRC[a.sym].bn)));
-        const data = await getJSON(`${host}/api/v3/ticker/24hr?symbols=${syms}`);
         let n = 0;
-        data.forEach((d) => {
-          const a = list.find((x) => SRC[x.sym].bn === d.symbol);
-          if (!a || !(Number(d.lastPrice) > 0)) return;
-          const first = !a.adopted;
+        for (let i = 0; i < list.length; i += 16) {
+          const chunk = list.slice(i, i + 16);
+          let data;
+          try {
+            data = await getJSON(`${host}/api/v3/ticker/24hr?symbols=${encodeURIComponent(JSON.stringify(chunk.map((a) => SRC[a.sym].bn)))}`);
+          } catch (e) {
+            if (!/HTTP 400/.test(errTxt(e))) throw e;
+            data = []; // в пачке неверный тикер: проверяем по одному и запоминаем неподходящие
+            for (const a of chunk) {
+              try { data.push(await getJSON(`${host}/api/v3/ticker/24hr?symbol=${SRC[a.sym].bn}`)); }
+              catch (e2) { if (/HTTP 400/.test(errTxt(e2))) a.bnBad = true; else throw e2; }
+            }
+          }
+          data.forEach((d) => { n += take(chunk.find((x) => SRC[x.sym].bn === d.symbol), d); });
           bnHost = host;
-          if (Number(d.highPrice) > 0 && Number(d.lowPrice) > 0) a.t24 = { hi: Number(d.highPrice), lo: Number(d.lowPrice), vol: Number(d.quoteVolume), at: Date.now() };
-          setReal(a.sym, Number(d.lastPrice), Number(d.priceChangePercent), "bn");
-          n++;
-          if (first && a.adopted) loadKlines(a);
-        });
+        }
         if (n) return;
         errs.push(`${host.replace("https://", "")}: пустой ответ`);
       } catch (e) { errs.push(`${host.replace("https://", "")}: ${errTxt(e)}`); }
     }
     let ok = 0;
-    await Promise.all(list.map(async (a) => {
+    await Promise.all(list.filter((a) => SRC[a.sym].cb).slice(0, 12).map(async (a) => {
       try {
         const d = await getJSON(`https://api.coinbase.com/v2/prices/${SRC[a.sym].cb}/spot`);
         setReal(a.sym, Number(d.data.amount), NaN, "cb");
@@ -219,9 +255,9 @@ const PERPS = (() => {
     }));
     if (ok) return;
     try {
-      const d = await getJSON("https://api.kraken.com/0/public/Ticker?pair=" + list.map((a) => SRC[a.sym].kr + "USD").join(","));
+      const d = await getJSON("https://api.kraken.com/0/public/Ticker?pair=" + list.filter((a) => SRC[a.sym].kr).map((a) => SRC[a.sym].kr + "USD").join(","));
       Object.entries(d.result || {}).forEach(([key, v]) => {
-        const a = list.find((x) => key.includes(SRC[x.sym].kr));
+        const a = list.find((x) => SRC[x.sym].kr && key.includes(SRC[x.sym].kr));
         const last = Number(v.c && v.c[0]), open = Number(v.o);
         if (a && last > 0) { setReal(a.sym, last, open > 0 ? (last / open - 1) * 100 : NaN, "kr"); ok++; }
       });
@@ -270,12 +306,14 @@ const PERPS = (() => {
     if (!n) throw new Error("Polymarket ответил, но цен по нужным контрактам нет");
   }
   async function pollMoex() {
-    const ids = ASSETS.filter((a) => SRC[a.sym] && SRC[a.sym].moex).map((a) => SRC[a.sym].moex);
+    const bySecid = {};
+    ASSETS.forEach((a) => { if (SRC[a.sym] && SRC[a.sym].moex) bySecid[SRC[a.sym].moex] = a; });
+    const ids = Object.keys(bySecid);
     const d = await getJSON(`https://iss.moex.com/iss/engines/stock/markets/shares/boards/TQBR/securities.json?iss.meta=off&iss.only=marketdata&marketdata.columns=SECID,LAST,LCURRENTPRICE,MARKETPRICE,LCLOSEPRICE,LASTTOPREVPRICE&securities=${ids.join(",")}`);
     const cols = d.marketdata.columns, ix = (n) => cols.indexOf(n);
     let n = 0;
     d.marketdata.data.forEach((r) => {
-      const a = ASSETS.find((x) => SRC[x.sym] && SRC[x.sym].moex === r[ix("SECID")]);
+      const a = bySecid[r[ix("SECID")]];
       // когда торги закрыты, LAST может быть пустым: берём последнюю доступную цену
       const p = [r[ix("LAST")], r[ix("LCURRENTPRICE")], r[ix("MARKETPRICE")], r[ix("LCLOSEPRICE")]].find((v) => v > 0);
       if (a && p) { setReal(a.sym, Number(p), r[ix("LASTTOPREVPRICE")] === null ? NaN : Number(r[ix("LASTTOPREVPRICE")]), "moex"); n++; }
@@ -296,9 +334,24 @@ const PERPS = (() => {
       if (o && Number(o.close) > 0) setReal(a.sym, Number(o.close), Number(o.percent_change), "td");
     });
   }
+  // Yahoo (через ваш воркер) опрашиваем только по нужным сейчас бумагам: до 60 за цикл, пачками по 20.
+  function wantedYahoo() {
+    const out = new Set();
+    const add = (a) => { if (a && SRC[a.sym] && SRC[a.sym].yf) out.add(a); };
+    add(A[P.sel]);
+    positions.forEach((pos) => add(A[pos.sym]));
+    ASSETS.filter((a) => a.cls === "commodity" || a.cls === "index").forEach(add);
+    ["AAPL", "NVDA", "TSLA"].forEach((s) => add(A[s]));
+    listAssets().slice(0, P.listN || 40).forEach(add);
+    return [...out].slice(0, 60);
+  }
   async function pollYahoo(base) {
-    const list = ASSETS.filter((a) => SRC[a.sym] && SRC[a.sym].yf);
-    const d = await getJSON(`${base}${base.includes("?") ? "&" : "?"}symbols=${encodeURIComponent(list.map((a) => SRC[a.sym].yf).join(","))}`);
+    const list = wantedYahoo();
+    const chunks = [];
+    for (let i = 0; i < list.length; i += 20) chunks.push(list.slice(i, i + 20));
+    const parts = await Promise.all(chunks.map((c) => getJSON(`${base}${base.includes("?") ? "&" : "?"}symbols=${encodeURIComponent(c.map((a) => SRC[a.sym].yf).join(","))}`)));
+    const d = Object.assign({}, ...parts);
+    d._errors = Object.assign({}, ...parts.map((x) => x._errors || {}));
     let n = 0;
     list.forEach((a) => {
       const o = d[SRC[a.sym].yf];
@@ -969,6 +1022,7 @@ const PERPS = (() => {
     const host = $("#t-chart");
     if (!host) return;
     const a = A[P.sel];
+    if (a.adopted && !a.histTried && SRC[a.sym] && SRC[a.sym].bn) { a.histTried = true; loadKlines(a); } // настоящие свечи грузим только для открытой монеты
     M = mapChart(a);
     host.innerHTML = chartHTML(a, M);
     host.style.touchAction = T.tool !== "cursor" || M.w.zoomed ? "none" : "pan-y";
@@ -1015,11 +1069,21 @@ const PERPS = (() => {
     NG: [[/газ\b|природн/i, 3], [/нефт|brent/i, 1]],
     WHEAT: [[/пшениц/i, 3]]
   };
-  const MK_CATS = { crypto: ["crypto"], stock: ["tech", "world", "russia"], commodity: ["world"] };
+  const MK_CATS = { crypto: ["crypto"], ru: ["russia", "tech"], world: ["tech", "world"], sp500: ["tech", "world"], index: ["world", "russia"], commodity: ["world"] };
+  const escRe = (t) => t.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  // слова для поиска связанных рынков: подобранные вручную или первое слово названия и тикер
+  function marketKeys(a) {
+    if (MK_KEYS[a.sym]) return MK_KEYS[a.sym];
+    const keys = [], first = a.name.split(/[\s(,.]/)[0];
+    if (first.length >= 4) keys.push([new RegExp(escRe(first), "i"), 3]);
+    if (/^[A-Z0-9]{3,5}$/.test(a.sym)) keys.push([new RegExp("\\b" + escRe(a.sym) + "\\b"), 3]);
+    return keys;
+  }
   function relatedMarkets(a) {
     if (typeof EVENTS === "undefined") return [];
     const open = EVENTS.filter((e) => !e.resolved);
-    const score = (e) => (MK_KEYS[a.sym] || []).reduce((t, [re, w]) => t + (re.test(e.q) ? w : 0), 0);
+    const keys = marketKeys(a);
+    const score = (e) => keys.reduce((t, [re, w]) => t + (re.test(e.q) ? w : 0), 0);
     const hits = open.map((e) => [e, score(e)]).filter(([, sc]) => sc > 0).sort((x, y) => y[1] - x[1] || y[0].vol - x[0].vol).map(([e]) => e);
     const out = hits.slice(0, 8);
     if (out.length < 4) { // не хватает по ключевым словам: добавляем самые крупные рынки близких категорий
@@ -1049,10 +1113,12 @@ const PERPS = (() => {
   }
   function moreHTML(a) {
     const tab = P.moreTab || "perps";
-    // только активы того же класса: у крипты крипта, у акций акции, у сырья сырьё; близкие по теме идут первыми
-    const same = ASSETS.filter((x) => x.cls === a.cls && x.sym !== a.sym);
-    const rel = (REL[a.sym] || []).map((s) => A[s]).filter((x) => x.cls === a.cls);
-    const perps = [...rel, ...same.filter((x) => !rel.includes(x))].slice(0, 8);
+    // только активы того же класса (для бумаг S&P 500 — из S&P 500); близкие по теме и соседи по размеру идут первыми
+    const cl = inClass(a, P.cls) ? P.cls : a.cls;
+    const list = classAssets(cl), at = new Map(list.map((x, i) => [x, i])), me = at.get(a) || 0;
+    const rel = (REL[a.sym] || []).map((s) => A[s]).filter((x) => x && at.has(x));
+    const near = list.filter((x) => x !== a && !rel.includes(x)).sort((x, y) => Math.abs(at.get(x) - me) - Math.abs(at.get(y) - me));
+    const perps = [...rel, ...near].slice(0, 8);
     const mk = relatedMarkets(a);
     return `<div class="mc-tabs" role="tablist"><button type="button" role="tab" data-mtab="perps" class="${tab === "perps" ? "on" : ""}">Другие перпы</button><button type="button" role="tab" data-mtab="markets" class="${tab === "markets" ? "on" : ""}">Связанные рынки${mk.length ? ` · ${mk.length}` : ""}</button></div>
       <div class="mc-row">${tab === "perps" ? perps.map(perpCard).join("") : mk.length ? mk.map(marketCard).join("") : '<p class="muted" style="padding:16px 4px">Для этого актива связанных рынков прогнозов пока нет.</p>'}</div>`;
@@ -1069,6 +1135,7 @@ const PERPS = (() => {
   // ---------- обзор: цена, изменение, объём, максимум и минимум за 24 ч, открытый интерес, фандинг ----------
   // Настоящие значения: максимум, минимум и объём у крипты с живой ценой Binance. Остальное считается из графика или смоделировано (помечено «демо»).
   const DEMO_VOL = { BTC: 2.4e10, ETH: 1.1e10, SOL: 3.2e9, SBER: 4.5e9, GAZP: 3e9, YDEX: 1.6e9, LKOH: 1.8e9, AAPL: 6e9, NVDA: 2e10, TSLA: 1.5e10, BRENT: 1.2e10, XAU: 2.8e10, XAG: 4e9, NG: 1.1e9, WHEAT: 5e8 };
+  const demoVol = (a) => DEMO_VOL[a.sym] || ({ crypto: 6e9, index: 2e10, ru: 6e8, world: 4e9, sp500: 8e8, commodity: 3e9 }[a.cls] || 1e9) / (1 + (a.rank || 0) * 0.12);
   const bigNum = (v, a) => {
     const t = v >= 1e9 ? num(v / 1e9, 2) + " млрд" : v >= 1e6 ? num(v / 1e6, 1) + " млн" : num(v, 0);
     return a.ccy === "₽" ? t + " ₽" : "$" + t;
@@ -1078,9 +1145,9 @@ const PERPS = (() => {
     const day = a.hh.slice(-24);
     const hi = Math.max(real ? real.hi : Math.max(...day), a.price), lo = Math.min(real ? real.lo : Math.min(...day), a.price);
     const dayK = 0.85 + 0.3 * mulberry(seedOf(a.sym) + Math.floor(Date.now() / 86400e3))();
-    const vol = real ? real.vol : (DEMO_VOL[a.sym] || 1e9) * dayK;
+    const vol = real ? real.vol : demoVol(a) * dayK;
     return {
-      hi, lo, vol, oi: (DEMO_VOL[a.sym] || 1e9) * 0.42 * (0.9 + 0.2 * dayK),
+      hi, lo, vol, oi: demoVol(a) * 0.42 * (0.9 + 0.2 * dayK),
       hiReal: !!real || (isRealHistNow(a)), volReal: !!real
     };
   }
@@ -1108,13 +1175,25 @@ const PERPS = (() => {
   const paintOverview = () => { const el = $("#t-ov"); if (el && P.sel) el.innerHTML = overviewHTML(A[P.sel]); };
   const chText = (a) => { const c = change24(a); return c === null ? '<span class="muted">—</span>' : `<span class="${c >= 0 ? "pos" : "neg"}">${sg(c)}%</span>`; };
 
+  // Активы выбранного класса по порядку (крупные первыми). В S&P 500 сначала идут американские бумаги из «Акций мира».
+  function classAssets(cls) {
+    const list = ASSETS.filter((a) => inClass(a, cls));
+    return cls === "sp500" ? [...list.filter((a) => a.cls !== "sp500"), ...list.filter((a) => a.cls === "sp500")] : list;
+  }
+  function listAssets() {
+    const q = P.q.trim().toLowerCase();
+    const all = classAssets(P.cls);
+    return q ? all.filter((a) => a.sym.toLowerCase().includes(q) || a.name.toLowerCase().includes(q)) : all;
+  }
   function listHTML() {
-    return ASSETS.filter((a) => a.cls === P.cls).map((a) => `
+    const all = listAssets(), shown = all.slice(0, P.listN);
+    const more = all.length > shown.length ? `<button type="button" class="arow-more" data-more>Показать ещё ${Math.min(40, all.length - shown.length)} из ${all.length - shown.length}</button>` : "";
+    return (shown.length ? "" : '<p class="muted" style="padding:12px">Ничего не найдено.</p>') + shown.map((a) => `
       <button class="arow ${a.sym === P.sel ? "on" : ""}" data-asset="${a.sym}">
         ${badge(a)}
         <span class="ainfo"><b>${a.sym}-PERP <span data-lv="${a.sym}">${liveBadge(a)}</span></b><small>${esc(a.name)}</small></span>
         <span class="aprice"><b data-pr="${a.sym}">${price(a, a.price)}</b><small data-ch="${a.sym}">${chText(a)}</small></span>
-      </button>`).join("");
+      </button>`).join("") + more;
   }
   function mainHTML() {
     const a = A[P.sel];
@@ -1245,13 +1324,15 @@ const PERPS = (() => {
   function view() {
     // скрытые в настройках классы не показываем
     const clsList = Object.entries(CLS).filter(([id]) => RP.clsOn(id));
-    if (!RP.clsOn(P.cls)) { P.cls = clsList[0][0]; P.sel = ASSETS.find((x) => x.cls === P.cls).sym; }
+    if (!RP.clsOn(P.cls)) { P.cls = clsList[0][0]; P.sel = classAssets(P.cls)[0].sym; }
+    if (!inClass(A[P.sel], P.cls)) P.sel = classAssets(P.cls)[0].sym;
     return `<div class="wrap">
       <h1 class="page-title">Перпы</h1>
-      <p class="page-sub">Бессрочные контракты на крипту, акции и сырьё. Торгуйте без плеча или с плечом, в рост (Long) и в падение (Short). Демо: игровые рубли. Цены живые там, где виден бейдж Live, остальные симулируются.</p>
+      <p class="page-sub">Бессрочные контракты на крипту, индексы, акции России и мира, S&P 500 и сырьё. Торгуйте без плеча или с плечом, в рост (Long) и в падение (Short). Демо: игровые рубли. Цены живые там, где виден бейдж Live, остальные симулируются.</p>
       <div class="trade">
         <aside class="panel assets">
-          <div class="tabs" id="t-tabs" style="padding:0 0 10px">${clsList.map(([id, n]) => `<button class="tab ${id === P.cls ? "active" : ""}" data-tcls="${id}">${n}</button>`).join("")}</div>
+          <div class="tabs" id="t-tabs" style="padding:0 0 10px">${clsList.map(([id, n]) => `<button class="tab ${id === P.cls ? "active" : ""}" data-tcls="${id}">${n}<small>${classAssets(id).length}</small></button>`).join("")}</div>
+          <input class="field alist-q" id="t-q" type="search" placeholder="Поиск: тикер или название" value="${esc(P.q)}" aria-label="Поиск актива" autocomplete="off">
           <div id="t-list" class="alist">${listHTML()}</div>
         </aside>
         <section class="tmain" id="t-main">${mainHTML()}</section>
@@ -1276,14 +1357,16 @@ const PERPS = (() => {
     $("#t-tabs").onclick = (ev) => {
       const b = ev.target.closest("[data-tcls]");
       if (!b) return;
-      P.cls = b.dataset.tcls;
+      P.cls = b.dataset.tcls; P.q = ""; P.listN = 40;
+      if ($("#t-q")) $("#t-q").value = "";
       document.querySelectorAll("#t-tabs .tab").forEach((t) => t.classList.toggle("active", t === b));
-      const first = ASSETS.find((a) => a.cls === P.cls);
-      if (A[P.sel].cls !== P.cls) P.sel = first.sym;
+      if (!inClass(A[P.sel], P.cls)) P.sel = classAssets(P.cls)[0].sym;
       $("#t-list").innerHTML = listHTML();
       rebuildMain();
     };
+    $("#t-q").oninput = (ev) => { P.q = ev.target.value; P.listN = 40; $("#t-list").innerHTML = listHTML(); };
     $("#t-list").onclick = (ev) => {
+      if (ev.target.closest("[data-more]")) { P.listN += 40; $("#t-list").innerHTML = listHTML(); return; }
       const b = ev.target.closest("[data-asset]");
       if (!b) return;
       P.sel = b.dataset.asset;
@@ -1350,7 +1433,7 @@ const PERPS = (() => {
         const b = ev.target.closest("[data-sg]");
         if (!b) return;
         P.sel = b.dataset.sg;
-        P.cls = A[P.sel].cls;
+        if (!inClass(A[P.sel], P.cls)) P.cls = A[P.sel].cls;
         document.querySelectorAll("#t-tabs .tab").forEach((t) => t.classList.toggle("active", t.dataset.tcls === P.cls));
         $("#t-list").innerHTML = listHTML();
         rebuildMain();
@@ -1386,22 +1469,15 @@ const PERPS = (() => {
     }
     if (ticks % 60 === 0) ASSETS.forEach((a) => { a.mm.push(a.price); a.mm.shift(); shiftOhlc(a, "mm"); });
     if (ticks % 86400 === 0) ASSETS.forEach((a) => { a.dd.push(a.price); a.dd.shift(); shiftOhlc(a, "dd"); });
-    if (ticks % 5 === 0) savePrices();
+    if (ticks % 20 === 0) savePrices();
     if (ticks % 3 === 0) paintFeeds();
     checkLiquidations();
     checkTpSl();
     if (RP.route() !== "trade" || !$("#t-main")) return;
-    ASSETS.forEach((a) => {
-      const p = $(`[data-pr="${a.sym}"]`), c = $(`[data-ch="${a.sym}"]`);
-      if (p) p.textContent = price(a, a.price);
-      if (c) c.innerHTML = chText(a);
-    });
-    ASSETS.forEach((x) => {
-      const b = $(`[data-lv="${x.sym}"]`); if (b) b.innerHTML = liveBadge(x);
-      const sp = $(`[data-sp="${x.sym}"]`), sc = $(`[data-sc="${x.sym}"]`);
-      if (sp) sp.textContent = price(x, x.price);
-      if (sc) sc.innerHTML = chText(x);
-    });
+    // обновляем только строки списка, которые сейчас на экране
+    document.querySelectorAll("#t-list [data-pr]").forEach((el) => { const x = A[el.dataset.pr]; if (x) el.textContent = price(x, x.price); });
+    document.querySelectorAll("#t-list [data-ch]").forEach((el) => { const x = A[el.dataset.ch]; if (x) el.innerHTML = chText(x); });
+    document.querySelectorAll("#t-list [data-lv]").forEach((el) => { const x = A[el.dataset.lv]; if (x) el.innerHTML = liveBadge(x); });
     const a = A[P.sel];
     $("#t-lv").innerHTML = liveBadge(a);
     $("#t-src").textContent = srcText(a);
@@ -1430,13 +1506,13 @@ const PERPS = (() => {
     return `<div class="promo-trade">
       <div class="pt-text">
         <h2>Перпы с плечом и без</h2>
-        <p>Бессрочные контракты на крипту, акции и сырьё. Long и Short, плечо до 100x, комиссия 0,05%.</p>
+        <p>Бессрочные контракты на крипту, индексы, акции и сырьё. Более 700 активов, Long и Short, плечо до 100x, комиссия 0,05%.</p>
         <a class="cta primary" href="#trade">Открыть терминал</a>
       </div>
       <div class="pt-tiles">${pick.map((a) => `<a class="pt-tile" href="#trade" data-goasset="${a.sym}">${badge(a)}<b>${a.sym}-PERP</b><span>${price(a, a.price)}</span><small>${chText(a)}</small></a>`).join("")}</div>
     </div>`;
   }
-  function select(sym) { if (A[sym]) { P.sel = sym; P.cls = A[sym].cls; } }
+  function select(sym) { if (A[sym]) { P.sel = sym; if (!inClass(A[sym], P.cls)) P.cls = A[sym].cls; } }
 
   const realized = () => closed.reduce((s, c) => s + c.pnl, 0);
   const closedMargin = () => closed.reduce((s, c) => s + c.margin, 0);
@@ -1453,5 +1529,5 @@ const PERPS = (() => {
     });
   }
 
-  return { init, view, bind, tick, promo, select, realized, closedMargin, count, locked, reset, rows };
+  return { init, view, bind, tick, promo, select, realized, closedMargin, count, locked, reset, rows, classes: CLS };
 })();
