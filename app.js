@@ -933,9 +933,9 @@
 
   // ---------- рефералы (демо) ----------
   // Серверов нет, поэтому приглашённые пользователи и их сделки симулируются: так видно, как работает программа.
-  // Доход реферера — 5% комиссий платформы с торговли прямых рефералов и 2,5% с непрямых (тех, кого пригласили ваши рефералы): на рынках прогнозов (2% при продаже и с выигрыша)
+  // Доход реферера — 15% комиссий платформы с торговли прямых рефералов и 5% с непрямых (тех, кого пригласили ваши рефералы): на рынках прогнозов (2% при продаже и с выигрыша)
   // и в перпах (0,05% при открытии и закрытии позиции). Одни и те же данные при каждом открытии страницы (генератор с зерном).
-  const REF_PCT = { 1: 0.05, 2: 0.025 }, DAY = 86400e3; // доля реферера: 5% с прямых рефералов и 2,5% с непрямых (приглашённых вашими рефералами)
+  const REF_PCT = { 1: 0.15, 2: 0.05 }, DAY = 86400e3; // доля реферера: 15% с прямых рефералов и 5% с непрямых (приглашённых вашими рефералами)
   const REF_NICKS = ["Тихий_Омут", "Рубль_Мастер", "Нефтяной_Лис", "Крипто_Барон", "Сибирский_Волк", "Бык_с_Арбата", "Золотая_Рыбка", "Кедр_Капитал", "Уральский_Шорт", "Лунный_Трейдер", "Дон_Хеджер", "Мартовский_Заяц", "Байкал_Алго", "Северный_Лонг", "Степной_Бот", "Алтайский_Бык"];
   let refs = store.get("refs", { list: [], claimed: { pred: 0, perps: 0 } });
   if (!refs.claimed) refs.claimed = { pred: 0, perps: 0 };
@@ -1003,7 +1003,7 @@
     const head = (m, extra = "") => `<button type="button" class="rf-stat ${refMetric === m ? "on" : ""}" data-rm="${m}"><small>${REF_METRICS[m]}${extra}</small><b>${refVal(m, m === "reg" ? st.regN : m === "act" ? st.actN : st.total)}</b>${sub[m] ? `<em>${sub[m]}</em>` : ""}</button>`;
     const coin = '<span class="rf-coin" aria-hidden="true"></span>';
     const table = st.rows.length
-      ? `<div class="table-wrap" style="margin:0"><table class="acc-tx"><thead><tr><th>Реферал</th><th>Уровень</th><th>Присоединился</th><th>Сделок</th><th>Комиссии платформе</th><th>Ваш доход</th></tr></thead><tbody>${st.rows.slice().sort((x, y) => y.inc - x.inc).map((x) => `<tr><td><span class="dp-inl" style="justify-content:flex-start">${avatar(x.r.nick, traderColor(x.r.nick), "")}${esc(x.r.nick)}</span></td><td>${x.lvl === 1 ? '<span class="tag yes">Прямой · 5%</span>' : `<span class="tag no rf-ind">Непрямой · 2,5%</span><small class="rf-via">через ${esc((refs.list.find((q) => q.id === x.r.parent) || {}).nick || "—")}</small>`}</td><td>${new Date(x.r.t).toLocaleDateString("ru-RU", { day: "numeric", month: "short" })}</td><td>${x.ev.length}</td><td>${rub(x.fee)}</td><td class="pos"><b>+${rub(x.inc)}</b></td></tr>`).join("")}</tbody></table></div>`
+      ? `<div class="table-wrap" style="margin:0"><table class="acc-tx"><thead><tr><th>Реферал</th><th>Уровень</th><th>Присоединился</th><th>Сделок</th><th>Комиссии платформе</th><th>Ваш доход</th></tr></thead><tbody>${st.rows.slice().sort((x, y) => y.inc - x.inc).map((x) => `<tr><td><span class="dp-inl" style="justify-content:flex-start">${avatar(x.r.nick, traderColor(x.r.nick), "")}${esc(x.r.nick)}</span></td><td>${x.lvl === 1 ? '<span class="tag yes">Прямой · 15%</span>' : `<span class="tag no rf-ind">Непрямой · 5%</span><small class="rf-via">через ${esc((refs.list.find((q) => q.id === x.r.parent) || {}).nick || "—")}</small>`}</td><td>${new Date(x.r.t).toLocaleDateString("ru-RU", { day: "numeric", month: "short" })}</td><td>${x.ev.length}</td><td>${rub(x.fee)}</td><td class="pos"><b>+${rub(x.inc)}</b></td></tr>`).join("")}</tbody></table></div>`
       : `<p class="empty" style="padding:22px">Рефералов пока нет. Поделитесь ссылкой, а в демо добавьте тестового реферала кнопкой ниже.</p>`;
     return `<div class="rf-card">
         <div class="rf-stats">${head("reg")}${head("act")}${head("inc", coin)}</div>
@@ -1012,7 +1012,7 @@
       <div class="rf-pay"><div><small>Доступно к выводу</small><b>${rub(st.avail)}</b></div><button type="button" class="pbtn" data-refclaim ${st.avail >= 1 ? "" : "disabled"}>Забрать на баланс</button></div>
       <div class="panel" style="margin:16px 0"><h3>Ваши рефералы · ${T.tab}</h3>${table}
         <div class="row-actions" style="margin-top:14px"><button type="button" class="sbtn" data-refadd>Добавить прямого реферала (демо)</button><button type="button" class="sbtn" data-refadd2 ${refs.list.some((r) => (r.lvl || 1) === 1) ? "" : "disabled"} title="Реферал вашего реферала">Добавить непрямого (демо)</button>${refs.list.length ? '<button type="button" class="sbtn danger" data-refclear>Удалить тестовых</button>' : ""}</div>
-        <p class="fee-note">Демо: рефералы и их сделки симулируются, реальных приглашений нет. Доход считается как 5% от комиссий платформы с торговли прямых рефералов и 2,5% с торговли непрямых (${T.rule}) и начисляется игровыми рублями.</p></div>`;
+        <p class="fee-note">Демо: рефералы и их сделки симулируются, реальных приглашений нет. Доход считается как 15% от комиссий платформы с торговли прямых рефералов и 5% с торговли непрямых (${T.rule}) и начисляется игровыми рублями.</p></div>`;
   }
   function viewReferrals() {
     const T = REF_TXT[refTab], bolt = '<svg class="rf-bolt" viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><path d="M13 2L5 14h6l-1 8 8-12h-6z" fill="#f5b301"/></svg>';
@@ -1020,7 +1020,7 @@
       <div class="mc-tabs rf-tabs" role="tablist">${Object.entries(REF_TXT).map(([k, v]) => `<button type="button" role="tab" data-rtab="${k}" class="${refTab === k ? "on" : ""}">${v.tab}</button>`).join("")}</div>
       <div class="rf-title">
         <div><h1>Рефералы ${bolt} <span class="rf-bonus">БОНУС</span></h1>
-          <p class="rf-sub">Получайте <b>5% комиссий</b> от прямых рефералов и <b>2,5% комиссий</b> от непрямых ${T.line}. <a href="#referrals" data-refinfo>Подробнее</a></p></div>
+          <p class="rf-sub">Получайте <b>15% комиссий</b> от прямых рефералов и <b>5% комиссий</b> от непрямых ${T.line}. <a href="#referrals" data-refinfo>Подробнее</a></p></div>
         <div class="rf-link"><span id="rf-url">${esc(refLink())}</span><button type="button" data-refcopy title="Скопировать ссылку" aria-label="Скопировать ссылку"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="9" width="11" height="11" rx="2.5"/><path d="M5 15V6a2 2 0 0 1 2-2h9"/></svg></button></div>
       </div>
       <div class="rf-user">${avatar(profile.nick, profile.color, "lg")}<b>${esc(profile.nick)}</b></div>
@@ -1038,8 +1038,8 @@
     openSheet(`<h2>Как работают рефералы</h2>
       <ol class="rules-list">
         <li>Скопируйте свою реферальную ссылку и отправьте друзьям. Каждый, кто зарегистрируется по ней, становится вашим прямым рефералом.</li>
-        <li>Вы получаете <b>5% комиссий платформы</b> с торговли прямых рефералов. Рынки прогнозов и перпы считаются отдельно, у каждой программы своя вкладка.</li>
-        <li><b>Непрямой реферал</b> — тот, кто пришёл по ссылке вашего реферала. С его торговли вы получаете <b>2,5% комиссий платформы</b>, а его пригласивший получает свои 5%. Эти 2,5% платит платформа, они не уменьшают чужой доход.</li>
+        <li>Вы получаете <b>15% комиссий платформы</b> с торговли прямых рефералов. Рынки прогнозов и перпы считаются отдельно, у каждой программы своя вкладка.</li>
+        <li><b>Непрямой реферал</b> — тот, кто пришёл по ссылке вашего реферала. С его торговли вы получаете <b>5% комиссий платформы</b>, а его пригласивший получает свои 15%. Эти 5% платит платформа, они не уменьшают чужой доход.</li>
         <li>На рынках прогнозов комиссия платформы: 2% при продаже позиции и 2% с выигрыша. В перпах: 0,05% при открытии и 0,05% при закрытии позиции.</li>
         <li>Начисления видны в графике за 7 дней. Накопленный доход можно забрать на игровой баланс одной кнопкой.</li>
       </ol>
