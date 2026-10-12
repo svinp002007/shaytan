@@ -931,6 +931,146 @@
     </div>`;
   }
 
+  // ---------- рефералы (демо) ----------
+  // Серверов нет, поэтому приглашённые пользователи и их сделки симулируются: так видно, как работает программа.
+  // Доход реферера — 10% комиссий платформы с торговли прямых рефералов: на рынках прогнозов (2% при продаже и с выигрыша)
+  // и в перпах (0,05% при открытии и закрытии позиции). Одни и те же данные при каждом открытии страницы (генератор с зерном).
+  const REF_PCT = 0.1, DAY = 86400e3;
+  const REF_NICKS = ["Тихий_Омут", "Рубль_Мастер", "Нефтяной_Лис", "Крипто_Барон", "Сибирский_Волк", "Бык_с_Арбата", "Золотая_Рыбка", "Кедр_Капитал", "Уральский_Шорт", "Лунный_Трейдер", "Дон_Хеджер", "Мартовский_Заяц", "Байкал_Алго", "Северный_Лонг", "Степной_Бот", "Алтайский_Бык"];
+  let refs = store.get("refs", { list: [], claimed: { pred: 0, perps: 0 } });
+  if (!refs.claimed) refs.claimed = { pred: 0, perps: 0 };
+  const saveRefs = () => store.set("refs", refs);
+  let refTab = "pred", refMetric = "inc";
+  const refLink = () => "ruspredict.ru/?r=" + profile.nick; // для показа; в буфер уходит версия с кодированием
+  const refUrl = () => "https://ruspredict.ru/?r=" + encodeURIComponent(profile.nick);
+  const dayStart = (t) => { const d = new Date(t); d.setHours(0, 0, 0, 0); return d.getTime(); };
+  // сделки одного реферала в одной категории: [{ t, fee, inc }]
+  function refEvents(r, cat) {
+    if (!r.cats[cat]) return [];
+    const rnd = mulberry(r.seed + (cat === "pred" ? 11 : 29)), out = [], now = Date.now();
+    for (let t = r.t; t < now; t += 3600e3) {
+      const h = new Date(t).getHours();
+      if (rnd() < r.rate[cat] * (h >= 9 ? 1 : 0.3)) {
+        const fee = cat === "pred" ? (1000 + rnd() * 39000) * 0.02 : (20000 + rnd() * 580000) * 0.0005 * 2;
+        out.push({ t: t + Math.floor(rnd() * 3600e3), fee, inc: fee * REF_PCT });
+      }
+    }
+    return out;
+  }
+  function refStats(cat) {
+    const now = Date.now(), first = dayStart(now - 6 * DAY);
+    const list = refs.list.filter((r) => r.cats[cat]);
+    const days = Array.from({ length: 7 }, (_, i) => first + i * DAY);
+    const rows = list.map((r) => { const ev = refEvents(r, cat); return { r, ev, fee: ev.reduce((s, e) => s + e.fee, 0), inc: ev.reduce((s, e) => s + e.inc, 0) }; });
+    const reg = days.map((d) => list.filter((r) => r.t < d + DAY).length);
+    const act = days.map((d) => rows.filter((x) => x.ev.some((e) => e.t >= d && e.t < d + DAY)).length);
+    const inc = days.map((d) => rows.reduce((s, x) => s + x.ev.filter((e) => e.t >= d && e.t < d + DAY).reduce((q, e) => q + e.inc, 0), 0));
+    const total = rows.reduce((s, x) => s + x.inc, 0);
+    return { days, rows, reg, act, inc, regN: list.length, actN: rows.filter((x) => x.ev.some((e) => e.t >= now - 7 * DAY)).length, total, avail: Math.max(0, Math.floor(total) - refs.claimed[cat]) };
+  }
+  const REF_TXT = {
+    pred: { tab: "Прогнозы", line: "за торговлю на рынках прогнозов", rule: "2% при продаже позиции и 2% с выигрыша" },
+    perps: { tab: "Перпы", line: "за торговлю в перпах", rule: "0,05% при открытии и 0,05% при закрытии позиции" }
+  };
+  const REF_METRICS = { reg: "Регистрации", act: "Активные трейдеры", inc: "Доход" };
+  const refVal = (m, v) => (m === "inc" ? rub(v) : String(Math.round(v)));
+  function refChart(st) {
+    const vals = st[refMetric], n = vals.length;
+    const W = 900, H = 280, L = 18, R = 54, T = 22, B = 36, top = Math.max(...vals) || 1;
+    const g = { W, H, L, R, T, B, n, x: (i) => L + (i * (W - L - R)) / (n - 1), y: (v) => T + (1 - v / (top * 1.15)) * (H - T - B) };
+    const base = H - B, line = vals.map((v, i) => (i ? "L" : "M") + g.x(i).toFixed(1) + " " + g.y(v).toFixed(1)).join("");
+    const ticks = [0, 0.5, 1].map((k) => ({ v: top * 1.15 * k, y: g.y(top * 1.15 * k) }));
+    const fmt = (t) => new Date(t).toLocaleDateString("ru-RU", { day: "numeric", month: "short" });
+    const svg = `<svg viewBox="0 0 ${W} ${H}" class="chart-svg up rf-svg" role="img" aria-label="${REF_METRICS[refMetric]} за 7 дней">
+      ${ticks.map((t) => `<line class="gl" x1="${L}" x2="${W - R + 8}" y1="${t.y.toFixed(1)}" y2="${t.y.toFixed(1)}"/><text class="tx" x="${W - R + 14}" y="${(t.y + 4).toFixed(1)}">${t.v === 0 ? "0" : refMetric === "inc" ? Math.round(t.v) : Math.round(t.v * 10) / 10}</text>`).join("")}
+      ${st.days.map((d, i) => `<text class="tx" x="${g.x(i).toFixed(1)}" y="${H - 10}" text-anchor="${i === 0 ? "start" : i === n - 1 ? "end" : "middle"}">${fmt(d)}</text>`).join("")}
+      <path class="ca" d="${line}L${g.x(n - 1).toFixed(1)} ${base}L${g.x(0)} ${base}Z"/><path class="cl rf-line" d="${line}"/>
+      <line class="cross" y1="${T}" y2="${base}" hidden/><circle class="dot" r="4.5" hidden/>
+    </svg>`;
+    return { svg, g, vals, fmt, days: st.days };
+  }
+  function paintRefChart(st) {
+    const host = $("#rf-chart");
+    if (!host) return;
+    const c = refChart(st);
+    host.innerHTML = c.svg;
+    attachHover($("svg", host), c.g, c.vals, { val: (v) => refVal(refMetric, v), time: (i) => c.fmt(c.days[i]) });
+  }
+  function refBodyHTML() {
+    const st = refStats(refTab), T = REF_TXT[refTab];
+    const head = (m, extra = "") => `<button type="button" class="rf-stat ${refMetric === m ? "on" : ""}" data-rm="${m}"><small>${REF_METRICS[m]}${extra}</small><b>${refVal(m, m === "reg" ? st.regN : m === "act" ? st.actN : st.total)}</b></button>`;
+    const coin = '<span class="rf-coin" aria-hidden="true"></span>';
+    const table = st.rows.length
+      ? `<div class="table-wrap" style="margin:0"><table class="acc-tx"><thead><tr><th>Реферал</th><th>Присоединился</th><th>Сделок</th><th>Комиссии платформе</th><th>Ваш доход (10%)</th></tr></thead><tbody>${st.rows.slice().sort((x, y) => y.inc - x.inc).map((x) => `<tr><td><span class="dp-inl" style="justify-content:flex-start">${avatar(x.r.nick, traderColor(x.r.nick), "")}${esc(x.r.nick)}</span></td><td>${new Date(x.r.t).toLocaleDateString("ru-RU", { day: "numeric", month: "short" })}</td><td>${x.ev.length}</td><td>${rub(x.fee)}</td><td class="pos"><b>+${rub(x.inc)}</b></td></tr>`).join("")}</tbody></table></div>`
+      : `<p class="empty" style="padding:22px">Рефералов пока нет. Поделитесь ссылкой, а в демо добавьте тестового реферала кнопкой ниже.</p>`;
+    return `<div class="rf-card">
+        <div class="rf-stats">${head("reg")}${head("act")}${head("inc", coin)}</div>
+        <div class="rf-chart"><div class="rf-wm">${document.querySelector(".logo-svg") ? document.querySelector(".logo-svg").outerHTML : ""}<span>RusPredict</span></div><div id="rf-chart"></div><small class="rf-upd">Данные обновляются каждые 30 минут</small></div>
+      </div>
+      <div class="rf-pay"><div><small>Доступно к выводу</small><b>${rub(st.avail)}</b></div><button type="button" class="pbtn" data-refclaim ${st.avail >= 1 ? "" : "disabled"}>Забрать на баланс</button></div>
+      <div class="panel" style="margin:16px 0"><h3>Ваши рефералы · ${T.tab}</h3>${table}
+        <div class="row-actions" style="margin-top:14px"><button type="button" class="sbtn" data-refadd>Добавить тестового реферала (демо)</button>${refs.list.length ? '<button type="button" class="sbtn danger" data-refclear>Удалить тестовых</button>' : ""}</div>
+        <p class="fee-note">Демо: рефералы и их сделки симулируются, реальных приглашений нет. Доход считается как ${REF_PCT * 100}% от комиссий платформы (${T.rule}) и начисляется игровыми рублями.</p></div>`;
+  }
+  function viewReferrals() {
+    const T = REF_TXT[refTab], bolt = '<svg class="rf-bolt" viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><path d="M13 2L5 14h6l-1 8 8-12h-6z" fill="#f5b301"/></svg>';
+    return `<div class="wrap ref">
+      <div class="mc-tabs rf-tabs" role="tablist">${Object.entries(REF_TXT).map(([k, v]) => `<button type="button" role="tab" data-rtab="${k}" class="${refTab === k ? "on" : ""}">${v.tab}</button>`).join("")}</div>
+      <div class="rf-title">
+        <div><h1>Рефералы ${bolt} <span class="rf-bonus">БОНУС</span></h1>
+          <p class="rf-sub">Получайте <b>10% комиссий</b> от прямых рефералов ${T.line}. <a href="#referrals" data-refinfo>Подробнее</a></p></div>
+        <div class="rf-link"><span id="rf-url">${esc(refLink())}</span><button type="button" data-refcopy title="Скопировать ссылку" aria-label="Скопировать ссылку"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="9" width="11" height="11" rx="2.5"/><path d="M5 15V6a2 2 0 0 1 2-2h9"/></svg></button></div>
+      </div>
+      <div class="rf-user">${avatar(profile.nick, profile.color, "lg")}<b>${esc(profile.nick)}</b></div>
+      <div id="rf-body">${refBodyHTML()}</div>
+    </div>`;
+  }
+  function paintRefs() {
+    const el = $("#rf-body");
+    if (!el) return;
+    el.innerHTML = refBodyHTML();
+    paintRefChart(refStats(refTab));
+  }
+  function openRefInfo() {
+    modalEvent = null;
+    openSheet(`<h2>Как работают рефералы</h2>
+      <ol class="rules-list">
+        <li>Скопируйте свою реферальную ссылку и отправьте друзьям. Каждый, кто зарегистрируется по ней, становится вашим прямым рефералом.</li>
+        <li>Вы получаете <b>10% комиссий платформы</b> с торговли прямых рефералов. Рынки прогнозов и перпы считаются отдельно, у каждой программы своя вкладка.</li>
+        <li>На рынках прогнозов комиссия платформы: 2% при продаже позиции и 2% с выигрыша. В перпах: 0,05% при открытии и 0,05% при закрытии позиции.</li>
+        <li>Начисления видны в графике за 7 дней. Накопленный доход можно забрать на игровой баланс одной кнопкой.</li>
+      </ol>
+      <p class="fee-note">Это демонстрационный прототип: у сайта нет сервера, поэтому приглашённые пользователи и их сделки симулируются. В демо кнопка «Добавить тестового реферала» создаёт такого пользователя, чтобы показать начисления.</p>`);
+  }
+  function bindReferrals() {
+    const root = $("#view");
+    paintRefChart(refStats(refTab));
+    root.onclick = (ev) => {
+      const t = ev.target;
+      const tab = t.closest("[data-rtab]");
+      if (tab) { refTab = tab.dataset.rtab; $("#view").innerHTML = viewReferrals(); return paintRefChart(refStats(refTab)); }
+      const m = t.closest("[data-rm]");
+      if (m) { refMetric = m.dataset.rm; return paintRefs(); }
+      if (t.closest("[data-refcopy]")) return copyText(refUrl()).then((ok) => toast(ok ? "Ссылка скопирована" : "Не удалось скопировать, выделите ссылку вручную"));
+      if (t.closest("[data-refinfo]")) { ev.preventDefault(); return openRefInfo(); }
+      if (t.closest("[data-refadd]")) {
+        const used = new Set(refs.list.map((r) => r.nick)), nick = REF_NICKS.find((n) => !used.has(n)) || REF_NICKS[refs.list.length % REF_NICKS.length] + "_" + (refs.list.length + 1);
+        const rnd = mulberry(Date.now() % 1e9), pred = rnd() < 0.75, perps = !pred || rnd() < 0.6;
+        refs.list.push({ id: Date.now().toString(36), nick, t: Date.now() - (1 + Math.floor(rnd() * 5)) * DAY - Math.floor(rnd() * DAY), seed: Math.floor(rnd() * 1e9), cats: { pred, perps }, rate: { pred: 0.1 + rnd() * 0.15, perps: 0.08 + rnd() * 0.12 } });
+        saveRefs(); toast(`Реферал «${nick}» добавлен (демо)`);
+        return paintRefs();
+      }
+      if (t.closest("[data-refclear]")) { refs.list = []; refs.claimed = { pred: 0, perps: 0 }; saveRefs(); return paintRefs(); }
+      if (t.closest("[data-refclaim]")) {
+        const st = refStats(refTab), v = Math.floor(st.avail);
+        if (v < 1) return;
+        refs.claimed[refTab] += v; saveRefs(); setBalance(balance + v);
+        toast(`Реферальный доход ${rub(v)} зачислен на баланс`);
+        return paintRefs();
+      }
+    };
+  }
+
   // ---------- правила ----------
   function viewRules() {
     return `<div class="wrap">
@@ -1040,19 +1180,22 @@
   }
 
   // ---------- роутер ----------
-  const routes = { rules: viewRules, home: viewHome, markets: viewMarkets, trade: () => PERPS.view(), leaderboard: viewLeaderboard, community: viewCommunity, account: viewAccount };
+  const routes = { referrals: viewReferrals, rules: viewRules, home: viewHome, markets: viewMarkets, trade: () => PERPS.view(), leaderboard: viewLeaderboard, community: viewCommunity, account: viewAccount };
   function render() {
     const r = (location.hash || "#home").slice(1);
     state.route = routes[r] ? r : "home";
+    $("#view").onclick = null;
     $("#view").innerHTML = routes[state.route]();
     document.querySelectorAll("#nav a").forEach((a) => a.classList.toggle("on", a.dataset.r === state.route));
     if (state.route === "markets") paintGrid();
     if (state.route === "account") { bindAccount(); paintAccountStats(); paintDeposits(); paintAccountTx(); }
     if (state.route === "community") bindCommunity();
     if (state.route === "trade") PERPS.bind();
+    if (state.route === "referrals") bindReferrals();
     window.scrollTo(0, 0);
   }
   window.addEventListener("hashchange", render);
+  setInterval(() => { if (state.route === "referrals" && !document.hidden) paintRefs(); }, 60000);
 
   // ---------- аккаунт ----------
   function bindAccount() {
