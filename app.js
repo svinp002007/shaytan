@@ -159,6 +159,12 @@
   // ---------- история сделок по рынку ----------
   const EXTRA_NICKS = ["user_4821", "Алекс_М", "Катя_Прогноз", "vlad_trader", "Миша_Б", "Anna_K", "Сергей_74", "Тимур_Р", "nkr_91", "Лена_Инвест"];
   const NICKS = [...TRADERS.map((t) => t.nick), ...EXTRA_NICKS];
+  // Ники из чата и сделок, которых нет в топ-20: профиль тоже есть, показатели берутся из ника.
+  const ALL_TRADERS = [...TRADERS, ...EXTRA_NICKS.map((nick) => {
+    const r = mulberry(hash(nick) ^ 0x9e37), trades = 40 + Math.floor(r() * 220), profit = Math.round((r() * 230000 - 55000) / 100) * 100;
+    return { nick, profit, pnl: Math.round((profit / (trades * 2500)) * 1000) / 10, trades, win: 43 + Math.floor(r() * 18), extra: true };
+  })];
+  const traderHref = (nick, own) => (own ? "#account" : "#trader/" + encodeURIComponent(nick));
   let myTx = store.get("mytx", []);
   { const reset = [75, 76, 77, 83, 84, 85, 86]; if (!store.get("mig_tx1", false)) { myTx = myTx.filter((t) => !reset.includes(t.eid)); store.set("mytx", myTx); store.set("mig_tx1", true); } }
   let txSeq = 0;
@@ -222,7 +228,7 @@
       const w = when(x.t);
       return `<tr class="${x.own ? "me" : ""}">
         <td><span class="tx-when">${w.abs}</span><small>${w.rel}</small></td>
-        <td><span class="who">${avatar(x.nick, x.own ? profile.color : traderColor(x.nick))}<span class="tx-nick">${esc(x.nick)}${x.own ? " (вы)" : ""}</span></span></td>
+        <td><a class="who" href="${traderHref(x.nick, x.own)}" data-trader>${avatar(x.nick, x.own ? profile.color : traderColor(x.nick))}<span class="tx-nick">${esc(x.nick)}${x.own ? " (вы)" : ""}</span></a></td>
         <td><span class="tag ${x.side}">${TX_LABEL[x.kind] || "Покупка"} · ${x.side === "yes" ? "Да" : "Нет"}</span></td>
         <td>${rub(x.amt)}</td>
         <td>${pct1(x.price)}% · ${coefTxt(x.price)}</td>
@@ -500,7 +506,7 @@
   function chatPaint(root, first) {
     const room = $(".chat", root).dataset.room, list = $(".chat-list", root);
     const stick = first || list.scrollHeight - list.scrollTop - list.clientHeight < 40;
-    list.innerHTML = chatMsgs(room).slice(-60).map((m) => `<div class="cm ${m.own ? "own" : ""}">${avatar(m.nick, m.own ? profile.color : traderColor(m.nick))}<div><b>${esc(m.nick)}${m.own ? " (вы)" : ""}</b><small>${chatTime(m.t)}</small><p>${esc(m.text)}</p></div></div>`).join("");
+    list.innerHTML = chatMsgs(room).slice(-60).map((m) => `<div class="cm ${m.own ? "own" : ""}"><a class="cm-av" href="${traderHref(m.nick, m.own)}" data-trader title="Профиль трейдера">${avatar(m.nick, m.own ? profile.color : traderColor(m.nick))}</a><div><a class="cm-nick" href="${traderHref(m.nick, m.own)}" data-trader title="Профиль трейдера"><b>${esc(m.nick)}${m.own ? " (вы)" : ""}</b></a><small>${chatTime(m.t)}</small><p>${esc(m.text)}</p></div></div>`).join("");
     if (stick) list.scrollTop = list.scrollHeight;
   }
   function chatBind(root, room) {
@@ -972,7 +978,7 @@
   }, 3000);
 
   // ---------- профили других трейдеров (демо) ----------
-  let trNick = "";
+  let trNick = "", trPrev = "home";
   const trv = { nick: "", cat: "pred", range: "ВСЕ", sub: "pos", q: "", sort: "new", lim: 25 };
   const trCache = {};
   // Сделки вымышленных трейдеров генерируются из их ника: итоговая прибыль сходится с таблицей лидеров.
@@ -1028,13 +1034,14 @@
     });
   }
   function viewTrader() {
-    const rows = [...TRADERS].sort((a, b) => b.profit - a.profit), i = rows.findIndex((t) => t.nick === trNick), t = rows[i];
+    const rows = [...TRADERS].sort((a, b) => b.profit - a.profit), i = rows.findIndex((t) => t.nick === trNick), t = ALL_TRADERS.find((x) => x.nick === trNick);
+    const [bh, bl] = ({ community: ["#community", "← К сообществу"], trade: ["#trade", "← К перпам"], home: ["#home", "← На главную"], markets: ["#markets", "← К рынкам"] })[trPrev] || ["#leaderboard", "← К рейтингу"];
     if (!t) return `<div class="wrap"><div class="fs-top"><a class="fs-back" href="#leaderboard">← К рейтингу</a></div><h1 class="page-title">Трейдер не найден</h1></div>`;
     if (trv.nick !== t.nick) Object.assign(trv, { nick: t.nick, cat: "pred", range: "ВСЕ", sub: "pos", q: "", sort: "new", lim: 25 });
     const col = t.color || traderColor(t.nick);
     return `<div class="wrap trd">
-      <div class="fs-top"><a class="fs-back" href="#leaderboard">← К рейтингу</a></div>
-      <div class="trd-head">${avatar(t.nick, col, "lg")}<div><h1>${esc(t.nick)}</h1><span class="trd-rank">Место №${i + 1} в рейтинге · демо-трейдер</span></div></div>
+      <div class="fs-top"><a class="fs-back" href="${bh}">${bl}</a></div>
+      <div class="trd-head">${avatar(t.nick, col, "lg")}<div><h1>${esc(t.nick)}</h1><span class="trd-rank">${i >= 0 ? `Место №${i + 1} в рейтинге` : "Вне топ-20 рейтинга"} · демо-трейдер</span></div></div>
       <div class="kpis trd-kpis">
         <div class="kpi"><b class="${t.profit >= 0 ? "pos" : "neg"}">${signed(t.profit)} ₽</b><span>общая прибыль</span></div>
         <div class="kpi"><b class="${t.pnl >= 0 ? "pos" : "neg"}">${t.pnl > 0 ? "+" : t.pnl < 0 ? "−" : ""}${Math.abs(t.pnl).toFixed(1).replace(".", ",")}%</b><span>доходность (PNL)</span></div>
@@ -1048,7 +1055,7 @@
   function paintTrader() {
     const host = $("#tr-body");
     if (!host) return;
-    const t = TRADERS.find((x) => x.nick === trv.nick);
+    const t = ALL_TRADERS.find((x) => x.nick === trv.nick);
     if (!t) return;
     const spec = trSpec(t), perps = trv.cat === "perps";
     const hist = spec.hist.filter((x) => x.cat === trv.cat), open = trOpenLive(spec, trv.cat);
@@ -1090,7 +1097,7 @@
   function paintTrList(open, hist) {
     const host = $("#tr-list");
     if (!host) return;
-    if (!open) { const t = TRADERS.find((x) => x.nick === trv.nick), sp = trSpec(t); open = trOpenLive(sp, trv.cat); hist = sp.hist.filter((x) => x.cat === trv.cat); }
+    if (!open) { const t = ALL_TRADERS.find((x) => x.nick === trv.nick), sp = trSpec(t); open = trOpenLive(sp, trv.cat); hist = sp.hist.filter((x) => x.cat === trv.cat); }
     const perps = trv.cat === "perps", q = trv.q.trim().toLowerCase();
     const title = (x) => (perps ? (x.sym + " " + (PERPS.sim.info(x.sym) || {}).name) : byId(x.eid).q).toLowerCase();
     const sorters = { new: (a, b) => b.ts - a.ts, pnl: (a, b) => b.pnl - a.pnl, loss: (a, b) => a.pnl - b.pnl, amt: (a, b) => b.amt - a.amt };
@@ -1733,10 +1740,12 @@
   const routes = { bonus: viewBonus, referrals: () => { bonusTab = "ref"; return viewBonus(); }, rewards: () => { bonusTab = "liq"; return viewBonus(); }, rules: viewRules, home: viewHome, markets: viewMarkets, trade: () => PERPS.view(), leaderboard: viewLeaderboard, trader: () => viewTrader(), community: viewCommunity, account: viewAccount };
   function render() {
     const raw = (location.hash || "#home").slice(1);
+    const prevRoute = state.route;
     const isTr = raw.startsWith("trader/");
     if (isTr) { try { trNick = decodeURIComponent(raw.slice(7)); } catch { trNick = raw.slice(7); } }
     const r = isTr ? "trader" : raw;
     state.route = routes[r] ? r : "home";
+    if (state.route === "trader" && prevRoute !== "trader") trPrev = prevRoute;
     $("#view").onclick = null; $("#view").oninput = null;
     $("#view").innerHTML = routes[state.route]();
     document.querySelectorAll("#nav a").forEach((a) => a.classList.toggle("on", a.dataset.r === (isBonusRoute() ? "bonus" : state.route === "trader" ? "leaderboard" : state.route)));
@@ -2299,6 +2308,7 @@
     const txf = t.closest("[data-txf]");
     if (txf) { accFilter = txf.dataset.txf; accLimit = 15; return paintAccountTx(); }
     if (t.closest("[data-txmore]")) { accLimit += 15; return paintAccountTx(); }
+    if (t.closest("a[data-trader]") && !$("#modal").hidden) closeModal();
     const lbr = t.closest("tr[data-go]");
     if (lbr && !t.closest("a")) { location.hash = lbr.dataset.go; return; }
     const go = t.closest("[data-goasset]");

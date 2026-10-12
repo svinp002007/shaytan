@@ -1088,3 +1088,7 @@ a.fs-back{display:inline-block;text-decoration:none}
 .trd{padding-top:18px}
 .trd .acp-big{font-size:32px;white-space:nowrap}
 @media(max-width:560px){.trd .acp-big{font-size:27px}}
+a.cm-av,a.cm-nick{color:inherit;text-decoration:none}
+a.cm-nick:hover b,a.who:hover .tx-nick{color:var(--brand)}
+a.cm-av{flex:none;border-radius:50%}
+a.cm-av:hover .avatar{box-shadow:0 0 0 2px var(--brand)}
