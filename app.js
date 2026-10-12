@@ -789,29 +789,187 @@
     paintAccountTx();
   };
 
-  // ---------- наличные и деньги в игре ----------
+  // ---------- портфель на странице аккаунта ----------
+  const acp = { cat: "pred", range: "1Д", sub: "pos", q: "", sort: "value", arch: false, ...store.get("acp", {}) };
+  const saveAcp = () => store.set("acp", { cat: acp.cat, hide: acp.hide, arch: acp.arch });
+  const ACP_RANGES = ["1Д", "1Н", "1М", "1Г", "YTD", "ВСЕ"];
+  const ACP_NAME = { "1Д": "за последний день", "1Н": "за последнюю неделю", "1М": "за последний месяц", "1Г": "за последний год", YTD: "с начала года", "ВСЕ": "за всё время" };
+  const ICO = {
+    eye: '<svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/></svg>',
+    eyeoff: '<svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 3l18 18"/><path d="M10.6 5.1A10 10 0 0 1 12 5c6.4 0 10 7 10 7a17 17 0 0 1-3.2 4M6.7 6.7A17 17 0 0 0 2 12s3.6 7 10 7a9.8 9.8 0 0 0 4.3-1"/><path d="M9.9 9.9a3 3 0 0 0 4.2 4.2"/></svg>',
+    down: '<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 4v11M7 11l5 5 5-5M5 20h14"/></svg>',
+    up: '<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 16V5M7 9l5-5 5 5M5 20h14"/></svg>',
+    search: '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg>',
+    share: '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 15V4M8 8l4-4 4 4M5 13v6h14v-6"/></svg>'
+  };
+  // Все данные по одному виду портфеля: открытые позиции, история, оценка и результат по периодам.
+  function acpData(cat) {
+    if (cat === "pred") {
+      const open = bets.map((b) => {
+        const e = byId(b.eid), v = valueOf(b), cur = b.side === "yes" ? prob(e) : 100 - prob(e);
+        return { key: b.id, ts: b.ts, title: e.q, eid: e.id, tag: `<span class="tag ${b.side}">${b.side === "yes" ? "Да" : "Нет"}</span>`, avg: pct1(b.price) + "%", cur: pct1(cur) + "%", vol: b.amt, win: b.shares, value: v.net, pnl: v.pnl, sell: b.id };
+      });
+      const hist = closed.map((c, i) => { const e = byId(c.eid), pnl = c.net - c.amt; return { key: "c" + i, ts: c.ts || 0, title: e ? e.q : "Рынок №" + c.eid, eid: c.eid, tag: `<span class="tag ${c.side}">${c.side === "yes" ? "Да" : "Нет"}</span>`, vol: c.amt, value: c.net, pnl, status: c.kind === "win" ? "Выигрыш" : c.kind === "loss" ? "Проигрыш" : "Продано" }; });
+      return { open, hist };
+    }
+    const d = PERPS.account();
+    const open = d.open.map((x) => ({ key: x.id, ts: x.ts, sym: x.sym, name: x.name, badge: x.badge, tag: `<span class="tag ${x.dir === "long" ? "yes" : "no"}">${x.dir === "long" ? "Long" : "Short"} ${x.lev === 1 ? "без плеча" : x.lev + "x"}</span>`, avg: x.entry, cur: x.cur, vol: x.margin, notional: x.notional, liq: x.liq, tp: x.tp, sl: x.sl, value: x.equity, pnl: x.pnl, roe: x.roe, close: x.id }));
+    const hist = d.closed.map((x, i) => ({ key: "c" + i, ts: x.ts || 0, sym: x.sym, name: x.name, badge: x.badge, tag: `<span class="tag ${x.dir === "long" ? "yes" : "no"}">${x.dir === "long" ? "Long" : "Short"} ${x.lev === 1 ? "без плеча" : x.lev + "x"}</span>`, avg: x.entry, cur: x.exit, vol: x.margin, value: Math.max(0, x.margin + x.pnl), pnl: x.pnl, status: { liq: "Ликвидация", tp: "Тейк-профит", sl: "Стоп-лосс", close: "Закрыто" }[x.kind] || "Закрыто" }));
+    return { open, hist };
+  }
+  function acpStart(range, d) {
+    const now = Date.now();
+    if (range === "1Д") return now - DAY;
+    if (range === "1Н") return now - 7 * DAY;
+    if (range === "1М") return now - 30 * DAY;
+    if (range === "1Г") return now - 365 * DAY;
+    if (range === "YTD") return new Date(new Date().getFullYear(), 0, 1).getTime();
+    const ts = [...d.open, ...d.hist].map((x) => x.ts).filter(Boolean);
+    return ts.length ? Math.min(...ts) - 3600e3 : now - 30 * DAY;
+  }
+  // Результат за период: закрытые сделки периода плюс текущая оценка открытых позиций.
+  function acpPnl(d, range) {
+    const start = acpStart(range, d), unreal = d.open.reduce((s, x) => s + x.pnl, 0);
+    const ev = d.hist.filter((x) => x.ts >= start).map((x) => ({ ts: x.ts, pnl: x.pnl }));
+    return { start, ev, unreal, total: ev.reduce((s, x) => s + x.pnl, 0) + unreal };
+  }
+  function acpChart(d, range) {
+    const r = acpPnl(d, range), N = 48, now = Date.now(), step = (now - r.start) / (N - 1);
+    const times = Array.from({ length: N }, (_, i) => r.start + i * step);
+    const vals = times.map((t, i) => r.ev.filter((e) => e.ts <= t + (i === N - 1 ? 1 : 0)).reduce((s, e) => s + e.pnl, 0) + (i === N - 1 ? r.unreal : 0));
+    const W = 600, H = 150, L = 6, R = 6, T = 10, B = 22;
+    const lo = Math.min(0, ...vals), hi = Math.max(0, ...vals), span = hi - lo || 1;
+    const g = { W, H, L, R, T, B, n: N, x: (i) => L + (i * (W - L - R)) / (N - 1), y: (v) => T + (1 - (v - lo) / span) * (H - T - B) };
+    const line = vals.map((v, i) => (i ? "L" : "M") + g.x(i).toFixed(1) + " " + g.y(v).toFixed(1)).join("");
+    const z = g.y(0).toFixed(1), day = range === "1Д";
+    const fmt = (t) => new Date(t).toLocaleString("ru-RU", day ? { hour: "2-digit", minute: "2-digit" } : { day: "numeric", month: "short" });
+    const fmtTip = (t) => new Date(t).toLocaleString("ru-RU", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
+    const up = r.total >= 0;
+    const svg = `<svg viewBox="0 0 ${W} ${H}" class="chart-svg acp-svg ${up ? "up" : "down"}" role="img" aria-label="Прибыль и убыток">
+      <line class="gl acp-zero" x1="${L}" x2="${W - R}" y1="${z}" y2="${z}"/>
+      <text class="tx" x="${L}" y="${H - 5}" text-anchor="start">${fmt(times[0])}</text><text class="tx" x="${W - R}" y="${H - 5}" text-anchor="end">${fmt(times[N - 1])}</text>
+      <path class="ca" d="${line}L${g.x(N - 1).toFixed(1)} ${z}L${g.x(0)} ${z}Z"/><path class="cl" d="${line}"/>
+      <line class="cross" y1="${T}" y2="${H - B}" hidden/><circle class="dot" r="4.5" hidden/>
+    </svg>`;
+    return { svg, g, vals, times, fmtTip, total: r.total };
+  }
+  let acpHover = false;
+  function paintAcpChart(d) {
+    const host = $("#acp-chart");
+    if (!host) return;
+    const c = acpChart(d, acp.range);
+    host.innerHTML = c.svg;
+    attachHover($("svg", host), c.g, c.vals, { val: (v) => signed(v) + " ₽", time: (i) => c.fmtTip(c.times[i]) });
+  }
+  const acpMask = (t) => (acp.hide ? "₽ •••" : t);
   function paintAccountStats() {
     const box = $("#acc-stats");
     if (!box) return;
-    const inPools = bets.reduce((s, b) => s + b.amt, 0);
-    const inTrade = PERPS.locked();
-    const inPlay = inPools + inTrade, total = balance + inPlay;
-    const share = total > 0 ? Math.round((balance / total) * 100) : 100;
-    box.innerHTML = `
-      <div class="stat cash">
-        <span class="stat-ic">${payIcon("crypto", 40)}</span>
-        <div><small>Наличные на балансе</small><b>${rub(balance)}</b><em>свободные деньги: можно сразу вложить в пул или в перпы</em></div>
-        <button class="pbtn" data-deposit>Пополнить</button>
-      </div>
-      <div class="stat play">
-        <span class="stat-ic play-ic">${payIcon("sbp", 40)}</span>
-        <div><small>В пулах и перпах</small><b>${rub(inPlay)}</b><em>в пулах ${rub(inPools)} (${bets.length} ${bets.length === 1 ? "ставка" : "ставок"}) · в перпах ${rub(inTrade)} (маржа)</em></div>
-      </div>
-      <div class="stat-bar" title="Доля наличных в общих средствах">
-        <div class="stat-bar-t"><span>Всего средств: <b>${rub(total)}</b></span><span>наличные ${share}% · в игре ${100 - share}%</span></div>
-        <div class="stat-bar-b"><i style="width:${share}%"></i></div>
+    const keep = document.activeElement && (document.activeElement.id === "acp-q" || document.activeElement.id === "acp-sort");
+    const dP = acpData("pred"), dT = acpData("perps");
+    const valP = dP.open.reduce((s, x) => s + x.value, 0), valT = dT.open.reduce((s, x) => s + x.value, 0);
+    const d = acp.cat === "pred" ? dP : dT, val = acp.cat === "pred" ? valP : valT;
+    const day = acpPnl(d, "1Д"), pnl = acpPnl(d, acp.range), pct = val > 0 ? (day.total / val) * 100 : 0;
+    const top = `
+      <div class="acp-tabs" role="tablist">${[["pred", "Прогнозы"], ["perps", "Перпы"]].map(([k, n]) => `<button type="button" role="tab" data-acp-cat="${k}" class="${acp.cat === k ? "on" : ""}">${n}</button>`).join("")}</div>
+      <div class="acp-cards">
+        <div class="acp-card">
+          <div class="acp-row">
+            <div class="acp-main">
+              <small>Портфель · ${acp.cat === "pred" ? "прогнозы" : "перпы"}</small>
+              <b class="acp-big">${acpMask(rub(val))} <button type="button" class="acp-eye" data-acp-eye title="${acp.hide ? "Показать суммы" : "Скрыть суммы"}" aria-label="Скрыть или показать суммы">${acp.hide ? ICO.eyeoff : ICO.eye}</button></b>
+              <span class="acp-sub ${day.total >= 0 ? "pos" : "neg"}">${acpMask(`${signed(day.total)} ₽ (${pct >= 0 ? "+" : "−"}${Math.abs(pct).toFixed(1).replace(".", ",")}%)`)} <i>за день</i></span>
+            </div>
+            <div class="acp-av">
+              <small>Доступно для торговли</small>
+              <b>${acpMask(rub(balance))}</b>
+              <span class="acp-pill" title="Деньги в пулах: ${rub(valP)}, в перпах: ${rub(valT)}">в пулах ${acpMask(rub(valP))} · в перпах ${acpMask(rub(valT))}</span>
+            </div>
+          </div>
+          <div class="acp-btns"><button type="button" class="acp-dep" data-deposit>${ICO.down}Депозит</button><button type="button" class="acp-wd" data-acp-wd>${ICO.up}Вывод</button></div>
+        </div>
+        <div class="acp-card">
+          <div class="acp-row acp-prow">
+            <div class="acp-main">
+              <small><span class="acp-dot ${pnl.total >= 0 ? "pos" : "neg"}"></span>Прибыль/убыток</small>
+              <b class="acp-big ${pnl.total >= 0 ? "pos" : "neg"}">${acpMask(signed(pnl.total) + " ₽")} <span class="acp-share" title="Результат считается по закрытым сделкам периода и текущей оценке открытых позиций">${ICO.share}</span></b>
+              <span class="acp-sub muted">${ACP_NAME[acp.range][0].toUpperCase() + ACP_NAME[acp.range].slice(1)}</span>
+            </div>
+            <div class="acp-rng">${ACP_RANGES.map((k) => `<button type="button" data-acp-range="${k}" class="${acp.range === k ? "on" : ""}">${k}</button>`).join("")}<span class="acp-brand">${document.querySelector(".logo-svg") ? document.querySelector(".logo-svg").outerHTML : ""}RusPredict</span></div>
+          </div>
+          <div id="acp-chart" class="acp-chart"></div>
+        </div>
       </div>`;
+    const sub = `<div class="acp-sub-tabs" role="tablist">${[["pos", "Позиции", d.open.length], ["orders", "Открытые заявки", null], ["hist", "История", d.hist.length]].map(([k, n, c]) => `<button type="button" role="tab" data-acp-sub="${k}" class="${acp.sub === k ? "on" : ""}">${n}${c ? ` <em>${c}</em>` : ""}</button>`).join("")}</div>`;
+    const tools = `<div class="acp-tools">${sub}
+      <label class="acp-search">${ICO.search}<input id="acp-q" type="search" placeholder="Поиск" value="${esc(acp.q)}" autocomplete="off"></label>
+      <select id="acp-sort" class="acp-sort" aria-label="Сортировка">${[["value", "Текущая стоимость"], ["pnl", "Прибыль"], ["vol", "Объём сделок"], ["new", "Сначала новые"]].map(([k, n]) => `<option value="${k}" ${acp.sort === k ? "selected" : ""}>${n}</option>`).join("")}</select>
+      <label class="acp-tg"><span class="sw"><input type="checkbox" id="acp-arch" ${acp.arch ? "checked" : ""}><i></i></span>Показать архивные</label></div>`;
+    $("#acp-top").innerHTML = top;
+    if (!keep) $("#acp-tools").innerHTML = tools;
+    paintAcpChart(d);
+    paintAcpList(d);
   }
+  function paintAcpList(d) {
+    const host = $("#acp-list");
+    if (!host) return;
+    d = d || acpData(acp.cat);
+    const q = acp.q.trim().toLowerCase(), perps = acp.cat === "perps";
+    const name = (x) => (perps ? x.sym + " " + x.name : x.title).toLowerCase();
+    const sorters = { value: (a, b) => b.value - a.value, pnl: (a, b) => b.pnl - a.pnl, vol: (a, b) => b.vol - a.vol, new: (a, b) => b.ts - a.ts };
+    const pnlCell = (x) => `<small class="${x.pnl >= 0 ? "pos" : "neg"}">${signed(x.pnl)} ₽ (${x.vol > 0 ? (x.pnl >= 0 ? "+" : "−") + Math.abs((x.pnl / x.vol) * 100).toFixed(1).replace(".", ",") : "0"}%)</small>`;
+    const mk = (x) => (perps ? `<a href="#trade" class="acp-mk" data-goasset="${x.sym}">${x.badge}<span><b>${esc(x.sym)}-PERP</b><small>${esc(x.name)} · ${x.tag}</small></span></a>` : `<span class="acp-mk" role="button" tabindex="0" data-open="${x.eid}"><span><b>${esc(x.title)}</b><small>${x.tag}${x.win ? ` ${pct1(x.win)} долей` : ""}</small></span></span>`);
+    let html;
+    if (acp.sub === "orders") {
+      if (perps) {
+        const rows = d.open.filter((x) => x.tp || x.sl).flatMap((x) => [x.tp && { x, k: "Тейк-профит", v: x.tp, cls: "yes" }, x.sl && { x, k: "Стоп-лосс", v: x.sl, cls: "no" }].filter(Boolean)).filter((r) => !q || name(r.x).includes(q));
+        html = rows.length ? `<div class="table-wrap" style="margin:0"><table class="acc-tx acp-tx"><thead><tr><th>Позиция</th><th>Тип заявки</th><th>Срабатывает при цене</th><th>Сейчас</th></tr></thead><tbody>${rows.map((r) => `<tr><td>${mk(r.x)}</td><td><span class="tag ${r.cls}">${r.k}</span></td><td>${r.v}</td><td>${r.x.cur}</td></tr>`).join("")}</tbody></table></div>` : "";
+      } else {
+        const rows = liq.orders.map((o) => ({ o, e: byId(o.eid) })).filter((r) => r.e && (!q || r.e.q.toLowerCase().includes(q)));
+        html = rows.length ? `<div class="table-wrap" style="margin:0"><table class="acc-tx acp-tx"><thead><tr><th>Рынок</th><th>Размер</th><th>От цены</th><th>Награда в день</th><th>Заработано</th></tr></thead><tbody>${rows.map(({ o, e }) => `<tr><td class="ev"><span class="acp-mk" role="button" tabindex="0" data-open="${e.id}"><span><b>${esc(e.q)}</b><small>Заявка ликвидности</small></span></span></td><td>${rub(o.size)}</td><td>${String(o.spread).replace(".", ",")}¢ из ${lqMeta(e).maxS}¢</td><td>${rub(lqRate(o) * DAY)}</td><td class="pos"><b>${rub(o.acc)}</b></td></tr>`).join("")}</tbody></table></div>` : "";
+      }
+      if (!html) html = `<p class="acp-empty">${perps ? "Заявок с тейк-профитом и стоп-лоссом нет. Задайте их в позиции кнопкой TP/SL." : "Открытых заявок ликвидности нет. Их можно выставить в разделе «Бонус»."}</p>`;
+    } else {
+      const showHist = acp.sub === "hist" || acp.arch;
+      let list = (acp.sub === "hist" ? [] : d.open.map((x) => ({ ...x, live: true }))).concat(showHist ? d.hist : []).filter((x) => !q || name(x).includes(q));
+      list.sort(acp.sub === "hist" ? sorters.new : sorters[acp.sort]);
+      const head = perps ? ["Позиция", "Вход → Сейчас", "Маржа", "Ликвидация", "Стоимость"] : ["Рынок", "Средн. → Сейчас", "Объем сделок", acp.sub === "hist" ? "Итог" : "Выигрыш", "Стоимость"];
+      html = list.length ? `<div class="table-wrap" style="margin:0"><table class="acc-tx acp-tx"><thead><tr>${head.map((h) => `<th>${h}</th>`).join("")}</tr></thead><tbody>${list.map((x) => {
+        const act = x.live ? (x.sell ? `<button type="button" class="sell" data-sell="${x.sell}">Продать</button>` : `<button type="button" class="sell" data-acp-close="${x.close}">Закрыть</button>`) : `<span class="tag ${x.pnl >= 0 ? "yes" : "no"}">${x.status}</span>`;
+        const c4 = perps ? (x.live ? x.liq : "—") : x.live ? rub(x.win) : x.status;
+        return `<tr><td class="ev">${mk(x)}</td><td>${x.avg ? `${x.avg} → ${x.cur}` : "—"}</td><td>${rub(x.vol)}${perps && x.notional ? `<small>объём ${rub(x.notional)}</small>` : ""}</td><td>${c4}</td><td><b>${rub(x.value)}</b>${pnlCell(x)}<span class="acp-act">${act}</span></td></tr>`;
+      }).join("")}</tbody></table></div>` : `<p class="acp-empty">${acp.sub === "hist" ? "История пуста." : "Позиции не обнаружены."}${acp.sub !== "hist" && !q ? ` <a href="${perps ? "#trade" : "#markets"}" style="color:var(--brand)">${perps ? "Открыть перпы" : "Открыть рынки"}</a>` : ""}</p>`;
+    }
+    host.innerHTML = html;
+  }
+  function bindAcp() {
+    const box = $("#acc-stats");
+    if (!box) return;
+    box.onclick = (ev) => {
+      const t = ev.target, one = (s) => t.closest(s);
+      let c;
+      if ((c = one("[data-acp-cat]"))) { acp.cat = c.dataset.acpCat; saveAcp(); return paintAccountStats(); }
+      if ((c = one("[data-acp-range]"))) { acp.range = c.dataset.acpRange; return paintAccountStats(); }
+      if ((c = one("[data-acp-sub]"))) { acp.sub = c.dataset.acpSub; return paintAccountStats(); }
+      if (one("[data-acp-eye]")) { acp.hide = !acp.hide; saveAcp(); return paintAccountStats(); }
+      if (one("[data-acp-wd]")) return toast("В демо вывод недоступен: на балансе игровые рубли, а не настоящие деньги");
+      if ((c = one("[data-acp-close]"))) return PERPS.closeById(c.dataset.acpClose);
+    };
+    box.oninput = (ev) => { if (ev.target.id === "acp-q") { acp.q = ev.target.value; paintAcpList(); } };
+    box.onchange = (ev) => {
+      if (ev.target.id === "acp-sort") { acp.sort = ev.target.value; paintAcpList(); }
+      if (ev.target.id === "acp-arch") { acp.arch = ev.target.checked; saveAcp(); paintAcpList(); }
+    };
+    box.onmouseover = (ev) => { if (ev.target.closest(".acp-chart")) acpHover = true; };
+    box.onmouseout = (ev) => { if (ev.target.closest(".acp-chart")) acpHover = false; };
+  }
+  // живая оценка позиций: цены в перпах и рынки меняются, обновляем портфель
+  setInterval(() => {
+    if (state.route !== "account" || document.hidden || acpHover || !$("#modal").hidden) return;
+    const a = document.activeElement;
+    if (a && (a.id === "acp-q" || a.id === "acp-sort")) return;
+    paintAccountStats();
+  }, 3000);
 
   // ---------- история пополнений ----------
   let depFilter = "all", depLimit = 10;
@@ -892,7 +1050,7 @@
     return `<div class="wrap">
       <h1 class="page-title">Мой аккаунт</h1>
       <p class="page-sub">Данные профиля хранятся в вашем браузере и меняются в любой момент.</p>
-      <div class="acc-stats" id="acc-stats"></div>
+      <div class="acp" id="acc-stats"><div id="acp-top"></div><div id="acp-tools"></div><div id="acp-list"></div></div>
       <div class="acc">
         <div class="panel">
           <h3>Профиль</h3>
@@ -1419,7 +1577,7 @@
     $("#view").innerHTML = routes[state.route]();
     document.querySelectorAll("#nav a").forEach((a) => a.classList.toggle("on", a.dataset.r === (isBonusRoute() ? "bonus" : state.route)));
     if (state.route === "markets") paintGrid();
-    if (state.route === "account") { bindAccount(); paintAccountStats(); paintDeposits(); paintAccountTx(); }
+    if (state.route === "account") { bindAccount(); bindAcp(); paintAccountStats(); paintDeposits(); paintAccountTx(); }
     if (state.route === "community") bindCommunity();
     if (state.route === "trade") PERPS.bind();
     if (isBonusRoute()) bindBonus();

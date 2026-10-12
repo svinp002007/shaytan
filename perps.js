@@ -1672,5 +1672,15 @@ const PERPS = (() => {
     });
   }
 
-  return { init, view, bind, tick, promo, select, realized, closedMargin, count, locked, reset, rows, classes: CLS };
+  // Данные для страницы аккаунта: открытые и закрытые позиции с текущей оценкой.
+  function account() {
+    const open = positions.map((pos) => {
+      const a = A[pos.sym], st = stats(pos, a.price);
+      return { id: pos.id, sym: pos.sym, name: a.name, dir: pos.dir, lev: pos.lev, margin: pos.margin, notional: pos.notional, ts: pos.ts, entry: price(a, pos.entry), cur: price(a, a.price), liq: price(a, pos.liq), tp: pos.tp ? price(a, pos.tp) : "", sl: pos.sl ? price(a, pos.sl) : "", equity: st.equity, pnl: st.result, roe: st.roe, badge: badge(a) };
+    });
+    const hist = closed.map((c) => { const a = A[c.sym]; return { sym: c.sym, name: a ? a.name : c.sym, dir: c.dir, lev: c.lev, margin: c.margin, ts: c.ts, entry: a ? price(a, c.entry) : "", exit: a ? price(a, c.exit) : "", pnl: c.pnl, kind: c.kind, badge: a ? badge(a) : "" }; });
+    return { open, closed: hist };
+  }
+  const closeById = (id) => confirmClose(id);
+  return { init, view, bind, tick, promo, select, account, closeById, realized, closedMargin, count, locked, reset, rows, classes: CLS };
 })();
