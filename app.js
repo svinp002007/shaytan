@@ -739,9 +739,9 @@
     return `<div class="table-wrap"><table>
       <thead><tr><th>#</th><th>Трейдер</th><th>PNL</th><th>Общая прибыль</th><th>Сделок</th></tr></thead>
       <tbody>${list.map((t, i) => `
-        <tr class="${t.me ? "me" : ""}">
+        <tr class="${t.me ? "me" : ""} lb-go" data-go="${t.me ? "#account" : "#trader/" + encodeURIComponent(t.nick)}" tabindex="0">
           <td class="rank ${i < 3 ? "top" : ""}">${i + 1}</td>
-          <td><span class="who">${avatar(t.nick, t.color || traderColor(t.nick))}${esc(t.nick)}${t.me ? " (вы)" : ""}</span></td>
+          <td><a class="who" href="${t.me ? "#account" : "#trader/" + encodeURIComponent(t.nick)}">${avatar(t.nick, t.color || traderColor(t.nick))}${esc(t.nick)}${t.me ? " (вы)" : ""}</a></td>
           <td class="${t.pnl >= 0 ? "pos" : "neg"}">${t.pnl > 0 ? "+" : t.pnl < 0 ? "−" : ""}${Math.abs(t.pnl).toFixed(1).replace(".", ",")}%</td>
           <td class="${t.profit >= 0 ? "pos" : "neg"}">${signed(t.profit)} ₽</td>
           <td>${t.trades}</td>
@@ -753,7 +753,7 @@
     const rows = [...TRADERS].sort((a, b) => b.profit - a.profit);
     return `<div class="wrap">
       <h1 class="page-title">Таблица лидеров</h1>
-      <p class="page-sub">PNL — доходность на вложенные средства, общая прибыль — в игровых рублях. Все трейдеры вымышлены. Ваша прибыль считается по проданным позициям, с учётом комиссии 2%.</p>
+      <p class="page-sub">PNL — доходность на вложенные средства, общая прибыль — в игровых рублях. Все трейдеры вымышлены. Ваша прибыль считается по проданным позициям, с учётом комиссии 2%. <b>Нажмите на трейдера, чтобы увидеть его сделки в прогнозах и перпах.</b></p>
       ${leaderTable(rows, true)}
     </div>`;
   }
@@ -854,10 +854,10 @@
     return { svg, g, vals, times, fmtTip, total: r.total };
   }
   let acpHover = false;
-  function paintAcpChart(d) {
-    const host = $("#acp-chart");
+  function paintAcpChart(d, sel = "#acp-chart", range = acp.range) {
+    const host = $(sel);
     if (!host) return;
-    const c = acpChart(d, acp.range);
+    const c = acpChart(d, range);
     host.innerHTML = c.svg;
     attachHover($("svg", host), c.g, c.vals, { val: (v) => signed(v) + " ₽", time: (i) => c.fmtTip(c.times[i]) });
   }
@@ -970,6 +970,167 @@
     if (a && (a.id === "acp-q" || a.id === "acp-sort")) return;
     paintAccountStats();
   }, 3000);
+
+  // ---------- профили других трейдеров (демо) ----------
+  let trNick = "";
+  const trv = { nick: "", cat: "pred", range: "ВСЕ", sub: "pos", q: "", sort: "new", lim: 25 };
+  const trCache = {};
+  // Сделки вымышленных трейдеров генерируются из их ника: итоговая прибыль сходится с таблицей лидеров.
+  function trSpec(t) {
+    if (trCache[t.nick]) return trCache[t.nick];
+    const rnd = mulberry(hash(t.nick) ^ 0x5bd1), now = Date.now(), N = Math.min(t.trades, 400);
+    const predShare = 0.45 + rnd() * 0.35, syms = PERPS.sim.syms(), winRate = t.win / 100;
+    const LEV = [1, 2, 3, 5, 5, 10, 10, 20];
+    const hist = [];
+    for (let i = 0; i < N; i++) {
+      const ts = now - 3600e3 - Math.pow(rnd(), 0.85) * 120 * DAY, win = rnd() < winRate;
+      if (rnd() < predShare) {
+        const e = EVENTS[Math.floor(rnd() * EVENTS.length)], p = 10 + rnd() * 75, amt = 300 * Math.exp(rnd() * 3.5), shares = (amt / p) * 100;
+        hist.push({ cat: "pred", ts, eid: e.id, side: rnd() < 0.5 ? "yes" : "no", p, amt, shares, win, pnl: win ? (shares - amt) * 0.98 : -amt });
+      } else {
+        const sym = syms[Math.floor(rnd() * syms.length)], dir = rnd() < 0.55 ? "long" : "short", lev = LEV[Math.floor(rnd() * LEV.length)], amt = 500 * Math.exp(rnd() * 3.2), move = 0.003 + rnd() * 0.05, base = 0.8 + rnd() * 0.4;
+        const liqd = !win && lev * move >= 0.9, pnl = win ? amt * lev * move - amt * lev * 0.001 : liqd ? -amt : -Math.min(amt, amt * lev * move) - amt * lev * 0.001;
+        hist.push({ cat: "perps", ts, sym, dir, lev, amt, win, move, base, pnl, kind: liqd ? "liq" : win ? "tp" : "sl" });
+      }
+    }
+    // масштаб размеров: выигрыши (при прибыли) или проигрыши (при убытке) подгоняем под итог из рейтинга
+    const P = hist.filter((x) => x.pnl > 0).reduce((s, x) => s + x.pnl, 0), Ng = -hist.filter((x) => x.pnl < 0).reduce((s, x) => s + x.pnl, 0);
+    if (t.profit >= 0 ? P > 0 : Ng > 0) {
+      const k = clamp(t.profit >= 0 ? (t.profit + Ng) / P : (P - t.profit) / Ng, 0.2, 60);
+      hist.forEach((x) => { if (t.profit >= 0 ? x.pnl > 0 : x.pnl < 0) { x.pnl *= k; x.amt *= k; if (x.shares) x.shares *= k; } });
+    }
+    const resid = t.profit - hist.reduce((s, x) => s + x.pnl, 0), big = hist.reduce((m, x) => (!m || Math.abs(x.pnl) > Math.abs(m.pnl) ? x : m), null);
+    if (big) big.pnl += resid;
+    hist.sort((a, b) => b.ts - a.ts);
+    // открытые позиции
+    const open = [], np = 3 + Math.floor(rnd() * 4), nt = 2 + Math.floor(rnd() * 3), used = new Set();
+    for (let i = 0; i < np; i++) {
+      const e = EVENTS[Math.floor(rnd() * EVENTS.length)];
+      if (used.has(e.id)) continue; used.add(e.id);
+      const side = rnd() < 0.5 ? "yes" : "no", cur = side === "yes" ? prob(e) : 100 - prob(e), p = clamp(cur + (rnd() - 0.5) * 24, 4, 96), amt = 400 * Math.exp(rnd() * 3);
+      open.push({ cat: "pred", ts: now - rnd() * 20 * DAY, eid: e.id, side, p, amt, shares: (amt / p) * 100 });
+    }
+    for (let i = 0; i < nt; i++) {
+      const sym = syms[Math.floor(rnd() * syms.length)], inf = PERPS.sim.info(sym), dir = rnd() < 0.55 ? "long" : "short", lev = LEV[Math.floor(rnd() * LEV.length)];
+      open.push({ cat: "perps", ts: now - rnd() * 6 * DAY, sym, dir, lev, amt: 500 * Math.exp(rnd() * 2.8), entry: inf.cur * (1 + (rnd() - 0.5) * 0.08) });
+    }
+    return (trCache[t.nick] = { hist, open });
+  }
+  // Открытые позиции с живой оценкой по текущим ценам.
+  function trOpenLive(spec, cat) {
+    return spec.open.filter((x) => x.cat === cat).map((x) => {
+      if (cat === "pred") {
+        const e = byId(x.eid), cur = x.side === "yes" ? prob(e) : 100 - prob(e), value = ((x.shares * cur) / 100) * (1 - FEE);
+        return { ...x, title: e.q, cur, value, pnl: value - x.amt };
+      }
+      const inf = PERPS.sim.info(x.sym), d = x.dir === "long" ? 1 : -1, pnl = x.amt * x.lev * d * (inf.cur / x.entry - 1);
+      return { ...x, ...inf, curTxt: inf.fmt(inf.cur), entryTxt: inf.fmt(x.entry), value: Math.max(0, x.amt + pnl), pnl };
+    });
+  }
+  function viewTrader() {
+    const rows = [...TRADERS].sort((a, b) => b.profit - a.profit), i = rows.findIndex((t) => t.nick === trNick), t = rows[i];
+    if (!t) return `<div class="wrap"><div class="fs-top"><a class="fs-back" href="#leaderboard">← К рейтингу</a></div><h1 class="page-title">Трейдер не найден</h1></div>`;
+    if (trv.nick !== t.nick) Object.assign(trv, { nick: t.nick, cat: "pred", range: "ВСЕ", sub: "pos", q: "", sort: "new", lim: 25 });
+    const col = t.color || traderColor(t.nick);
+    return `<div class="wrap trd">
+      <div class="fs-top"><a class="fs-back" href="#leaderboard">← К рейтингу</a></div>
+      <div class="trd-head">${avatar(t.nick, col, "lg")}<div><h1>${esc(t.nick)}</h1><span class="trd-rank">Место №${i + 1} в рейтинге · демо-трейдер</span></div></div>
+      <div class="kpis trd-kpis">
+        <div class="kpi"><b class="${t.profit >= 0 ? "pos" : "neg"}">${signed(t.profit)} ₽</b><span>общая прибыль</span></div>
+        <div class="kpi"><b class="${t.pnl >= 0 ? "pos" : "neg"}">${t.pnl > 0 ? "+" : t.pnl < 0 ? "−" : ""}${Math.abs(t.pnl).toFixed(1).replace(".", ",")}%</b><span>доходность (PNL)</span></div>
+        <div class="kpi"><b>${t.trades}</b><span>сделок</span></div>
+        <div class="kpi"><b>${t.win}%</b><span>прибыльных сделок</span></div>
+      </div>
+      <div id="tr-body"></div>
+      <p class="fee-note" style="margin:18px 0 40px">Демо: трейдеры и их сделки вымышлены. История генерируется из ника трейдера, а итоговая прибыль совпадает с таблицей лидеров. Открытые позиции оцениваются по текущим ценам рынков и перпов.</p>
+    </div>`;
+  }
+  function paintTrader() {
+    const host = $("#tr-body");
+    if (!host) return;
+    const t = TRADERS.find((x) => x.nick === trv.nick);
+    if (!t) return;
+    const spec = trSpec(t), perps = trv.cat === "perps";
+    const hist = spec.hist.filter((x) => x.cat === trv.cat), open = trOpenLive(spec, trv.cat);
+    const d = { open: open.map((x) => ({ pnl: x.pnl })), hist: hist.map((x) => ({ ts: x.ts, pnl: x.pnl })) };
+    const pnl = acpPnl(d, trv.range), val = open.reduce((s, x) => s + x.value, 0), unreal = open.reduce((s, x) => s + x.pnl, 0);
+    const wins = hist.filter((x) => x.pnl > 0).length, best = hist.reduce((m, x) => Math.max(m, x.pnl), 0), all = hist.reduce((s, x) => s + x.pnl, 0);
+    const keep = document.activeElement && document.activeElement.id === "tr-q";
+    const top = `
+      <div class="acp-tabs" role="tablist">${[["pred", "Прогнозы"], ["perps", "Перпы"]].map(([k, n]) => `<button type="button" role="tab" data-tr-cat="${k}" class="${trv.cat === k ? "on" : ""}">${n}</button>`).join("")}</div>
+      <div class="acp-cards">
+        <div class="acp-card">
+          <div class="acp-main"><small>Открытые позиции · ${perps ? "перпы" : "прогнозы"}</small><b class="acp-big">${rub(val)}</b>
+            <span class="acp-sub ${unreal >= 0 ? "pos" : "neg"}">${signed(unreal)} ₽ <i>нереализованный результат</i></span></div>
+          <div class="trd-mini">
+            <div><b>${hist.length}</b><span>закрытых сделок</span></div>
+            <div><b>${hist.length ? Math.round((wins / hist.length) * 100) : 0}%</b><span>прибыльных</span></div>
+            <div><b class="${all >= 0 ? "pos" : "neg"}">${signed(all)} ₽</b><span>результат в категории</span></div>
+            <div><b class="pos">${best > 0 ? "+" + nf.format(Math.round(best)) + " ₽" : "—"}</b><span>лучшая сделка</span></div>
+          </div>
+        </div>
+        <div class="acp-card">
+          <div class="acp-row acp-prow">
+            <div class="acp-main"><small><span class="acp-dot ${pnl.total >= 0 ? "pos" : "neg"}"></span>Прибыль/убыток</small>
+              <b class="acp-big ${pnl.total >= 0 ? "pos" : "neg"}">${signed(pnl.total)} ₽</b>
+              <span class="acp-sub muted">${ACP_NAME[trv.range][0].toUpperCase() + ACP_NAME[trv.range].slice(1)}</span></div>
+            <div class="acp-rng">${ACP_RANGES.map((k) => `<button type="button" data-tr-range="${k}" class="${trv.range === k ? "on" : ""}">${k}</button>`).join("")}<span class="acp-brand">${document.querySelector(".logo-svg") ? document.querySelector(".logo-svg").outerHTML : ""}RusPredict</span></div>
+          </div>
+          <div id="tr-chart" class="acp-chart"></div>
+        </div>
+      </div>
+      <div class="acp-tools"><div class="acp-sub-tabs" role="tablist">${[["pos", "Позиции", open.length], ["hist", "История сделок", hist.length]].map(([k, n, c]) => `<button type="button" role="tab" data-tr-sub="${k}" class="${trv.sub === k ? "on" : ""}">${n} <em>${c}</em></button>`).join("")}</div>
+        <label class="acp-search">${ICO.search}<input id="tr-q" type="search" placeholder="Поиск" value="${esc(trv.q)}" autocomplete="off"></label>
+        <select id="tr-sort" class="acp-sort" aria-label="Сортировка">${[["new", "Сначала новые"], ["pnl", "Лучшие результаты"], ["loss", "Худшие результаты"], ["amt", "Крупные сделки"]].map(([k, n]) => `<option value="${k}" ${trv.sort === k ? "selected" : ""}>${n}</option>`).join("")}</select></div>
+      <div id="tr-list"></div>`;
+    if (!keep) host.innerHTML = top; else { $(".acp-tabs", host).outerHTML = top.slice(0, top.indexOf("</div>") + 6); }
+    paintAcpChart(d, "#tr-chart", trv.range);
+    paintTrList(open, hist);
+  }
+  function paintTrList(open, hist) {
+    const host = $("#tr-list");
+    if (!host) return;
+    if (!open) { const t = TRADERS.find((x) => x.nick === trv.nick), sp = trSpec(t); open = trOpenLive(sp, trv.cat); hist = sp.hist.filter((x) => x.cat === trv.cat); }
+    const perps = trv.cat === "perps", q = trv.q.trim().toLowerCase();
+    const title = (x) => (perps ? (x.sym + " " + (PERPS.sim.info(x.sym) || {}).name) : byId(x.eid).q).toLowerCase();
+    const sorters = { new: (a, b) => b.ts - a.ts, pnl: (a, b) => b.pnl - a.pnl, loss: (a, b) => a.pnl - b.pnl, amt: (a, b) => b.amt - a.amt };
+    const side = (x) => (perps ? `<span class="tag ${x.dir === "long" ? "yes" : "no"}">${x.dir === "long" ? "Long" : "Short"} ${x.lev === 1 ? "без плеча" : x.lev + "x"}</span>` : `<span class="tag ${x.side}">${x.side === "yes" ? "Да" : "Нет"}</span>`);
+    const mk = (x) => {
+      if (perps) { const inf = PERPS.sim.info(x.sym); return `<a href="#trade" class="acp-mk" data-goasset="${x.sym}">${inf.badge}<span><b>${esc(x.sym)}-PERP</b><small>${esc(inf.name)} · ${side(x)}</small></span></a>`; }
+      const e = byId(x.eid);
+      return `<span class="acp-mk" role="button" tabindex="0" data-open="${e.id}"><span><b>${esc(e.q)}</b><small>${side(x)}</small></span></span>`;
+    };
+    const resTxt = (x) => `<b class="${x.pnl >= 0 ? "pos" : "neg"}">${signed(x.pnl)} ₽</b><small class="${x.pnl >= 0 ? "pos" : "neg"}">${x.pnl >= 0 ? "+" : "−"}${Math.abs((x.pnl / x.amt) * 100).toFixed(1).replace(".", ",")}%</small>`;
+    let html;
+    if (trv.sub === "pos") {
+      const list = open.filter((x) => !q || title(x).includes(q)).sort((a, b) => (trv.sort === "new" ? b.ts - a.ts : sorters[trv.sort](a, b)));
+      html = list.length ? `<div class="table-wrap" style="margin:0"><table class="acc-tx acp-tx"><thead><tr><th>${perps ? "Позиция" : "Рынок"}</th><th>${perps ? "Вход → Сейчас" : "Средн. → Сейчас"}</th><th>${perps ? "Маржа" : "Вложено"}</th><th>Открыта</th><th>Стоимость</th></tr></thead><tbody>${list.map((x) => `<tr><td class="ev">${mk(x)}</td><td>${perps ? `${x.entryTxt} → ${x.curTxt}` : `${pct1(x.p)}% → ${pct1(x.cur)}%`}</td><td>${rub(x.amt)}</td><td><span class="tx-when">${when(x.ts).abs}</span></td><td><b>${rub(x.value)}</b><small class="${x.pnl >= 0 ? "pos" : "neg"}">${signed(x.pnl)} ₽ (${x.pnl >= 0 ? "+" : "−"}${Math.abs((x.pnl / x.amt) * 100).toFixed(1).replace(".", ",")}%)</small></td></tr>`).join("")}</tbody></table></div>` : `<p class="acp-empty">Открытых позиций нет.</p>`;
+    } else {
+      const list = hist.filter((x) => !q || title(x).includes(q)).sort(sorters[trv.sort]);
+      const kindTag = (x) => (perps ? `<span class="tag ${x.pnl >= 0 ? "yes" : "no"}">${{ liq: "Ликвидация", tp: "Тейк-профит", sl: "Стоп-лосс" }[x.kind]}</span>` : `<span class="tag ${x.pnl >= 0 ? "yes" : "no"}">${x.pnl >= 0 ? "Выигрыш" : "Проигрыш"}</span>`);
+      html = list.length ? `<div class="table-wrap" style="margin:0"><table class="acc-tx acp-tx"><thead><tr><th>${perps ? "Позиция" : "Рынок"}</th><th>Когда</th><th>${perps ? "Вход → Выход" : "Цена входа"}</th><th>${perps ? "Маржа" : "Вложено"}</th><th>Результат</th></tr></thead><tbody>${list.slice(0, trv.lim).map((x) => {
+        const w = when(x.ts), inf = perps ? PERPS.sim.info(x.sym) : null, entry = perps ? inf.cur * x.base : 0, exit = perps ? entry * (1 + (x.dir === "long" ? 1 : -1) * (x.kind === "liq" ? -1 / x.lev : (x.win ? 1 : -1) * x.move)) : 0;
+        return `<tr><td class="ev">${mk(x)}</td><td><span class="tx-when">${w.abs}</span><small>${w.rel}</small></td><td>${perps ? `${inf.fmt(entry)} → ${inf.fmt(exit)}` : `${pct1(x.p)}% · ${coefTxt(x.p)}`}</td><td>${rub(x.amt)}</td><td>${resTxt(x)}<span class="acp-act">${kindTag(x)}</span></td></tr>`;
+      }).join("")}</tbody></table></div>${list.length > trv.lim ? `<button type="button" class="sbtn" style="margin-top:12px" data-tr-more>Показать ещё (${list.length - trv.lim})</button>` : ""}` : `<p class="acp-empty">Сделок не найдено.</p>`;
+    }
+    host.innerHTML = html;
+  }
+  function bindTrader() {
+    const v = $("#view");
+    paintTrader();
+    v.onclick = (ev) => {
+      const t = ev.target; let c;
+      if ((c = t.closest("[data-tr-cat]"))) { trv.cat = c.dataset.trCat; trv.lim = 25; return paintTrader(); }
+      if ((c = t.closest("[data-tr-range]"))) { trv.range = c.dataset.trRange; return paintTrader(); }
+      if ((c = t.closest("[data-tr-sub]"))) { trv.sub = c.dataset.trSub; trv.lim = 25; return paintTrader(); }
+      if (t.closest("[data-tr-more]")) { trv.lim += 25; return paintTrList(); }
+    };
+    v.oninput = (ev) => { if (ev.target.id === "tr-q") { trv.q = ev.target.value; trv.lim = 25; paintTrList(); } };
+    v.onchange = (ev) => { if (ev.target.id === "tr-sort") { trv.sort = ev.target.value; paintTrList(); } };
+    v.onmouseover = (ev) => { if (ev.target.closest(".acp-chart")) acpHover = true; };
+    v.onmouseout = (ev) => { if (ev.target.closest(".acp-chart")) acpHover = false; };
+  }
+  setInterval(() => { if (state.route === "trader" && !document.hidden && !acpHover && $("#modal").hidden && !(document.activeElement && /^tr-/.test(document.activeElement.id || ""))) paintTrader(); }, 4000);
 
   // ---------- история пополнений ----------
   let depFilter = "all", depLimit = 10;
@@ -1569,16 +1730,20 @@
   }
 
   // ---------- роутер ----------
-  const routes = { bonus: viewBonus, referrals: () => { bonusTab = "ref"; return viewBonus(); }, rewards: () => { bonusTab = "liq"; return viewBonus(); }, rules: viewRules, home: viewHome, markets: viewMarkets, trade: () => PERPS.view(), leaderboard: viewLeaderboard, community: viewCommunity, account: viewAccount };
+  const routes = { bonus: viewBonus, referrals: () => { bonusTab = "ref"; return viewBonus(); }, rewards: () => { bonusTab = "liq"; return viewBonus(); }, rules: viewRules, home: viewHome, markets: viewMarkets, trade: () => PERPS.view(), leaderboard: viewLeaderboard, trader: () => viewTrader(), community: viewCommunity, account: viewAccount };
   function render() {
-    const r = (location.hash || "#home").slice(1);
+    const raw = (location.hash || "#home").slice(1);
+    const isTr = raw.startsWith("trader/");
+    if (isTr) { try { trNick = decodeURIComponent(raw.slice(7)); } catch { trNick = raw.slice(7); } }
+    const r = isTr ? "trader" : raw;
     state.route = routes[r] ? r : "home";
     $("#view").onclick = null; $("#view").oninput = null;
     $("#view").innerHTML = routes[state.route]();
-    document.querySelectorAll("#nav a").forEach((a) => a.classList.toggle("on", a.dataset.r === (isBonusRoute() ? "bonus" : state.route)));
+    document.querySelectorAll("#nav a").forEach((a) => a.classList.toggle("on", a.dataset.r === (isBonusRoute() ? "bonus" : state.route === "trader" ? "leaderboard" : state.route)));
     if (state.route === "markets") paintGrid();
     if (state.route === "account") { bindAccount(); bindAcp(); paintAccountStats(); paintDeposits(); paintAccountTx(); }
     if (state.route === "community") bindCommunity();
+    if (state.route === "trader") bindTrader();
     if (state.route === "trade") PERPS.bind();
     if (isBonusRoute()) bindBonus();
     window.scrollTo(0, 0);
@@ -2134,6 +2299,8 @@
     const txf = t.closest("[data-txf]");
     if (txf) { accFilter = txf.dataset.txf; accLimit = 15; return paintAccountTx(); }
     if (t.closest("[data-txmore]")) { accLimit += 15; return paintAccountTx(); }
+    const lbr = t.closest("tr[data-go]");
+    if (lbr && !t.closest("a")) { location.hash = lbr.dataset.go; return; }
     const go = t.closest("[data-goasset]");
     if (go) PERPS.select(go.dataset.goasset);
     const vote = t.closest("[data-vote]");

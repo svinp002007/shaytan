@@ -1682,5 +1682,7 @@ const PERPS = (() => {
     return { open, closed: hist };
   }
   const closeById = (id) => confirmClose(id);
-  return { init, view, bind, tick, promo, select, account, closeById, realized, closedMargin, count, locked, reset, rows, classes: CLS };
+  // Для демо-профилей других трейдеров: список контрактов и оформление цен.
+  const sim = { syms: () => ASSETS.filter((a) => RP.clsOn(a.cls)).map((a) => a.sym), info: (sym) => { const a = A[sym]; return a ? { sym, name: a.name, badge: badge(a), cur: a.price, fmt: (v) => price(a, v) } : null; } };
+  return { init, view, bind, tick, promo, select, account, closeById, sim, realized, closedMargin, count, locked, reset, rows, classes: CLS };
 })();
