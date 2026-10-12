@@ -978,8 +978,8 @@
     return { days, rows, reg, act, inc, regN: list.length, direct: byLvl(1).length, indirect: byLvl(2).length, incDirect: byLvl(1).reduce((s, x) => s + x.inc, 0), incIndirect: byLvl(2).reduce((s, x) => s + x.inc, 0), actN: rows.filter((x) => x.ev.some((e) => e.t >= now - 7 * DAY)).length, total, avail: Math.max(0, Math.floor(total) - refs.claimed[cat]) };
   }
   const REF_TXT = {
-    pred: { tab: "Прогнозы", line: "за торговлю на рынках прогнозов", rule: "2% при продаже позиции и 2% с выигрыша" },
-    perps: { tab: "Перпы", line: "за торговлю в перпах", rule: "0,05% при открытии и 0,05% при закрытии позиции" }
+    pred: { tab: "Прогнозы", ico: '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M8.5 12.5l2.5 2.5 4.5-5"/></svg>', line: "за торговлю на рынках прогнозов", rule: "2% при продаже позиции и 2% с выигрыша" },
+    perps: { tab: "Перпы", ico: '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 17l6-6 4 4 8-8"/><path d="M15 7h6v6"/></svg>', line: "за торговлю в перпах", rule: "0,05% при открытии и 0,05% при закрытии позиции" }
   };
   const REF_METRICS = { reg: "Регистрации", act: "Активные трейдеры", inc: "Доход" };
   const refVal = (m, v) => (m === "inc" ? rub(v) : String(Math.round(v)));
@@ -1018,16 +1018,17 @@
         <div class="rf-chart"><div class="rf-wm">${document.querySelector(".logo-svg") ? document.querySelector(".logo-svg").outerHTML : ""}<span>RusPredict</span></div><div id="rf-chart"></div><small class="rf-upd">Данные обновляются каждые 30 минут</small></div>
       </div>
       <div class="rf-pay"><div><small>Доступно к выводу</small><b>${rub(st.avail)}</b></div><button type="button" class="pbtn" data-refclaim ${st.avail >= 1 ? "" : "disabled"}>Забрать на баланс</button></div>
-      <div class="panel" style="margin:16px 0"><h3>Ваши рефералы · ${T.tab}</h3>${table}
+      <div class="panel" style="margin:16px 0"><h3>Ваши рефералы · <span class="rf-chip">${T.tab}</span></h3>${table}
         <div class="row-actions" style="margin-top:14px"><button type="button" class="sbtn" data-refadd>Добавить прямого реферала (демо)</button><button type="button" class="sbtn" data-refadd2 ${refs.list.some((r) => (r.lvl || 1) === 1) ? "" : "disabled"} title="Реферал вашего реферала">Добавить непрямого (демо)</button>${refs.list.length ? '<button type="button" class="sbtn danger" data-refclear>Удалить тестовых</button>' : ""}</div>
         <p class="fee-note">Демо: рефералы и их сделки симулируются, реальных приглашений нет. Доход считается как 15% от комиссий платформы с торговли прямых рефералов и 5% с торговли непрямых (${T.rule}) и начисляется игровыми рублями.</p></div>`;
   }
   function refInnerHTML() {
     const T = REF_TXT[refTab], bolt = '<svg class="rf-bolt" viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><path d="M13 2L5 14h6l-1 8 8-12h-6z" fill="#f5b301"/></svg>';
-    return `<div class="ref">
-      <div class="mc-tabs rf-tabs" role="tablist">${Object.entries(REF_TXT).map(([k, v]) => `<button type="button" role="tab" data-rtab="${k}" class="${refTab === k ? "on" : ""}">${v.tab}</button>`).join("")}</div>
+    return `<div class="ref" data-cat="${refTab}">
+      <div class="rf-switch" role="tablist" aria-label="Тип рефералов">${Object.entries(REF_TXT).map(([k, v]) => { const q = refStats(k); return `<button type="button" role="tab" aria-selected="${refTab === k}" data-rtab="${k}" data-cat="${k}" class="rf-opt ${refTab === k ? "on" : ""}"><span class="rf-ico">${v.ico}</span><span class="rf-ot"><b>${v.tab}</b><small>${v.rule}</small></span><span class="rf-os"><b>${rub(q.total)}</b><small>${q.regN} реф.</small></span></button>`; }).join("")}</div>
       <div class="rf-title">
         <div><h1>Рефералы ${bolt} <span class="rf-bonus">БОНУС</span></h1>
+          <div class="rf-kind"><span class="rf-ico">${T.ico}</span>${T.tab.toUpperCase()}<i>${T.line}</i></div>
           <p class="rf-sub">Получайте <b>15% комиссий</b> от прямых рефералов и <b>5% комиссий</b> от непрямых ${T.line}. <a href="#referrals" data-refinfo>Подробнее</a></p></div>
         <div class="rf-link"><span id="rf-url">${esc(refLink())}</span><button type="button" data-refcopy title="Скопировать ссылку" aria-label="Скопировать ссылку"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="9" width="11" height="11" rx="2.5"/><path d="M5 15V6a2 2 0 0 1 2-2h9"/></svg></button></div>
       </div>

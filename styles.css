@@ -958,3 +958,39 @@ footer{border-top:1px solid var(--line);padding:22px 0;color:var(--muted);font-s
 .st-chev{margin-left:auto;color:var(--muted);font-size:22px;line-height:1;padding:0 4px}
 .st-go .sw{margin-left:6px}
 #modal.fs .ref{padding-bottom:30px}
+
+/* Рефералы: Прогнозы и Перпы визуально разделены */
+.ref[data-cat="pred"]{--acc:#8b6cff}
+.ref[data-cat="perps"]{--acc:#14c8a8}
+:root[data-theme="light"] .ref[data-cat="pred"]{--acc:#6a4df0}
+:root[data-theme="light"] .ref[data-cat="perps"]{--acc:#0a9f86}
+.rf-switch{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px;margin:14px 0 26px}
+.rf-opt{--a:var(--brand);display:flex;align-items:center;gap:14px;padding:16px 18px;border:1.5px solid var(--line);border-radius:20px;background:var(--card);color:var(--ink);font:inherit;text-align:left;cursor:pointer;transition:border-color .15s,background .15s,transform .15s}
+.rf-opt[data-cat="pred"]{--a:#8b6cff}
+.rf-opt[data-cat="perps"]{--a:#14c8a8}
+:root[data-theme="light"] .rf-opt[data-cat="pred"]{--a:#6a4df0}
+:root[data-theme="light"] .rf-opt[data-cat="perps"]{--a:#0a9f86}
+.rf-opt:hover{border-color:color-mix(in srgb,var(--a) 55%,var(--line))}
+.rf-opt.on{border-color:var(--a);background:color-mix(in srgb,var(--a) 13%,var(--card));box-shadow:0 0 0 3px color-mix(in srgb,var(--a) 22%,transparent)}
+.rf-opt .rf-ico{display:grid;place-items:center;flex:none;width:46px;height:46px;border-radius:14px;background:color-mix(in srgb,var(--a) 18%,transparent);color:var(--a)}
+.rf-opt.on .rf-ico{background:var(--a);color:#fff}
+.rf-ot{display:flex;flex-direction:column;gap:3px;min-width:0;flex:1}
+.rf-ot b{font:700 19px var(--body)}
+.rf-ot small{color:var(--muted);font-size:12.5px;line-height:1.35}
+.rf-os{display:flex;flex-direction:column;align-items:flex-end;gap:2px;flex:none}
+.rf-os b{font:700 17px var(--display);font-variant-numeric:tabular-nums;color:var(--a)}
+.rf-os small{color:var(--muted);font-size:12px}
+.rf-kind{display:inline-flex;align-items:center;gap:8px;margin:10px 0 8px;padding:5px 14px 5px 6px;border-radius:99px;background:color-mix(in srgb,var(--acc) 16%,transparent);color:var(--acc);font:800 13px var(--body);letter-spacing:.08em}
+.rf-kind .rf-ico{display:grid;place-items:center;width:26px;height:26px;border-radius:50%;background:var(--acc);color:#fff}
+.rf-kind .rf-ico svg{width:15px;height:15px}
+.rf-kind i{font-style:normal;font-weight:600;letter-spacing:0;color:var(--muted);margin-left:2px}
+.ref[data-cat] .rf-card{border-color:color-mix(in srgb,var(--acc) 45%,var(--line));box-shadow:inset 0 3px 0 var(--acc)}
+.ref[data-cat] .rf-stat.on::after{background:var(--acc)}
+.ref[data-cat] .rf-svg .rf-line{stroke:var(--acc)}
+.ref[data-cat] .rf-svg .ca{fill:color-mix(in srgb,var(--acc) 14%,transparent)}
+.ref[data-cat] .rf-svg .dot{stroke:var(--acc)}
+.ref[data-cat] .rf-svg .hv-bar{fill:var(--acc)}
+.rf-chip{display:inline-block;padding:2px 12px;border-radius:99px;background:color-mix(in srgb,var(--acc) 18%,transparent);color:var(--acc);font-weight:700}
+.ref[data-cat] .rf-pay{border-color:color-mix(in srgb,var(--acc) 35%,var(--line))}
+.ref[data-cat] .rf-pay .pbtn{background:var(--acc);color:#fff}
+@media(max-width:640px){.rf-switch{gap:8px}.rf-opt{flex-wrap:wrap;padding:12px;gap:10px}.rf-opt .rf-ico{width:36px;height:36px}.rf-ot b{font-size:16px}.rf-ot small{display:none}.rf-os{align-items:flex-start;width:100%;flex-direction:row;justify-content:space-between}}
