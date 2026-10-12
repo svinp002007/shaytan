@@ -903,3 +903,53 @@ footer{border-top:1px solid var(--line);padding:22px 0;color:var(--muted);font-s
 .rf-via{display:block;color:var(--muted);font-size:11px;margin-top:2px}
 .row-actions .sbtn:disabled{opacity:.45;cursor:not-allowed}
 @media(max-width:720px){.rf-stat em{font-size:11px}}
+/* Бонус: награды за ликвидность */
+.bonus-tabs{margin:14px 0 24px}
+.lq-banner{position:relative;overflow:hidden;display:flex;align-items:center;min-height:210px;padding:34px 40px;border-radius:30px;background:linear-gradient(120deg,#1f3150,#2d4166 60%,#3a4f78);color:#fff;margin-bottom:28px}
+.lq-bt{position:relative;z-index:1;display:flex;flex-direction:column;gap:6px;max-width:560px}
+.lq-bt small{color:#8ea4ff;font:600 20px var(--body)}
+.lq-i{opacity:.8;font-size:16px}
+.lq-bt > b{font:700 52px var(--display);letter-spacing:-.01em}
+.lq-bt > span{color:#a4b2cf;font-size:16px}
+.lq-claim{display:flex;align-items:center;gap:16px;flex-wrap:wrap;margin-top:12px;color:#c8d3ea;font-size:14px}
+.lq-claim b{color:#fff}
+.lq-claim .pbtn:disabled{opacity:.45;cursor:not-allowed}
+.lq-art{position:absolute;right:0;top:0;height:100%;width:auto;max-width:50%}
+.lq-tabs{margin:0 0 18px}
+.lq-tools .tabs{padding:0 0 14px;flex-wrap:wrap;overflow:visible}
+.lq-cats .tab{padding:11px 22px;font-size:16px;font-weight:600;border-radius:99px;background:var(--soft);border-color:transparent}
+.lq-cats .tab.active{background:var(--brand-fill);color:#fff;border-color:var(--brand-fill)}
+.lq-bar{display:flex;gap:10px;flex-wrap:wrap;margin-bottom:18px}
+.lq-bar .field{flex:1;min-width:220px;margin:0}
+.lq-bar .sbtn{display:inline-flex;align-items:center;gap:8px;padding:0 20px;font-size:15px}
+.lq-bar .sbtn.on{border-color:var(--brand);background:var(--soft)}
+.lq-table{min-width:0;overflow-x:auto}
+.lq-head,.lq-row{display:grid;grid-template-columns:minmax(230px,2.4fr) 70px 70px 104px 84px 92px 58px 104px 62px 30px 14px;align-items:center;gap:10px;min-width:960px}
+.lq-head{padding:10px 18px;color:var(--muted);font:700 12px var(--body);text-transform:uppercase;letter-spacing:.06em}
+.lq-th{border:0;background:none;color:inherit;font:inherit;text-transform:inherit;letter-spacing:inherit;cursor:pointer;text-align:left;padding:0}
+.lq-th.on{color:var(--ink)}
+.lq-item{margin-bottom:8px;border-radius:18px;background:var(--card);border:1px solid transparent}
+.lq-item.open{border-color:var(--line)}
+.lq-row{padding:12px 18px;cursor:pointer;border-radius:18px;font-variant-numeric:tabular-nums}
+.lq-row:hover{background:var(--soft)}
+.lq-mk{display:flex;align-items:center;gap:14px;min-width:0}
+.lq-q{font:600 15px/1.35 var(--body);display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+.lq-c{font-size:15px}
+.lq-pool{font-weight:700}
+.lq-bars{display:inline-flex;gap:3px;align-items:center}
+.lq-bars i{width:7px;height:20px;border-radius:3px;background:var(--line)}
+.lq-bars.c1 i.on,.lq-bars.c2 i.on{background:#22c55e}.lq-bars.c3 i.on{background:#eab308}.lq-bars.c4 i.on,.lq-bars.c5 i.on{background:#f97316}
+.lq-px{display:flex;flex-direction:column;gap:6px;align-items:flex-start}
+.lq-px em{font-style:normal;font:700 13px var(--body);padding:3px 10px;border-radius:7px}
+.lq-px .yes{background:color-mix(in srgb,var(--yes) 18%,transparent);color:var(--yes)}
+.lq-px .no{background:color-mix(in srgb,var(--no) 18%,transparent);color:var(--no)}
+.lq-chev{color:var(--muted)}
+.lq-form{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:18px 24px;padding:6px 20px 20px}
+.lq-f label{display:block;font:700 13px var(--body);margin-bottom:8px}
+.lq-f .field{width:100%;margin-bottom:8px}
+.lq-f small{display:block;margin-top:6px;font-size:12px}
+.lq-prev{grid-column:1/-1;display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px;padding:14px 16px;border-radius:14px;background:var(--soft)}
+.lq-prev small{display:block;color:var(--muted);font-size:12px}
+.lq-prev b{font:700 18px var(--display)}
+.lq-form .pbtn{grid-column:1/-1;justify-self:start;padding:12px 26px}
+@media(max-width:860px){.lq-banner{padding:24px 22px}.lq-bt > b{font-size:38px}.lq-art{opacity:.35}.lq-form{grid-template-columns:1fr}.lq-prev{grid-template-columns:repeat(2,minmax(0,1fr))}}

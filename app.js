@@ -17,10 +17,13 @@
   };
   let profile = { ...DEFAULT_PROFILE, ...store.get("profile", {}) };
   // Настройки: оформление (dark | light | system) и скрытые категории рынков и классов перпов
-  let settings = { theme: "dark", hiddenCats: [], hiddenCls: [], ...store.get("settings", {}) };
+  let settings = { theme: "dark", hiddenCats: [], hiddenCls: [], hiddenBonus: [], ...store.get("settings", {}) };
+  if (!Array.isArray(settings.hiddenBonus)) settings.hiddenBonus = [];
   if (!["dark", "light", "system"].includes(settings.theme)) settings.theme = "dark";
   const catOn = (id) => !settings.hiddenCats.includes(id);
   const clsOn = (id) => !settings.hiddenCls.includes(id);
+  const bonusOn = (id) => !settings.hiddenBonus.includes(id);
+  const syncBonusNav = () => { const n = document.querySelector("#nav [data-r=bonus]"); if (n) n.hidden = !bonusOn("ref") && !bonusOn("liq"); };
   const saveSettings = () => store.set("settings", settings);
   const applyTheme = () => document.documentElement.setAttribute("data-theme", settings.theme);
   applyTheme();
@@ -1014,9 +1017,9 @@
         <div class="row-actions" style="margin-top:14px"><button type="button" class="sbtn" data-refadd>Добавить прямого реферала (демо)</button><button type="button" class="sbtn" data-refadd2 ${refs.list.some((r) => (r.lvl || 1) === 1) ? "" : "disabled"} title="Реферал вашего реферала">Добавить непрямого (демо)</button>${refs.list.length ? '<button type="button" class="sbtn danger" data-refclear>Удалить тестовых</button>' : ""}</div>
         <p class="fee-note">Демо: рефералы и их сделки симулируются, реальных приглашений нет. Доход считается как 15% от комиссий платформы с торговли прямых рефералов и 5% с торговли непрямых (${T.rule}) и начисляется игровыми рублями.</p></div>`;
   }
-  function viewReferrals() {
+  function refInnerHTML() {
     const T = REF_TXT[refTab], bolt = '<svg class="rf-bolt" viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><path d="M13 2L5 14h6l-1 8 8-12h-6z" fill="#f5b301"/></svg>';
-    return `<div class="wrap ref">
+    return `<div class="ref">
       <div class="mc-tabs rf-tabs" role="tablist">${Object.entries(REF_TXT).map(([k, v]) => `<button type="button" role="tab" data-rtab="${k}" class="${refTab === k ? "on" : ""}">${v.tab}</button>`).join("")}</div>
       <div class="rf-title">
         <div><h1>Рефералы ${bolt} <span class="rf-bonus">БОНУС</span></h1>
@@ -1045,13 +1048,11 @@
       </ol>
       <p class="fee-note">Это демонстрационный прототип: у сайта нет сервера, поэтому приглашённые пользователи и их сделки симулируются. В демо кнопки «Добавить прямого реферала» и «Добавить непрямого» создают таких пользователей, чтобы показать начисления.</p>`);
   }
-  function bindReferrals() {
-    const root = $("#view");
-    paintRefChart(refStats(refTab));
-    root.onclick = (ev) => {
+  function refClick(ev) {
+    {
       const t = ev.target;
       const tab = t.closest("[data-rtab]");
-      if (tab) { refTab = tab.dataset.rtab; $("#view").innerHTML = viewReferrals(); return paintRefChart(refStats(refTab)); }
+      if (tab) { refTab = tab.dataset.rtab; $("#bonus-body").innerHTML = refInnerHTML(); return paintRefChart(refStats(refTab)); }
       const m = t.closest("[data-rm]");
       if (m) { refMetric = m.dataset.rm; return paintRefs(); }
       if (t.closest("[data-refcopy]")) return copyText(refUrl()).then((ok) => toast(ok ? "Ссылка скопирована" : "Не удалось скопировать, выделите ссылку вручную"));
@@ -1082,7 +1083,206 @@
         toast(`Реферальный доход ${rub(v)} зачислен на баланс`);
         return paintRefs();
       }
+    }
+  }
+
+  // ---------- награды за ликвидность (демо) ----------
+  // На Polymarket маркет-мейкеры получают ежедневные награды за лимитные заявки рядом с ценой. У нас цену задаёт пул, поэтому
+  // награда считается за «заявки ликвидности»: вы замораживаете сумму рядом с текущей ценой рынка и делите дневной пул награды
+  // с другими участниками. Балл заявки = ((макс. расстояние − расстояние) / макс. расстояние)² × размер; для заявки с обеих
+  // сторон полный, с одной стороны треть. Ваша доля = ваш балл / (ваш балл + балл конкурентов). Заявки не исполняются (демо).
+  const LQ_ONE = 1 / 3;
+  let liq = { orders: [], banked: 0, paid: 0, days: {}, favs: [], ...store.get("liq", {}) };
+  const saveLiq = () => store.set("liq", liq);
+  let liqTab = "rewards", liqCat = "all", liqQ = "", liqSort = { k: "pool", dir: 1 }, liqMine = false, liqFav = false, liqOpen = null;
+  const liqForm = { size: 5000, spread: null, sides: "both" };
+  function lqMeta(e) {
+    const comp = 1 + (hash(String(e.id)) % 5);
+    return { e, pool: Math.max(100, Math.round(e.vol / 3000 / 100) * 100), maxS: e.vol >= 6e6 ? 2 : 4, minSize: 500, comp, compScore: comp * 8000 };
+  }
+  const lqScore = (o, m) => Math.pow(Math.max(0, (m.maxS - o.spread) / m.maxS), 2) * o.size * (o.sides === "both" ? 1 : LQ_ONE);
+  const lqMy = (eid) => { const m = lqMeta(byId(eid)); return liq.orders.filter((o) => o.eid === eid).reduce((s, o) => s + lqScore(o, m), 0); };
+  const lqShare = (eid) => { const my = lqMy(eid); return my ? my / (my + lqMeta(byId(eid)).compScore) : 0; };
+  // ₽ в миллисекунду для одной заявки: дневной пул рынка × её доля в общем счёте рынка
+  const lqRate = (o) => { const m = lqMeta(byId(o.eid)); return (m.pool * lqScore(o, m)) / (lqMy(o.eid) + m.compScore) / DAY; };
+  // начисляет награду по каждой заявке с прошлого момента; делит интервал по суткам для «сегодняшней» суммы
+  function lqSettle() {
+    const now = Date.now();
+    liq.orders.forEach((o) => {
+      const r = lqRate(o);
+      for (let t = o.t0; t < now;) {
+        const next = Math.min(now, dayStart(t) + DAY), amt = r * (next - t), k = dayStart(t);
+        o.acc += amt; liq.days[k] = (liq.days[k] || 0) + amt; t = next;
+      }
+      o.t0 = now;
+    });
+  }
+  const lqUnclaimed = () => liq.banked + liq.orders.reduce((s, o) => s + o.acc, 0);
+  const lqToday = () => liq.days[dayStart(Date.now())] || 0;
+  const LQ_SORT = { pool: (m) => m.pool, spread: (m) => m.maxS, comp: (m) => -m.comp, earned: (m) => lqEarned(m.e.id), share: (m) => lqShare(m.e.id) };
+  const lqEarned = (eid) => liq.orders.filter((o) => o.eid === eid).reduce((s, o) => s + o.acc, 0);
+  const lqRows = () => {
+    const q = liqQ.trim().toLowerCase();
+    const list = EVENTS.filter((e) => isOpen(e) && catOn(e.cat) && (liqCat === "all" || e.cat === liqCat) && (!q || e.q.toLowerCase().includes(q))
+      && (!liqMine || liq.orders.some((o) => o.eid === e.id)) && (!liqFav || liq.favs.includes(e.id))).map(lqMeta);
+    const f = LQ_SORT[liqSort.k];
+    return list.sort((a, b) => (f(b) - f(a)) * liqSort.dir || b.pool - a.pool);
+  };
+  const lqIcon = (e) => {
+    const st = (typeof CAT_STYLE !== "undefined" && CAT_STYLE[e.cat]) || ["#3b5bdb", "#5f3dc4"], g = typeof GLYPHS !== "undefined" ? GLYPHS[e.img] || GLYPHS.globe : "";
+    return `<span class="mk-ic" style="background:linear-gradient(135deg,${st[0]},${st[1]})"><svg viewBox="0 0 64 64" width="24" height="24" fill="none" stroke="#fff" stroke-width="4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${g}</svg></span>`;
+  };
+  const lqBars = (n) => `<span class="lq-bars c${n}" title="Конкуренция: ${n} из 5">${[1, 2, 3, 4, 5].map((i) => `<i class="${i <= n ? "on" : ""}"></i>`).join("")}</span>`;
+  function lqPreview() {
+    const m = lqMeta(byId(liqOpen)), sp = liqForm.spread == null ? m.maxS / 2 : liqForm.spread;
+    const o = { eid: m.e.id, size: liqForm.size, spread: sp, sides: liqForm.sides }, sc = lqScore(o, m), my = lqMy(m.e.id), share = sc / (my + sc + m.compScore);
+    return { m, o, sc, share, perDay: m.pool * share };
+  }
+  function lqFormHTML(m) {
+    const sp = liqForm.spread == null ? m.maxS / 2 : liqForm.spread;
+    return `<div class="lq-form">
+      <div class="lq-f"><label for="lq-size">Размер заявки, ₽ (от ${rub(m.minSize)})</label><input class="field" id="lq-size" type="number" min="${m.minSize}" step="500" value="${liqForm.size}"><div class="chips">${[1000, 5000, 20000, 50000].map((v) => `<button type="button" class="chip" data-lqsize="${v}">${rub(v)}</button>`).join("")}</div></div>
+      <div class="lq-f"><label for="lq-spr">Расстояние от цены: <b id="lq-sprv">${String(sp).replace(".", ",")}¢</b> (макс. ±${m.maxS}¢)</label><input class="lev" id="lq-spr" type="range" min="0" max="${m.maxS}" step="0.5" value="${sp}"><small class="muted">Чем ближе к цене, тем выше балл: он растёт в квадрате.</small></div>
+      <div class="lq-f"><label>Стороны</label><div class="seg" id="lq-sides">${[["both", "Обе стороны"], ["yes", "Только «Да»"], ["no", "Только «Нет»"]].map(([k, n]) => `<button type="button" class="${liqForm.sides === k ? "on" : ""}" data-lqsides="${k}">${n}</button>`).join("")}</div><small class="muted">Заявка с одной стороны приносит треть балла.</small></div>
+      <div class="lq-prev" id="lq-prev"></div>
+      <button type="button" class="pbtn" data-lqplace>Выставить заявку</button>
+    </div>`;
+  }
+  function lqPrevHTML() {
+    const p = lqPreview();
+    return `<div><small>Ваш балл</small><b>${nf.format(Math.round(p.sc))}</b></div><div><small>Доля пула</small><b>${(p.share * 100).toFixed(1).replace(".", ",")}%</b></div><div><small>Награда в день</small><b>${rub(p.perDay)}</b></div><div><small>Заморозится</small><b>${rub(liqForm.size)}</b></div>`;
+  }
+  function lqRowHTML(m) {
+    const e = m.e, my = lqMy(e.id), d = e.hist[e.hist.length - 1] - e.hist[Math.max(0, e.hist.length - 25)], open = liqOpen === e.id, fav = liq.favs.includes(e.id);
+    return `<div class="lq-item ${open ? "open" : ""}"><div class="lq-row" data-lqrow="${e.id}">
+        <span class="lq-mk">${lqIcon(e)}<span class="lq-q">${esc(e.q)}</span></span>
+        <span class="lq-c">±${m.maxS}¢</span><span class="lq-c">${m.minSize}</span><span class="lq-c lq-pool">${rub(m.pool)}</span>
+        <span class="lq-c">${lqBars(m.comp)}</span><span class="lq-c ${lqEarned(e.id) > 0 ? "pos" : ""}">${rub(lqEarned(e.id))}</span>
+        <span class="lq-c">${my ? (lqShare(e.id) * 100).toFixed(1).replace(".", ",") + "%" : "—"}</span>
+        <span class="lq-px"><em class="yes">Да ${num0(e.yes)}¢</em><em class="no">Нет ${num0(100 - e.yes)}¢</em></span>
+        <span class="lq-c ${d >= 0 ? "pos" : "neg"}">${d === 0 ? "—" : (d > 0 ? "+" : "−") + pct1(Math.abs(d))}</span>
+        <button type="button" class="fav ${fav ? "on" : ""}" data-lqfav="${e.id}" aria-label="Избранное"><svg viewBox="0 0 24 24" width="20" height="20" fill="${fav ? "currentColor" : "none"}" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" aria-hidden="true"><path d="M12 3l2.7 5.6 6.1.9-4.4 4.3 1 6.1L12 17l-5.4 2.9 1-6.1L3.2 9.5l6.1-.9z"/></svg></button>
+        <span class="lq-chev" aria-hidden="true">${open ? "▴" : "▾"}</span></div>${open ? lqFormHTML(m) : ""}</div>`;
+  }
+  const num0 = (v) => String(Math.round(v * 10) / 10).replace(".", ",");
+  function lqOrdersHTML() {
+    if (!liq.orders.length) return '<p class="empty" style="padding:30px">Открытых заявок нет. Выберите рынок на вкладке «Награды» и выставьте заявку ликвидности.</p>';
+    const SIDE = { both: "Обе стороны", yes: "Только «Да»", no: "Только «Нет»" };
+    return `<div class="table-wrap" style="margin:0"><table class="acc-tx"><thead><tr><th>Рынок</th><th>Размер</th><th>От цены</th><th>Стороны</th><th>Награда в день</th><th>Заработано</th><th></th></tr></thead><tbody>${liq.orders.slice().reverse().map((o) => {
+      const e = byId(o.eid), m = lqMeta(e);
+      return `<tr><td class="ev">${esc(e.q)}</td><td>${rub(o.size)}</td><td>${String(o.spread).replace(".", ",")}¢ из ${m.maxS}¢</td><td>${SIDE[o.sides]}</td><td>${rub(lqRate(o) * DAY)}</td><td class="pos"><b>${rub(o.acc)}</b></td><td><button type="button" class="sbtn danger" data-lqcancel="${o.id}">Отменить</button></td></tr>`;
+    }).join("")}</tbody></table></div>`;
+  }
+  function lqBannerHTML() {
+    const now = new Date().toLocaleDateString("ru-RU", { day: "numeric", month: "long" });
+    return `<div class="lq-banner"><div class="lq-bt"><small>Ежедневные вознаграждения <span class="lq-i" title="Сколько вы заработали за сегодня на наградах за ликвидность">ⓘ</span></small><b>${rub(lqToday())}</b>
+        <span>${now} · обновляется каждую минуту</span>
+        <div class="lq-claim"><span>Не забрано: <b>${rub(lqUnclaimed())}</b> · всего выплачено ${rub(liq.paid)}</span><button type="button" class="pbtn" data-lqclaim ${Math.floor(lqUnclaimed()) >= 1 ? "" : "disabled"}>Забрать на баланс</button></div></div>
+      <svg class="lq-art" viewBox="0 0 420 275" aria-hidden="true"><g fill="none" stroke="#fff" stroke-opacity=".12"><circle cx="270" cy="330" r="130"/><circle cx="270" cy="330" r="190"/><circle cx="270" cy="330" r="250"/></g>
+        <circle cx="270" cy="330" r="115" fill="#ffffff" fill-opacity=".25"/><circle cx="270" cy="330" r="92" fill="#ffffff" fill-opacity=".18"/>
+        <path d="M270 190c4 36 16 48 52 52-36 4-48 16-52 52-4-36-16-48-52-52 36-4 48-16 52-52z" fill="#fff"/>
+        <rect x="150" y="30" width="16" height="88" rx="8" transform="rotate(18 158 74)" fill="url(#lqg1)"/><rect x="354" y="22" width="16" height="70" rx="8" transform="rotate(-38 362 57)" fill="url(#lqg1)"/>
+        <defs><linearGradient id="lqg1" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#7aa2ff"/><stop offset="1" stop-color="#e49bff"/></linearGradient></defs></svg></div>`;
+  }
+  function lqBodyHTML() {
+    lqSettle();
+    const cats = [{ id: "all", name: "Все" }, ...CATEGORIES.filter((c) => catOn(c.id))];
+    if (liqCat !== "all" && !catOn(liqCat)) liqCat = "all";
+    const rows = lqRows();
+    const th = (k, n, tip = "") => `<button type="button" class="lq-th ${liqSort.k === k ? "on" : ""}" data-lqsort="${k}" ${tip ? `title="${tip}"` : ""}>${n}${liqSort.k === k ? (liqSort.dir === 1 ? " ↓" : " ↑") : ""}</button>`;
+    const body = liqTab === "orders" ? lqOrdersHTML()
+      : `<div class="lq-tools"><div class="tabs lq-cats">${cats.map((c) => `<button type="button" class="tab ${c.id === liqCat ? "active" : ""}" data-lqcat="${c.id}">${c.name}</button>`).join("")}</div>
+        <div class="lq-bar"><input class="field" id="lq-q" type="search" placeholder="Поиск рынков" value="${esc(liqQ)}" aria-label="Поиск рынков">
+          <button type="button" class="sbtn ${liqMine ? "on" : ""}" data-lqmine>Мои заявки</button><button type="button" class="sbtn ${liqFav ? "on" : ""}" data-lqfavf>Избранное</button></div></div>
+        <div class="lq-table"><div class="lq-head"><span>Рынок</span>${th("spread", "Макс. спред", "Насколько далеко от цены заявка ещё приносит награду")}<span title="Минимальный размер заявки">Мин. размер</span>${th("pool", "Награда в день", "Дневной пул награды рынка")}${th("comp", "Конкур.", "Сколько ещё участников делят пул: больше делений — меньше ваша доля")}${th("earned", "Заработано")}${th("share", "Доля")}<span>Цена</span><span>Изм.</span><span></span><span></span></div>
+        ${rows.length ? rows.map(lqRowHTML).join("") : '<p class="empty" style="padding:30px">Ничего не найдено.</p>'}</div>`;
+    return lqBannerHTML() + `<div class="mc-tabs lq-tabs" role="tablist"><button type="button" role="tab" data-lqtab="rewards" class="${liqTab === "rewards" ? "on" : ""}">Награды</button><button type="button" role="tab" data-lqtab="orders" class="${liqTab === "orders" ? "on" : ""}">Открытые заявки${liq.orders.length ? ` · ${liq.orders.length}` : ""}</button></div>` + body
+      + `<p class="fee-note">Демо: заявки ликвидности не исполняются и не меняют цену рынка, сумма замораживается на балансе и возвращается при отмене. Конкуренты и размеры пулов симулируются.</p>`;
+  }
+  const liqInnerHTML = () => `<div class="lq" id="lq-body">${lqBodyHTML()}</div>`;
+  function paintLiq(keepFocus) {
+    const el = $("#lq-body");
+    if (!el) return;
+    const y = window.scrollY;
+    el.innerHTML = lqBodyHTML();
+    if (liqOpen && $("#lq-prev")) $("#lq-prev").innerHTML = lqPrevHTML();
+    window.scrollTo(0, y);
+    if (keepFocus) { const q = $("#lq-q"); if (q) { q.focus(); q.setSelectionRange(q.value.length, q.value.length); } }
+  }
+  function liqClick(ev) {
+    const t = ev.target;
+    const act = (fn) => { fn(); };
+    const tab = t.closest("[data-lqtab]"); if (tab) { liqTab = tab.dataset.lqtab; return paintLiq(); }
+    const cat = t.closest("[data-lqcat]"); if (cat) { liqCat = cat.dataset.lqcat; return paintLiq(); }
+    if (t.closest("[data-lqmine]")) { liqMine = !liqMine; return paintLiq(); }
+    if (t.closest("[data-lqfavf]")) { liqFav = !liqFav; return paintLiq(); }
+    const sort = t.closest("[data-lqsort]"); if (sort) { const k = sort.dataset.lqsort; liqSort = { k, dir: liqSort.k === k ? -liqSort.dir : 1 }; return paintLiq(); }
+    const fav = t.closest("[data-lqfav]");
+    if (fav) { const id = Number(fav.dataset.lqfav); liq.favs = liq.favs.includes(id) ? liq.favs.filter((x) => x !== id) : [...liq.favs, id]; saveLiq(); return paintLiq(); }
+    const sz = t.closest("[data-lqsize]"); if (sz) { liqForm.size = Number(sz.dataset.lqsize); $("#lq-size").value = liqForm.size; return ($("#lq-prev").innerHTML = lqPrevHTML()); }
+    const sd = t.closest("[data-lqsides]"); if (sd) { liqForm.sides = sd.dataset.lqsides; document.querySelectorAll("#lq-sides button").forEach((b) => b.classList.toggle("on", b === sd)); return ($("#lq-prev").innerHTML = lqPrevHTML()); }
+    if (t.closest("[data-lqclaim]")) {
+      lqSettle();
+      const v = Math.floor(lqUnclaimed());
+      if (v < 1) return;
+      const rest = lqUnclaimed() - v;
+      liq.orders.forEach((o) => (o.acc = 0)); liq.banked = rest; liq.paid += v; saveLiq(); setBalance(balance + v);
+      toast(`Награды за ликвидность ${rub(v)} зачислены на баланс`);
+      return paintLiq();
+    }
+    const cancel = t.closest("[data-lqcancel]");
+    if (cancel) {
+      lqSettle();
+      const o = liq.orders.find((x) => x.id === cancel.dataset.lqcancel);
+      if (!o) return;
+      liq.banked += o.acc; liq.orders = liq.orders.filter((x) => x !== o); saveLiq(); setBalance(balance + o.size);
+      toast(`Заявка отменена, ${rub(o.size)} вернулись на баланс`);
+      return paintLiq();
+    }
+    if (t.closest("[data-lqplace]")) {
+      const m = lqMeta(byId(liqOpen)), size = Math.floor(Number($("#lq-size").value)), sp = liqForm.spread == null ? m.maxS / 2 : liqForm.spread;
+      if (!(size >= m.minSize)) return toast(`Минимальный размер заявки: ${rub(m.minSize)}`);
+      if (size > balance) return toast("Недостаточно средств на балансе");
+      liqForm.size = size;
+      return askConfirm({ title: "Выставить заявку ликвидности?", okText: "Выставить", rows: [["Рынок", esc(m.e.q)], ["Размер (заморозится)", rub(size)], ["Расстояние от цены", `${String(sp).replace(".", ",")}¢ из ${m.maxS}¢`], ["Стороны", { both: "Обе", yes: "Только «Да»", no: "Только «Нет»" }[liqForm.sides]], ["Ожидаемая награда в день", rub(lqPreview().perDay)]] }, () => {
+        lqSettle();
+        liq.orders.push({ id: Date.now().toString(36), eid: m.e.id, size, spread: sp, sides: liqForm.sides, t0: Date.now(), acc: 0 });
+        saveLiq(); setBalance(balance - size); liqOpen = null; liqTab = "orders";
+        toast("Заявка ликвидности выставлена");
+        paintLiq();
+      });
+    }
+    const row = t.closest("[data-lqrow]");
+    if (row) { const id = Number(row.dataset.lqrow); liqOpen = liqOpen === id ? null : id; liqForm.spread = null; return paintLiq(); }
+  }
+  function liqInput(ev) {
+    if (ev.target.id === "lq-q") { liqQ = ev.target.value; return paintLiq(true); }
+    if (ev.target.id === "lq-size") { liqForm.size = Math.max(0, Math.floor(Number(ev.target.value))); return ($("#lq-prev").innerHTML = lqPrevHTML()); }
+    if (ev.target.id === "lq-spr") { liqForm.spread = Number(ev.target.value); $("#lq-sprv").textContent = String(liqForm.spread).replace(".", ",") + "¢"; return ($("#lq-prev").innerHTML = lqPrevHTML()); }
+  }
+
+  // ---------- «Бонус»: рефералы и награды за ликвидность ----------
+  let bonusTab = "ref";
+  const BONUS_TABS = [["ref", "Рефералы"], ["liq", "Награды за ликвидность"]];
+  const isBonusRoute = () => ["bonus", "referrals", "rewards"].includes(state.route);
+  function viewBonus() {
+    const tabs = BONUS_TABS.filter(([id]) => bonusOn(id));
+    if (!tabs.length) return `<div class="wrap"><h1 class="page-title">Бонус</h1><p class="page-sub">Бонусные программы отключены в настройках.</p><button type="button" class="pbtn" data-settings>Открыть настройки</button></div>`;
+    if (!tabs.some(([id]) => id === bonusTab)) bonusTab = tabs[0][0];
+    return `<div class="wrap ref bonus">
+      ${tabs.length > 1 ? `<div class="mc-tabs bonus-tabs" role="tablist">${tabs.map(([id, n]) => `<button type="button" role="tab" data-btab="${id}" class="${id === bonusTab ? "on" : ""}">${n}</button>`).join("")}</div>` : ""}
+      <div id="bonus-body">${bonusTab === "ref" ? refInnerHTML() : liqInnerHTML()}</div>
+    </div>`;
+  }
+  function bindBonus() {
+    const root = $("#view");
+    root.onclick = (ev) => {
+      const bt = ev.target.closest("[data-btab]");
+      if (bt) { bonusTab = bt.dataset.btab; $("#view").innerHTML = viewBonus(); document.querySelectorAll(".bonus-tabs button").forEach((b) => b.classList.toggle("on", b.dataset.btab === bonusTab)); return bonusTab === "ref" ? paintRefChart(refStats(refTab)) : null; }
+      return bonusTab === "ref" ? refClick(ev) : liqClick(ev);
     };
+    root.oninput = (ev) => { if (bonusTab === "liq") liqInput(ev); };
+    if (bonusTab === "ref" && $("#rf-chart")) paintRefChart(refStats(refTab));
   }
 
   // ---------- правила ----------
@@ -1194,22 +1394,22 @@
   }
 
   // ---------- роутер ----------
-  const routes = { referrals: viewReferrals, rules: viewRules, home: viewHome, markets: viewMarkets, trade: () => PERPS.view(), leaderboard: viewLeaderboard, community: viewCommunity, account: viewAccount };
+  const routes = { bonus: viewBonus, referrals: () => { bonusTab = "ref"; return viewBonus(); }, rewards: () => { bonusTab = "liq"; return viewBonus(); }, rules: viewRules, home: viewHome, markets: viewMarkets, trade: () => PERPS.view(), leaderboard: viewLeaderboard, community: viewCommunity, account: viewAccount };
   function render() {
     const r = (location.hash || "#home").slice(1);
     state.route = routes[r] ? r : "home";
-    $("#view").onclick = null;
+    $("#view").onclick = null; $("#view").oninput = null;
     $("#view").innerHTML = routes[state.route]();
-    document.querySelectorAll("#nav a").forEach((a) => a.classList.toggle("on", a.dataset.r === state.route));
+    document.querySelectorAll("#nav a").forEach((a) => a.classList.toggle("on", a.dataset.r === (isBonusRoute() ? "bonus" : state.route)));
     if (state.route === "markets") paintGrid();
     if (state.route === "account") { bindAccount(); paintAccountStats(); paintDeposits(); paintAccountTx(); }
     if (state.route === "community") bindCommunity();
     if (state.route === "trade") PERPS.bind();
-    if (state.route === "referrals") bindReferrals();
+    if (isBonusRoute()) bindBonus();
     window.scrollTo(0, 0);
   }
   window.addEventListener("hashchange", render);
-  setInterval(() => { if (state.route === "referrals" && !document.hidden) paintRefs(); }, 60000);
+  setInterval(() => { if (isBonusRoute() && !document.hidden) { if (bonusTab === "ref") paintRefs(); else if (!liqOpen && !document.activeElement.matches("input")) paintLiq(); } }, 60000);
 
   // ---------- аккаунт ----------
   function bindAccount() {
@@ -1494,7 +1694,11 @@
       <div class="st-list" id="st-cats">${CATEGORIES.map((c) => sw("sc", c.id, catOn(c.id), c.name, `${cnt(c.id)} рынков`)).join("")}</div>
       <div class="st-btns"><button type="button" class="sbtn" id="st-all">Включить все</button><button type="button" class="sbtn" id="st-fav">Только любимая</button></div>
       <h3 class="st-h">Классы перпов</h3>
-      <div class="st-list" id="st-cls">${Object.entries(PERPS.classes).map(([id, n]) => sw("sk", id, clsOn(id), n, "в разделе «Перпы»")).join("")}</div>`);
+      <div class="st-list" id="st-cls">${Object.entries(PERPS.classes).map(([id, n]) => sw("sk", id, clsOn(id), n, "в разделе «Перпы»")).join("")}</div>
+      <h3 class="st-h">Бонусы</h3>
+      <p class="st-note">Раздел «Бонус» в меню собирает эти программы. Выключенная программа пропадает из раздела, а если выключены обе, пропадает и пункт меню.</p>
+      <div class="st-list" id="st-bonus">${sw("sb", "liq", bonusOn("liq"), "Награды за ликвидность", "Доход за заявки ликвидности в пулах рынков")}${sw("sb", "ref", bonusOn("ref"), "Рефералы", "15% с прямых и 5% с непрямых рефералов")}</div>
+      <div class="st-btns"><button type="button" class="sbtn" data-gobonus="liq">Открыть награды</button><button type="button" class="sbtn" data-gobonus="ref">Открыть рефералов</button></div>`);
     const sheet = $("#sheet-body");
     const refresh = () => { saveSettings(); render(); };
     $("#st-themes").onclick = (ev) => {
@@ -1511,6 +1715,19 @@
     };
     $("#st-cats").onchange = (ev) => ev.target.dataset.sc && toggle("hiddenCats", null, ev, CATEGORIES.length);
     $("#st-cls").onchange = (ev) => ev.target.dataset.sk && toggle("hiddenCls", null, ev, Object.keys(PERPS.classes).length);
+    $("#st-bonus").onchange = (ev) => {
+      const id = ev.target.dataset.sb;
+      if (!id) return;
+      settings.hiddenBonus = ev.target.checked ? settings.hiddenBonus.filter((x) => x !== id) : [...settings.hiddenBonus, id];
+      saveSettings(); syncBonusNav();
+      if (isBonusRoute()) render();
+    };
+    sheet.querySelectorAll("[data-gobonus]").forEach((b) => (b.onclick = () => {
+      const id = b.dataset.gobonus;
+      settings.hiddenBonus = settings.hiddenBonus.filter((x) => x !== id); saveSettings(); syncBonusNav();
+      bonusTab = id; $("#modal").hidden = true;
+      if (location.hash === "#bonus") render(); else location.hash = "#bonus";
+    }));
     $("#st-all").onclick = () => { settings.hiddenCats = []; refresh(); sheet.querySelectorAll("[data-sc]").forEach((x) => (x.checked = true)); };
     $("#st-fav").onclick = () => {
       if (!profile.fav || profile.fav === "all") return toast("Выберите любимую категорию в профиле");
@@ -1823,6 +2040,7 @@
     setBalance: (v) => { setBalance(v); if (state.route === "account") paintAccountRight(); }
   };
   PERPS.init();
+  syncBonusNav();
   startPoly();
   setBalance(balance);
   render();
