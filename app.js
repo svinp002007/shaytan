@@ -19,6 +19,7 @@
   // Настройки: оформление (dark | light | system) и скрытые категории рынков и классов перпов
   let settings = { theme: "dark", hiddenCats: [], hiddenCls: [], hiddenBonus: [], ...store.get("settings", {}) };
   if (!Array.isArray(settings.hiddenBonus)) settings.hiddenBonus = [];
+  settings.hiddenCats = []; settings.hiddenCls = []; // скрытие категорий и классов перпов убрано из настроек, прежние значения сбрасываются
   if (!["dark", "light", "system"].includes(settings.theme)) settings.theme = "dark";
   const catOn = (id) => !settings.hiddenCats.includes(id);
   const clsOn = (id) => !settings.hiddenCls.includes(id);
@@ -943,6 +944,10 @@
   let refs = store.get("refs", { list: [], claimed: { pred: 0, perps: 0 } });
   if (!refs.claimed) refs.claimed = { pred: 0, perps: 0 };
   const saveRefs = () => store.set("refs", refs);
+  // Рефералы и награды открываются и на странице «Бонус», и на весь экран из настроек: bq ищет элементы в нужном месте
+  let bonusFs = null;
+  const bq = (s) => (bonusFs ? $(s, $("#sheet-body")) : $(s));
+  const bqa = (s) => (bonusFs ? $("#sheet-body") : document).querySelectorAll(s);
   let refTab = "pred", refMetric = "inc";
   const refLink = () => "ruspredict.ru/?r=" + profile.nick; // для показа; в буфер уходит версия с кодированием
   const refUrl = () => "https://ruspredict.ru/?r=" + encodeURIComponent(profile.nick);
@@ -994,7 +999,7 @@
     return { svg, g, vals, fmt, days: st.days };
   }
   function paintRefChart(st) {
-    const host = $("#rf-chart");
+    const host = bq("#rf-chart");
     if (!host) return;
     const c = refChart(st);
     host.innerHTML = c.svg;
@@ -1031,7 +1036,7 @@
     </div>`;
   }
   function paintRefs() {
-    const el = $("#rf-body");
+    const el = bq("#rf-body");
     if (!el) return;
     el.innerHTML = refBodyHTML();
     paintRefChart(refStats(refTab));
@@ -1052,7 +1057,7 @@
     {
       const t = ev.target;
       const tab = t.closest("[data-rtab]");
-      if (tab) { refTab = tab.dataset.rtab; $("#bonus-body").innerHTML = refInnerHTML(); return paintRefChart(refStats(refTab)); }
+      if (tab) { refTab = tab.dataset.rtab; bq("#bonus-body").innerHTML = refInnerHTML(); return paintRefChart(refStats(refTab)); }
       const m = t.closest("[data-rm]");
       if (m) { refMetric = m.dataset.rm; return paintRefs(); }
       if (t.closest("[data-refcopy]")) return copyText(refUrl()).then((ok) => toast(ok ? "Ссылка скопирована" : "Не удалось скопировать, выделите ссылку вручную"));
@@ -1201,13 +1206,13 @@
   }
   const liqInnerHTML = () => `<div class="lq" id="lq-body">${lqBodyHTML()}</div>`;
   function paintLiq(keepFocus) {
-    const el = $("#lq-body");
+    const el = bq("#lq-body");
     if (!el) return;
-    const y = window.scrollY;
+    const sc = bonusFs ? $("#modal") : null, y = sc ? sc.scrollTop : window.scrollY;
     el.innerHTML = lqBodyHTML();
-    if (liqOpen && $("#lq-prev")) $("#lq-prev").innerHTML = lqPrevHTML();
-    window.scrollTo(0, y);
-    if (keepFocus) { const q = $("#lq-q"); if (q) { q.focus(); q.setSelectionRange(q.value.length, q.value.length); } }
+    if (liqOpen && bq("#lq-prev")) bq("#lq-prev").innerHTML = lqPrevHTML();
+    if (sc) sc.scrollTop = y; else window.scrollTo(0, y);
+    if (keepFocus) { const q = bq("#lq-q"); if (q) { q.focus(); q.setSelectionRange(q.value.length, q.value.length); } }
   }
   function liqClick(ev) {
     const t = ev.target;
@@ -1219,8 +1224,8 @@
     const sort = t.closest("[data-lqsort]"); if (sort) { const k = sort.dataset.lqsort; liqSort = { k, dir: liqSort.k === k ? -liqSort.dir : 1 }; return paintLiq(); }
     const fav = t.closest("[data-lqfav]");
     if (fav) { const id = Number(fav.dataset.lqfav); liq.favs = liq.favs.includes(id) ? liq.favs.filter((x) => x !== id) : [...liq.favs, id]; saveLiq(); return paintLiq(); }
-    const sz = t.closest("[data-lqsize]"); if (sz) { liqForm.size = Number(sz.dataset.lqsize); $("#lq-size").value = liqForm.size; return ($("#lq-prev").innerHTML = lqPrevHTML()); }
-    const sd = t.closest("[data-lqsides]"); if (sd) { liqForm.sides = sd.dataset.lqsides; document.querySelectorAll("#lq-sides button").forEach((b) => b.classList.toggle("on", b === sd)); return ($("#lq-prev").innerHTML = lqPrevHTML()); }
+    const sz = t.closest("[data-lqsize]"); if (sz) { liqForm.size = Number(sz.dataset.lqsize); bq("#lq-size").value = liqForm.size; return (bq("#lq-prev").innerHTML = lqPrevHTML()); }
+    const sd = t.closest("[data-lqsides]"); if (sd) { liqForm.sides = sd.dataset.lqsides; bqa("#lq-sides button").forEach((b) => b.classList.toggle("on", b === sd)); return (bq("#lq-prev").innerHTML = lqPrevHTML()); }
     if (t.closest("[data-lqclaim]")) {
       lqSettle();
       const v = Math.floor(lqUnclaimed());
@@ -1240,7 +1245,7 @@
       return paintLiq();
     }
     if (t.closest("[data-lqplace]")) {
-      const m = lqMeta(byId(liqOpen)), size = Math.floor(Number($("#lq-size").value)), sp = liqForm.spread == null ? m.maxS / 2 : liqForm.spread;
+      const m = lqMeta(byId(liqOpen)), size = Math.floor(Number(bq("#lq-size").value)), sp = liqForm.spread == null ? m.maxS / 2 : liqForm.spread;
       if (!(size >= m.minSize)) return toast(`Минимальный размер заявки: ${rub(m.minSize)}`);
       if (size > balance) return toast("Недостаточно средств на балансе");
       liqForm.size = size;
@@ -1257,8 +1262,8 @@
   }
   function liqInput(ev) {
     if (ev.target.id === "lq-q") { liqQ = ev.target.value; return paintLiq(true); }
-    if (ev.target.id === "lq-size") { liqForm.size = Math.max(0, Math.floor(Number(ev.target.value))); return ($("#lq-prev").innerHTML = lqPrevHTML()); }
-    if (ev.target.id === "lq-spr") { liqForm.spread = Number(ev.target.value); $("#lq-sprv").textContent = String(liqForm.spread).replace(".", ",") + "¢"; return ($("#lq-prev").innerHTML = lqPrevHTML()); }
+    if (ev.target.id === "lq-size") { liqForm.size = Math.max(0, Math.floor(Number(ev.target.value))); return (bq("#lq-prev").innerHTML = lqPrevHTML()); }
+    if (ev.target.id === "lq-spr") { liqForm.spread = Number(ev.target.value); bq("#lq-sprv").textContent = String(liqForm.spread).replace(".", ",") + "¢"; return (bq("#lq-prev").innerHTML = lqPrevHTML()); }
   }
 
   // ---------- «Бонус»: рефералы и награды за ликвидность ----------
@@ -1282,7 +1287,18 @@
       return bonusTab === "ref" ? refClick(ev) : liqClick(ev);
     };
     root.oninput = (ev) => { if (bonusTab === "liq") liqInput(ev); };
-    if (bonusTab === "ref" && $("#rf-chart")) paintRefChart(refStats(refTab));
+    if (bonusTab === "ref" && bq("#rf-chart")) paintRefChart(refStats(refTab));
+  }
+
+  // полноэкранное окно «Рефералы» или «Награды за ликвидность» (открывается из настроек)
+  function openBonusFs(id) {
+    modalEvent = null;
+    openSheet(`<div class="fs-top"><button type="button" class="fs-back" id="fs-back">← Назад в настройки</button></div><div class="ref bonus"><div id="bonus-body">${id === "ref" ? refInnerHTML() : liqInnerHTML()}</div></div>`, true);
+    bonusFs = id;
+    const sb = $("#sheet-body");
+    sb.onclick = (ev) => { if (ev.target.closest("#fs-back")) return openSettings(); return id === "ref" ? refClick(ev) : liqClick(ev); };
+    sb.oninput = (ev) => { if (id === "liq") liqInput(ev); };
+    if (id === "ref") paintRefChart(refStats(refTab));
   }
 
   // ---------- правила ----------
@@ -1409,7 +1425,7 @@
     window.scrollTo(0, 0);
   }
   window.addEventListener("hashchange", render);
-  setInterval(() => { if (isBonusRoute() && !document.hidden) { if (bonusTab === "ref") paintRefs(); else if (!liqOpen && !document.activeElement.matches("input")) paintLiq(); } }, 60000);
+  setInterval(() => { if ((isBonusRoute() || bonusFs) && !document.hidden) { if ((bonusFs || bonusTab) === "ref") paintRefs(); else if (!liqOpen && !document.activeElement.matches("input")) paintLiq(); } }, 60000);
 
   // ---------- аккаунт ----------
   function bindAccount() {
@@ -1455,8 +1471,8 @@
   }
 
   // ---------- модальные окна ----------
-  const openSheet = (html, fs) => { $("#sheet-body").innerHTML = html; $("#modal").classList.toggle("fs", !!fs); $("#modal").hidden = false; $("#modal").scrollTop = 0; };
-  const closeModal = () => { $("#modal").hidden = true; modalEvent = null; };
+  const openSheet = (html, fs) => { const sb = $("#sheet-body"); sb.onclick = null; sb.oninput = null; bonusFs = null; sb.innerHTML = html; $("#modal").classList.toggle("fs", !!fs); $("#modal").hidden = false; $("#modal").scrollTop = 0; };
+  const closeModal = () => { $("#modal").hidden = true; modalEvent = null; bonusFs = null; const sb = $("#sheet-body"); sb.onclick = null; sb.oninput = null; };
 
   let chosenSide = "yes";
   function openBet(id, side) {
@@ -1683,38 +1699,21 @@
   // ---------- настройки: оформление и категории ----------
   function openSettings() {
     modalEvent = null;
-    const cnt = (id) => EVENTS.filter((e) => e.cat === id).length;
-    const sw = (key, id, on, name, sub) => `<label class="st-row"><span><b>${name}</b><small>${sub}</small></span><span class="sw"><input type="checkbox" data-${key}="${id}" ${on ? "checked" : ""}><i></i></span></label>`;
+    const row = (id, name, sub) => `<div class="st-row st-go" data-gobonus="${id}" role="button" tabindex="0"><span><b>${name}</b><small>${sub}</small></span><span class="st-chev" aria-hidden="true">›</span><span class="sw" title="Показывать в разделе «Бонус»"><input type="checkbox" data-sb="${id}" ${bonusOn(id) ? "checked" : ""} aria-label="Показывать в разделе Бонус"><i></i></span></div>`;
     openSheet(`
       <h2>Настройки</h2>
       <h3 class="st-h">Оформление</h3>
       <div class="st-themes" id="st-themes">${[["dark", "Тёмное"], ["light", "Светлое"], ["system", "Как в системе"]].map(([k, n]) => `<button type="button" class="st-th ${settings.theme === k ? "on" : ""}" data-th="${k}"><span class="st-prev st-${k}"><i></i><i></i><i></i></span><b>${n}</b></button>`).join("")}</div>
-      <h3 class="st-h">Категории рынков</h3>
-      <p class="st-note">Скрытые категории пропадают с главной и из списка рынков. Ваши ставки в них остаются в аккаунте.</p>
-      <div class="st-list" id="st-cats">${CATEGORIES.map((c) => sw("sc", c.id, catOn(c.id), c.name, `${cnt(c.id)} рынков`)).join("")}</div>
-      <div class="st-btns"><button type="button" class="sbtn" id="st-all">Включить все</button><button type="button" class="sbtn" id="st-fav">Только любимая</button></div>
-      <h3 class="st-h">Классы перпов</h3>
-      <div class="st-list" id="st-cls">${Object.entries(PERPS.classes).map(([id, n]) => sw("sk", id, clsOn(id), n, "в разделе «Перпы»")).join("")}</div>
       <h3 class="st-h">Бонусы</h3>
-      <p class="st-note">Раздел «Бонус» в меню собирает эти программы. Выключенная программа пропадает из раздела, а если выключены обе, пропадает и пункт меню.</p>
-      <div class="st-list" id="st-bonus">${sw("sb", "liq", bonusOn("liq"), "Награды за ликвидность", "Доход за заявки ликвидности в пулах рынков")}${sw("sb", "ref", bonusOn("ref"), "Рефералы", "15% с прямых и 5% с непрямых рефералов")}</div>
-      <div class="st-btns"><button type="button" class="sbtn" data-gobonus="liq">Открыть награды</button><button type="button" class="sbtn" data-gobonus="ref">Открыть рефералов</button></div>`);
+      <p class="st-note">Нажмите на программу, чтобы открыть её на весь экран. Переключатель справа решает, показывать ли её в разделе «Бонус» в меню; если выключены обе, пункт меню пропадает.</p>
+      <div class="st-list" id="st-bonus">${row("liq", "Награды за ликвидность", "Доход за заявки ликвидности в пулах рынков")}${row("ref", "Рефералы", "15% с прямых и 5% с непрямых рефералов")}</div>`);
     const sheet = $("#sheet-body");
-    const refresh = () => { saveSettings(); render(); };
     $("#st-themes").onclick = (ev) => {
       const b = ev.target.closest("[data-th]");
       if (!b) return;
       settings.theme = b.dataset.th; saveSettings(); applyTheme();
       sheet.querySelectorAll(".st-th").forEach((x) => x.classList.toggle("on", x === b));
     };
-    const toggle = (list, ids, ev, total) => {
-      const id = ev.target.dataset.sc || ev.target.dataset.sk, on = ev.target.checked;
-      const next = on ? settings[list].filter((x) => x !== id) : [...settings[list], id];
-      if (next.length >= total) { ev.target.checked = true; return toast("Должна остаться хотя бы одна"); }
-      settings[list] = next; refresh();
-    };
-    $("#st-cats").onchange = (ev) => ev.target.dataset.sc && toggle("hiddenCats", null, ev, CATEGORIES.length);
-    $("#st-cls").onchange = (ev) => ev.target.dataset.sk && toggle("hiddenCls", null, ev, Object.keys(PERPS.classes).length);
     $("#st-bonus").onchange = (ev) => {
       const id = ev.target.dataset.sb;
       if (!id) return;
@@ -1722,18 +1721,12 @@
       saveSettings(); syncBonusNav();
       if (isBonusRoute()) render();
     };
-    sheet.querySelectorAll("[data-gobonus]").forEach((b) => (b.onclick = () => {
-      const id = b.dataset.gobonus;
-      settings.hiddenBonus = settings.hiddenBonus.filter((x) => x !== id); saveSettings(); syncBonusNav();
-      bonusTab = id; $("#modal").hidden = true;
-      if (location.hash === "#bonus") render(); else location.hash = "#bonus";
-    }));
-    $("#st-all").onclick = () => { settings.hiddenCats = []; refresh(); sheet.querySelectorAll("[data-sc]").forEach((x) => (x.checked = true)); };
-    $("#st-fav").onclick = () => {
-      if (!profile.fav || profile.fav === "all") return toast("Выберите любимую категорию в профиле");
-      settings.hiddenCats = CATEGORIES.filter((c) => c.id !== profile.fav).map((c) => c.id); refresh();
-      sheet.querySelectorAll("[data-sc]").forEach((x) => (x.checked = x.dataset.sc === profile.fav));
+    $("#st-bonus").onclick = (ev) => {
+      if (ev.target.closest(".sw")) return; // переключатель не открывает окно
+      const r = ev.target.closest("[data-gobonus]");
+      if (r) openBonusFs(r.dataset.gobonus);
     };
+    $("#st-bonus").onkeydown = (ev) => { const r = ev.target.closest("[data-gobonus]"); if (r && (ev.key === "Enter" || ev.key === " ") && !ev.target.closest(".sw")) { ev.preventDefault(); openBonusFs(r.dataset.gobonus); } };
   }
 
   function openDeposit() {

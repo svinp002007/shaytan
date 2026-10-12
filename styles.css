@@ -953,3 +953,8 @@ footer{border-top:1px solid var(--line);padding:22px 0;color:var(--muted);font-s
 .lq-prev b{font:700 18px var(--display)}
 .lq-form .pbtn{grid-column:1/-1;justify-self:start;padding:12px 26px}
 @media(max-width:860px){.lq-banner{padding:24px 22px}.lq-bt > b{font-size:38px}.lq-art{opacity:.35}.lq-form{grid-template-columns:1fr}.lq-prev{grid-template-columns:repeat(2,minmax(0,1fr))}}
+.st-go{cursor:pointer}
+.st-go:hover{border-color:var(--muted)}
+.st-chev{margin-left:auto;color:var(--muted);font-size:22px;line-height:1;padding:0 4px}
+.st-go .sw{margin-left:6px}
+#modal.fs .ref{padding-bottom:30px}
