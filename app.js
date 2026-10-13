@@ -107,7 +107,7 @@
     out[HOURS - 1] = end;
     return out.map((v) => Math.round(v * 10) / 10);
   }
-  EVENTS.forEach((e) => { e.hist = makeHistory(e.id, e.yes); });
+  EVENTS.forEach((e) => { e.newm = !!e.noliq; e.hist = e.noliq ? Array(HOURS).fill(50) : makeHistory(e.id, e.yes); });
   // Минутный график за последний час: мост от значения час назад до текущего, шум зависит от рынка и часа (не дрожит при перерисовке).
   function minuteSeries(e) {
     const rnd = mulberry(e.id * 7919 + Math.floor(Date.now() / 3600e3)), n = 60;
@@ -128,6 +128,19 @@
     e.p0 = e.yes;
   });
   const prob = (e) => (e.n / (e.y + e.n)) * 100;
+  // Рынки без ликвидности: пока первый маркет-мейкер не внёс деньги, цены нет и торговать нельзя.
+  // Как на Polymarket: он сам задаёт стартовую вероятность, рынок открывается, пока нет заявок, спред бесконечен.
+  const isDry = (e) => !!e.noliq;
+  let seeds = store.get("seeds", {});
+  function openNewMarket(e, p, size, t) {
+    const pp = clamp(p, 1, 99);
+    if (pp >= 50) { e.n = size; e.y = (size * (100 - pp)) / pp; } else { e.y = size; e.n = (size * pp) / (100 - pp); }
+    e.noliq = false; e.yes = Math.round(pp * 10) / 10; e.p0 = pp; e.opened = t; e.hist = Array(HOURS).fill(e.yes); e.trades = [];
+  }
+  function closeNewMarket(e) {
+    e.noliq = true; e.n = e.y = 25000; e.yes = 50; e.p0 = 50; e.hist = Array(HOURS).fill(50); e.trades = []; delete e.opened;
+  }
+  Object.entries(seeds).forEach(([id, sd]) => { const e = EVENTS.find((x) => x.id === Number(id)); if (e && e.newm) openNewMarket(e, sd.p, sd.size, sd.t); });
   const cents = (e) => clamp(Math.round(e.yes), 1, 99);
   // Коэффициент (десятичный): во сколько раз выплата больше ставки. Цена 19¢ (19%) даёт ×5,26.
   const coefTxt = (c) => "×" + (100 / clamp(c, 0.5, 99.5)).toFixed(2).replace(".", ",");
@@ -190,7 +203,7 @@
     }
     return out;
   }
-  EVENTS.forEach((e) => { e.trades = seedTrades(e); });
+  EVENTS.forEach((e) => { e.trades = e.newm ? [] : seedTrades(e); });
   myTx.forEach((tr) => { const e = byId(tr.eid); if (e) e.trades.push(tr); });
   EVENTS.forEach((e) => e.trades.sort((x, y) => y.t - x.t));
   function addTrade(e, tr) {
@@ -555,7 +568,7 @@
   // Очки: та же категория, тот же значок (тема), общие слова в вопросе, близкий срок. Только открытые рынки.
   function similarTo(e, n = 4) {
     const w = new Set(wordsOf(e.q));
-    return EVENTS.filter((x) => x.id !== e.id && isOpen(x) && catOn(x.cat))
+    return EVENTS.filter((x) => x.id !== e.id && !x.noliq && isOpen(x) && catOn(x.cat))
       .map((x) => {
         let s = (x.cat === e.cat ? 3 : 0) + (x.img === e.img ? 2 : 0);
         wordsOf(x.q).forEach((t) => { if (w.has(t)) s += 1; });
@@ -584,17 +597,17 @@
       ${banner(e, "", 320, 64)}
       <div class="cat"><span>${catName(e.cat)}</span>${polyChip(e)}</div>
       <h3>${esc(e.q)}</h3>
-      <div class="meter">
+      ${e.noliq ? `<div class="meter dry-meter"><div class="pct">—</div><span class="dry-tag">Нет ликвидности</span></div>` : `<div class="meter">
         <div class="pct">${Math.round(e.yes)}%</div>
         <div class="spark-host">${spark(e.hist)}</div>
-      </div>
-      ${e.resolved || isExpired(e)
+      </div>`}
+      ${e.noliq ? `<div class="btns"><button class="btn dry-btn" data-lqnew="${e.id}"><b>Открыть торги</b><small>награда ×3 первому маркет-мейкеру</small></button></div>` : e.resolved || isExpired(e)
         ? `<div class="resolved">${e.resolved ? `Рынок завершён · итог «${e.resolved === "yes" ? "Да" : "Нет"}»` : "Приём ставок закрыт · ждём итог"}</div>`
         : `<div class="btns">
         <button class="btn yes" data-open="${e.id}" data-side="yes">${sideBtn(e, "yes")}</button>
         <button class="btn no" data-open="${e.id}" data-side="no">${sideBtn(e, "no")}</button>
       </div>`}
-      <div class="meta"><span class="vol">Пул ${short(e.vol)} ₽</span><span>до ${fmtDate(e.closes)}${leftTxt(e) ? ` · <b>${leftTxt(e)}</b>` : ""}</span></div>
+      <div class="meta"><span class="vol">${e.noliq ? "Пул пуст" : "Пул " + short(e.vol) + " ₽"}</span><span>до ${fmtDate(e.closes)}${leftTxt(e) ? ` · <b>${leftTxt(e)}</b>` : ""}</span></div>
     </article>`;
 
   // ---------- страницы ----------
@@ -698,13 +711,13 @@
       closing: (a, b) => (isOpen(b) - isOpen(a)) || a.closes.localeCompare(b.closes), // сначала открытые, ближайший срок первым
       chance: (a, b) => b.yes - a.yes
     };
-    if (state.cat !== "all" && state.cat !== "soon" && !catOn(state.cat)) state.cat = "all";
-    const inCat = (e) => catOn(e.cat) && (state.cat === "all" || (state.cat === "soon" ? isOpen(e) && daysLeft(e) <= 14 : e.cat === state.cat));
+    if (state.cat !== "all" && state.cat !== "soon" && state.cat !== "dry" && !catOn(state.cat)) state.cat = "all";
+    const inCat = (e) => catOn(e.cat) && (state.cat === "all" || (state.cat === "soon" ? isOpen(e) && daysLeft(e) <= 14 : state.cat === "dry" ? !!e.noliq : e.cat === state.cat));
     return EVENTS.filter((e) => inCat(e) && (!q || e.q.toLowerCase().includes(q))).sort(state.cat === "soon" && state.sort === "volume" ? sorts.closing : sorts[state.sort]);
   }
 
   function viewMarkets() {
-    const tabs = [{ id: "all", name: "Все" }, { id: "soon", name: "Скоро закроются" }, ...CATEGORIES.filter((c) => catOn(c.id))];
+    const tabs = [{ id: "all", name: "Все" }, { id: "soon", name: "Скоро закроются" }, { id: "dry", name: "Без ликвидности" }, ...CATEGORIES.filter((c) => catOn(c.id))];
     return `
     <div class="wrap">
       <h1 class="page-title">Рынки</h1>
@@ -999,13 +1012,13 @@
   function trSpec(t) {
     if (trCache[t.nick]) return trCache[t.nick];
     const rnd = mulberry(hash(t.nick) ^ 0x5bd1), now = Date.now(), N = Math.min(t.trades, 400);
-    const predShare = 0.45 + rnd() * 0.35, syms = PERPS.sim.syms(), winRate = t.win / 100;
+    const POOL_EV = EVENTS.filter((x) => !x.newm), predShare = 0.45 + rnd() * 0.35, syms = PERPS.sim.syms(), winRate = t.win / 100;
     const LEV = [1, 2, 3, 5, 5, 10, 10, 20];
     const hist = [];
     for (let i = 0; i < N; i++) {
       const ts = now - 3600e3 - Math.pow(rnd(), 0.85) * 120 * DAY, win = rnd() < winRate;
       if (rnd() < predShare) {
-        const e = EVENTS[Math.floor(rnd() * EVENTS.length)], p = 10 + rnd() * 75, amt = 300 * Math.exp(rnd() * 3.5), shares = (amt / p) * 100;
+        const e = POOL_EV[Math.floor(rnd() * POOL_EV.length)], p = 10 + rnd() * 75, amt = 300 * Math.exp(rnd() * 3.5), shares = (amt / p) * 100;
         hist.push({ cat: "pred", ts, eid: e.id, side: rnd() < 0.5 ? "yes" : "no", p, amt, shares, win, pnl: win ? (shares - amt) * 0.98 : -amt });
       } else {
         const sym = syms[Math.floor(rnd() * syms.length)], dir = rnd() < 0.55 ? "long" : "short", lev = LEV[Math.floor(rnd() * LEV.length)], amt = 500 * Math.exp(rnd() * 3.2), move = 0.003 + rnd() * 0.05, base = 0.8 + rnd() * 0.4;
@@ -1025,7 +1038,7 @@
     // открытые позиции
     const open = [], np = 3 + Math.floor(rnd() * 4), nt = 2 + Math.floor(rnd() * 3), used = new Set();
     for (let i = 0; i < np; i++) {
-      const e = EVENTS[Math.floor(rnd() * EVENTS.length)];
+      const e = POOL_EV[Math.floor(rnd() * POOL_EV.length)];
       if (used.has(e.id)) continue; used.add(e.id);
       const side = rnd() < 0.5 ? "yes" : "no", cur = side === "yes" ? prob(e) : 100 - prob(e), p = clamp(cur + (rnd() - 0.5) * 24, 4, 96), amt = 400 * Math.exp(rnd() * 3);
       open.push({ cat: "pred", ts: now - rnd() * 20 * DAY, eid: e.id, side, p, amt, shares: (amt / p) * 100 });
@@ -1444,6 +1457,10 @@
   let liqTab = "rewards", liqCat = "all", liqQ = "", liqSort = { k: "pool", dir: 1 }, liqMine = false, liqFav = false, liqOpen = null;
   const liqForm = { size: 5000, spread: null, sides: "both" };
   function lqMeta(e) {
+    if (e.newm) { // новый рынок без стартовой ликвидности: награда ×3, пока конкурентов почти нет
+      const boost = e.noliq || e.vol < 300000;
+      return { e, pool: boost ? Math.max(3000, Math.round(e.vol / 3000 / 100) * 100) : Math.max(100, Math.round(e.vol / 3000 / 100) * 100), maxS: 4, minSize: e.noliq ? 1000 : 500, comp: 1, compScore: 2000, boost };
+    }
     const comp = 1 + (hash(String(e.id)) % 5);
     return { e, pool: Math.max(100, Math.round(e.vol / 3000 / 100) * 100), maxS: e.vol >= 6e6 ? 2 : 4, minSize: 500, comp, compScore: comp * 8000 };
   }
@@ -1470,7 +1487,7 @@
   const lqEarned = (eid) => liq.orders.filter((o) => o.eid === eid).reduce((s, o) => s + o.acc, 0);
   const lqRows = () => {
     const q = liqQ.trim().toLowerCase();
-    const list = EVENTS.filter((e) => isOpen(e) && catOn(e.cat) && (liqCat === "all" || e.cat === liqCat) && (!q || e.q.toLowerCase().includes(q))
+    const list = EVENTS.filter((e) => !e.noliq && isOpen(e) && catOn(e.cat) && (liqCat === "all" || e.cat === liqCat) && (!q || e.q.toLowerCase().includes(q))
       && (!liqMine || liq.orders.some((o) => o.eid === e.id)) && (!liqFav || liq.favs.includes(e.id))).map(lqMeta);
     const f = LQ_SORT[liqSort.k];
     return list.sort((a, b) => (f(b) - f(a)) * liqSort.dir || b.pool - a.pool);
@@ -1499,10 +1516,75 @@
     const p = lqPreview();
     return `<div><small>Ваш балл</small><b>${nf.format(Math.round(p.sc))}</b></div><div><small>Доля пула</small><b>${(p.share * 100).toFixed(1).replace(".", ",")}%</b></div><div><small>Награда в день</small><b>${rub(p.perDay)}</b></div><div><small>Заморозится</small><b>${rub(liqForm.size)}</b></div>`;
   }
+  // ----- рынки без ликвидности: первый маркет-мейкер задаёт цену -----
+  const liqDry = { open: null, p: 50, size: 5000 };
+  const dryList = () => EVENTS.filter((e) => e.noliq && isOpen(e) && catOn(e.cat));
+  function lqDryPreview() {
+    const e = byId(liqDry.open), m = lqMeta(e), size = Math.max(0, liqDry.size), p = liqDry.p;
+    const pool = p >= 50 ? { y: (size * (100 - p)) / p, n: size } : { y: size, n: (size * p) / (100 - p) };
+    const q = size > 0 ? quoteBuy(pool, "yes", 1000) : null;
+    const sc = size, share = sc / (sc + m.compScore);
+    return { m, share, perDay: m.pool * share, move: q ? q.after - p : 0 };
+  }
+  function lqDryPrevHTML() {
+    const v = lqDryPreview();
+    return `<div><small>Рынок откроется с ценой</small><b>Да ${num0(liqDry.p)}¢ · Нет ${num0(100 - liqDry.p)}¢</b></div><div><small>Доля награды</small><b>${(v.share * 100).toFixed(1).replace(".", ",")}%</b></div><div><small>Награда в день</small><b>${rub(v.perDay)}</b></div><div><small>Ставка ₽1 000 на «Да» сдвинет цену на</small><b>${v.move >= 0 ? "+" : "−"}${pct1(Math.abs(v.move))} п.п.</b></div>`;
+  }
+  function lqDryRowHTML(e) {
+    const m = lqMeta(e), open = liqDry.open === e.id;
+    return `<div class="lq-item ${open ? "open" : ""}"><div class="lq-row lq-dry-row" data-lqdry="${e.id}">
+        <span class="lq-mk">${lqIcon(e)}<span class="lq-q">${esc(e.q)}<small class="lq-seed">${catName(e.cat)} · до ${fmtDate(e.closes)}</small></span></span>
+        <span class="lq-c lq-pool">${rub(m.pool)} в день</span><span class="lq-c">от ${rub(m.minSize)}</span><span class="lq-c"><em class="lq-new">Цены нет</em></span>
+        <span class="lq-chev" aria-hidden="true">${open ? "▴" : "▾"}</span></div>
+      ${open ? `<div class="lq-form">
+        <div class="lq-f"><label for="lq-dp">Ваша вероятность «Да»: <b id="lq-dpv">${num0(liqDry.p)}%</b></label><input class="lev" id="lq-dp" type="range" min="1" max="99" step="1" value="${liqDry.p}"><small class="lq-hint">С этой цены откроются торги. Если вы ошибётесь с оценкой, другие трейдеры быстро сдвинут цену.</small></div>
+        <div class="lq-f"><label for="lq-ds">Размер, ₽ (от ${rub(m.minSize)})</label><input class="field" id="lq-ds" type="number" min="${m.minSize}" step="500" value="${liqDry.size}"><div class="chips">${[1000, 5000, 20000, 50000].map((v) => `<button type="button" class="chip" data-lqdrysize="${v}">${nf.format(v)}</button>`).join("")}</div></div>
+        <div class="lq-prev" id="lq-dprev">${lqDryPrevHTML()}</div>
+        <button type="button" class="pbtn" data-lqdryplace>Внести ликвидность и открыть рынок</button>
+      </div>` : ""}</div>`;
+  }
+  function lqDryHTML() {
+    const list = dryList();
+    if (!list.length) return "";
+    return `<div class="lq-dry"><div class="lq-dry-h"><h3>Рынки без ликвидности <em class="lq-new">награда ×3</em></h3>
+      <p>У этих рынков пока нет цены, торговать на них нельзя. Как на Polymarket: первый маркет-мейкер вносит деньги и сам задаёт стартовую вероятность «Да», после этого рынок открывается. Пока конкурентов нет, такие рынки платят втрое больше обычных.</p></div>
+      ${list.map(lqDryRowHTML).join("")}</div>`;
+  }
+  // переход из карточки или окна рынка к форме первого маркет-мейкера
+  function goDry(id) {
+    closeModal();
+    if (settings.hiddenBonus.includes("liq")) { settings.hiddenBonus = settings.hiddenBonus.filter((x) => x !== "liq"); saveSettings(); syncBonusNav(); }
+    bonusTab = "liq"; liqTab = "rewards"; liqDry.open = id; liqForm.spread = null;
+    if (location.hash === "#rewards") render(); else location.hash = "#rewards";
+  }
+  function dryClick(t) {
+    const row = t.closest("[data-lqdry]");
+    if (row) { const id = Number(row.dataset.lqdry); liqDry.open = liqDry.open === id ? null : id; paintLiq(); return true; }
+    const sz = t.closest("[data-lqdrysize]");
+    if (sz) { liqDry.size = Number(sz.dataset.lqdrysize); bq("#lq-ds").value = liqDry.size; bq("#lq-dprev").innerHTML = lqDryPrevHTML(); return true; }
+    if (t.closest("[data-lqdryplace]")) {
+      const e = byId(liqDry.open), m = lqMeta(e), size = Math.floor(Number(bq("#lq-ds").value)), p = liqDry.p;
+      if (!(size >= m.minSize)) { toast(`Минимальный размер: ${rub(m.minSize)}`); return true; }
+      if (size > balance) { toast("Недостаточно средств на балансе"); return true; }
+      const v = lqDryPreview();
+      askConfirm({ title: "Открыть рынок как маркет-мейкер?", okText: "Внести и открыть", rows: [["Рынок", esc(e.q)], ["Стартовая вероятность «Да»", `${num0(p)}%`], ["Вносите (заморозится)", rub(size)], ["Награда в день", rub(v.perDay)], ["Риск", "Если цена уйдёт от вашей оценки, в реальности часть суммы можно потерять. В демо сумма возвращается целиком"]] }, () => {
+        lqSettle();
+        const oid = "m" + Date.now().toString(36);
+        liq.orders.push({ id: oid, eid: e.id, size, spread: 0, sides: "both", t0: Date.now(), acc: 0, seed: true });
+        saveLiq(); seeds[e.id] = { p, size, t: Date.now(), oid }; store.set("seeds", seeds);
+        openNewMarket(e, p, size, Date.now()); setBalance(balance - size);
+        liqDry.open = null; liqTab = "orders";
+        toast(`Рынок открыт: «Да» ${num0(p)}%. Теперь на нём можно торговать`);
+        paintLiq();
+      });
+      return true;
+    }
+    return false;
+  }
   function lqRowHTML(m) {
     const e = m.e, my = lqMy(e.id), d = e.hist[e.hist.length - 1] - e.hist[Math.max(0, e.hist.length - 25)], open = liqOpen === e.id, fav = liq.favs.includes(e.id);
     return `<div class="lq-item ${open ? "open" : ""}"><div class="lq-row" data-lqrow="${e.id}">
-        <span class="lq-mk">${lqIcon(e)}<span class="lq-q">${esc(e.q)}</span></span>
+        <span class="lq-mk">${lqIcon(e)}<span class="lq-q">${esc(e.q)}${m.boost ? ' <em class="lq-new">Новый · ×3</em>' : ""}</span></span>
         <span class="lq-c">±${m.maxS}¢</span><span class="lq-c">${m.minSize}</span><span class="lq-c lq-pool">${rub(m.pool)}</span>
         <span class="lq-c">${lqBars(m.comp)}</span><span class="lq-c ${lqEarned(e.id) > 0 ? "pos" : ""}">${rub(lqEarned(e.id))}</span>
         <span class="lq-c">${my ? (lqShare(e.id) * 100).toFixed(1).replace(".", ",") + "%" : "—"}</span>
@@ -1517,7 +1599,7 @@
     const SIDE = { both: "Обе стороны", yes: "Только «Да»", no: "Только «Нет»" };
     return `<div class="table-wrap" style="margin:0"><table class="acc-tx"><thead><tr><th>Рынок</th><th>Размер</th><th>От цены</th><th>Стороны</th><th>Награда в день</th><th>Заработано</th><th></th></tr></thead><tbody>${liq.orders.slice().reverse().map((o) => {
       const e = byId(o.eid), m = lqMeta(e);
-      return `<tr><td class="ev">${esc(e.q)}</td><td>${rub(o.size)}</td><td>${String(o.spread).replace(".", ",")}¢ из ${m.maxS}¢</td><td>${SIDE[o.sides]}</td><td>${rub(lqRate(o) * DAY)}</td><td class="pos"><b>${rub(o.acc)}</b></td><td><button type="button" class="sbtn danger" data-lqcancel="${o.id}">Отменить</button></td></tr>`;
+      return `<tr><td class="ev">${esc(e.q)}${o.seed ? '<small class="lq-seed">Первый маркет-мейкер: ваша вероятность открыла рынок</small>' : ""}</td><td>${rub(o.size)}</td><td>${String(o.spread).replace(".", ",")}¢ из ${m.maxS}¢</td><td>${SIDE[o.sides]}</td><td>${rub(lqRate(o) * DAY)}</td><td class="pos"><b>${rub(o.acc)}</b></td><td><button type="button" class="sbtn danger" data-lqcancel="${o.id}">Отменить</button></td></tr>`;
     }).join("")}</tbody></table></div>`;
   }
   function lqBannerHTML() {
@@ -1538,7 +1620,7 @@
     const rows = lqRows();
     const th = (k, n, tip = "") => `<button type="button" class="lq-th ${liqSort.k === k ? "on" : ""}" data-lqsort="${k}" ${tip ? `title="${tip}"` : ""}>${n}${liqSort.k === k ? (liqSort.dir === 1 ? " ↓" : " ↑") : ""}</button>`;
     const body = liqTab === "orders" ? lqOrdersHTML()
-      : `<div class="lq-tools"><div class="tabs lq-cats">${cats.map((c) => `<button type="button" class="tab ${c.id === liqCat ? "active" : ""}" data-lqcat="${c.id}">${c.name}</button>`).join("")}</div>
+      : lqDryHTML() + `<div class="lq-tools"><div class="tabs lq-cats">${cats.map((c) => `<button type="button" class="tab ${c.id === liqCat ? "active" : ""}" data-lqcat="${c.id}">${c.name}</button>`).join("")}</div>
         <div class="lq-bar"><input class="field" id="lq-q" type="search" placeholder="Поиск рынков" value="${esc(liqQ)}" aria-label="Поиск рынков">
           <button type="button" class="sbtn ${liqMine ? "on" : ""}" data-lqmine>Мои заявки</button><button type="button" class="sbtn ${liqFav ? "on" : ""}" data-lqfavf>Избранное</button></div></div>
         <div class="lq-table"><div class="lq-head"><span>Рынок</span>${th("spread", "Макс. спред", "Насколько далеко от цены заявка ещё приносит награду")}<span title="Минимальный размер заявки">Мин. размер</span>${th("pool", "Награда в день", "Дневной пул награды рынка")}${th("comp", "Конкур.", "Сколько ещё участников делят пул: больше делений — меньше ваша доля")}${th("earned", "Заработано")}${th("share", "Доля")}<span>Цена</span><span>Изм.</span><span></span><span></span></div>
@@ -1559,6 +1641,7 @@
   function liqClick(ev) {
     const t = ev.target;
     const act = (fn) => { fn(); };
+    if (dryClick(t)) return;
     const tab = t.closest("[data-lqtab]"); if (tab) { liqTab = tab.dataset.lqtab; return paintLiq(); }
     const cat = t.closest("[data-lqcat]"); if (cat) { liqCat = cat.dataset.lqcat; return paintLiq(); }
     if (t.closest("[data-lqmine]")) { liqMine = !liqMine; return paintLiq(); }
@@ -1582,6 +1665,10 @@
       lqSettle();
       const o = liq.orders.find((x) => x.id === cancel.dataset.lqcancel);
       if (!o) return;
+      if (o.seed) {
+        if (bets.some((b) => b.eid === o.eid)) return toast("Нельзя снять стартовую ликвидность: на этом рынке есть ваши ставки. Сначала продайте позиции.");
+        closeNewMarket(byId(o.eid)); delete seeds[o.eid]; store.set("seeds", seeds);
+      }
       liq.banked += o.acc; liq.orders = liq.orders.filter((x) => x !== o); saveLiq(); setBalance(balance + o.size);
       toast(`Заявка отменена, ${rub(o.size)} вернулись на баланс`);
       return paintLiq();
@@ -1604,6 +1691,8 @@
   }
   function liqInput(ev) {
     if (ev.target.id === "lq-q") { liqQ = ev.target.value; return paintLiq(true); }
+    if (ev.target.id === "lq-dp") { liqDry.p = Number(ev.target.value); bq("#lq-dpv").textContent = num0(liqDry.p) + "%"; return (bq("#lq-dprev").innerHTML = lqDryPrevHTML()); }
+    if (ev.target.id === "lq-ds") { liqDry.size = Math.max(0, Math.floor(Number(ev.target.value))); return (bq("#lq-dprev").innerHTML = lqDryPrevHTML()); }
     if (ev.target.id === "lq-size") { liqForm.size = Math.max(0, Math.floor(Number(ev.target.value))); return (bq("#lq-prev").innerHTML = lqPrevHTML()); }
     if (ev.target.id === "lq-spr") { liqForm.spread = Number(ev.target.value); bq("#lq-sprv").textContent = String(liqForm.spread).replace(".", ",") + "¢"; return (bq("#lq-prev").innerHTML = lqPrevHTML()); }
   }
@@ -1851,7 +1940,11 @@
         </div>
         <aside class="fs-side">
           ${e.resolved ? `<div class="resolved-note">Рынок завершён. Итог: «${e.resolved === "yes" ? "Да" : "Нет"}». Выплаты по ставкам уже рассчитаны, комиссия платформы 2% удержана с выигрыша.</div>` : isExpired(e) ? `<div class="resolved-note">Срок рынка вышел (${fmtDate(e.closes)}). Новые ставки не принимаются, ждём итог.</div>` : ""}
-          <div id="m-form"${e.resolved || isExpired(e) ? " hidden" : ""}>
+          ${e.noliq ? `<div class="dry-box"><h3>Рынок без ликвидности</h3>
+            <p>Пока нет ни одной заявки, у рынка нет цены, и торговать нельзя. Так же открываются рынки на Polymarket: первый маркет-мейкер вносит деньги и сам задаёт стартовую вероятность «Да».</p>
+            <ol><li>Вы вносите от ₽1 000 и выбираете вероятность «Да».</li><li>Рынок открывается с этой цены, и на нём можно торговать.</li><li>Первому маркет-мейкеру платят ×3 награды за ликвидность.</li></ol>
+            <button type="button" class="pbtn" data-lqnew="${e.id}">Стать маркет-мейкером</button></div>` : ""}
+          <div id="m-form"${e.resolved || isExpired(e) || e.noliq ? " hidden" : ""}>
             <div class="seg">
               <button class="yes" data-side="yes"></button>
               <button class="no" data-side="no"></button>
@@ -1864,11 +1957,16 @@
             <p class="fee-note">Цену определяет поток денег: чем больше ставок на «Да», тем выше вероятность «Да» и ниже «Нет». Продать позицию можно в любой момент, комиссия 2%. Если ставка выиграет, платформа удержит 2% от выигрыша (выплата минус ставка).</p>
             <div id="m-pos"></div>
           </div>
-          ${!e.resolved && typeof DEMO_RESOLVE !== "undefined" && DEMO_RESOLVE ? `<details class="demo-resolve"><summary>Демо: завершить рынок и увидеть выплату</summary><p>Настоящий итог определяет источник результата. В демо вы выбираете его сами.</p><div class="btns"><button class="btn yes" data-demoresolve="yes">Итог «Да»</button><button class="btn no" data-demoresolve="no">Итог «Нет»</button></div></details>` : ""}
+          ${!e.resolved && !e.noliq && typeof DEMO_RESOLVE !== "undefined" && DEMO_RESOLVE ? `<details class="demo-resolve"><summary>Демо: завершить рынок и увидеть выплату</summary><p>Настоящий итог определяет источник результата. В демо вы выбираете его сами.</p><div class="btns"><button class="btn yes" data-demoresolve="yes">Итог «Да»</button><button class="btn no" data-demoresolve="no">Итог «Нет»</button></div></details>` : ""}
         </aside>
       </div>`, true);
     $("#fs-back").onclick = closeModal;
     chatBind($("#m-chat"), "m" + e.id);
+    if (e.noliq) {
+      $("#m-now").textContent = "Цены нет"; $("#m-vol").textContent = "пул пуст"; $("#m-delta").textContent = "";
+      $("#m-chart").innerHTML = '<p class="acp-empty">Торги не начались: график появится после первой ликвидности.</p>';
+      $("#m-bar").innerHTML = ""; $("#m-range").style.display = "none";
+    }
     $(".seg").onclick = (ev) => { const b = ev.target.closest("button"); if (b) { chosenSide = b.dataset.side; paintModalLive(); } };
     $("#m-range").onclick = (ev) => {
       const b = ev.target.closest("button");
@@ -1883,6 +1981,7 @@
       const msg = $("#msg");
       msg.className = "msg err";
       if (!(amt > 0)) return (msg.textContent = "Введите сумму.");
+      if (e.noliq) return (msg.textContent = "На рынке нет ликвидности: торговля начнётся после первой заявки маркет-мейкера.");
       if (!isOpen(e)) return (msg.textContent = "Приём ставок на этот рынок закрыт.");
       if (amt > balance) return (msg.textContent = "Недостаточно средств. Пополните пул.");
       const side = chosenSide, q = quoteBuy(e, side, amt);
@@ -1919,7 +2018,7 @@
   }
 
   function paintChart() {
-    if (!modalEvent) return;
+    if (!modalEvent || modalEvent.noliq) return;
     const vals = modalRange === "1Ч" ? minuteSeries(modalEvent) : modalEvent.hist.slice(-RANGES[modalRange]);
     const host = $("#m-chart");
     host.innerHTML = chartMarkup(vals, modalRange);
@@ -1933,7 +2032,7 @@
   // обновляет цены, расчёты и позиции в открытом окне (без сброса поля суммы)
   function paintModalLive() {
     const e = modalEvent;
-    if (!e || !$("#m-now")) return;
+    if (!e || e.noliq || !$("#m-now")) return;
     $("#m-now").textContent = `${pct1(e.yes)}% «Да»`;
     $("#m-vol").textContent = `пул ${short(e.vol)} ₽`;
     $("#m-bar").innerHTML = `<div class="pbar"><div style="width:${e.yes}%"></div></div><div class="pleg"><span>Да ${pct1(e.yes)}% · ${coefTxt(e.yes)}</span><span>Нет ${pct1(100 - e.yes)}% · ${coefTxt(100 - e.yes)}</span></div>`;
@@ -2311,6 +2410,7 @@
   function refreshPrices() {
     document.querySelectorAll(".card[data-open], .hero-card[data-open]").forEach((c) => {
       const e = byId(Number(c.dataset.open));
+      if (e.noliq) return;
       const p = $(".pct", c);
       if (p) p.textContent = Math.round(e.yes) + "%";
       const y = $(".btn.yes", c), n = $(".btn.no", c);
@@ -2328,7 +2428,7 @@
   function tick() {
     if (!$("#confirm").hidden) return; // цены стоят, пока открыто подтверждение
     EVENTS.forEach((e) => {
-      if (e.resolved) return;
+      if (e.resolved || e.noliq) return;
       if (polyFresh(e)) { // мягко возвращаем цену к Polymarket: после ставки отклонение гаснет примерно за пару минут
         const S = e.y + e.n, next = prob(e) + (e.poly - prob(e)) * 0.03;
         e.n = (S * next) / 100; e.y = S - e.n; syncYes(e);
@@ -2359,6 +2459,8 @@
     const txf = t.closest("[data-txf]");
     if (txf) { accFilter = txf.dataset.txf; accLimit = 15; return paintAccountTx(); }
     if (t.closest("[data-txmore]")) { accLimit += 15; return paintAccountTx(); }
+    const nw = t.closest("[data-lqnew]");
+    if (nw) { ev.stopPropagation(); return goDry(Number(nw.dataset.lqnew)); }
     if (t.closest("a[data-trader]") && !$("#modal").hidden) closeModal();
     const lbr = t.closest("tr[data-go]");
     if (lbr && !t.closest("a")) { location.hash = lbr.dataset.go; return; }
