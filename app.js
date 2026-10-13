@@ -126,6 +126,7 @@
     e.n = (S * e.yes) / 100;
     e.y = S - e.n;
     e.p0 = e.yes;
+    e.cash = e.noliq ? 0 : S; // деньги в рынке: стартовая ликвидность плюс чистые вложения трейдеров
   });
   const prob = (e) => (e.n / (e.y + e.n)) * 100;
   // Рынки без ликвидности: пока первый маркет-мейкер не внёс деньги, цены нет и торговать нельзя.
@@ -135,10 +136,10 @@
   function openNewMarket(e, p, size, t) {
     const pp = clamp(p, 1, 99);
     if (pp >= 50) { e.n = size; e.y = (size * (100 - pp)) / pp; } else { e.y = size; e.n = (size * pp) / (100 - pp); }
-    e.noliq = false; e.yes = Math.round(pp * 10) / 10; e.p0 = pp; e.opened = t; e.hist = Array(HOURS).fill(e.yes); e.trades = [];
+    e.noliq = false; e.cash = size; e.yes = Math.round(pp * 10) / 10; e.p0 = pp; e.opened = t; e.hist = Array(HOURS).fill(e.yes); e.trades = [];
   }
   function closeNewMarket(e) {
-    e.noliq = true; e.n = e.y = 25000; e.yes = 50; e.p0 = 50; e.hist = Array(HOURS).fill(50); e.trades = []; delete e.opened;
+    e.noliq = true; e.cash = 0; e.n = e.y = 25000; e.yes = 50; e.p0 = 50; e.hist = Array(HOURS).fill(50); e.trades = []; delete e.opened;
   }
   Object.entries(seeds).forEach(([id, sd]) => { const e = EVENTS.find((x) => x.id === Number(id)); if (e && e.newm) openNewMarket(e, sd.p, sd.size, sd.t); });
   const cents = (e) => clamp(Math.round(e.yes), 1, 99);
@@ -362,7 +363,7 @@
     if (i < 0) return;
     const b = bets[i], v = valueOf(b), e = byId(b.eid);
     bets.splice(i, 1);
-    e.y = v.q.y; e.n = v.q.n; syncYes(e);
+    e.y = v.q.y; e.n = v.q.n; e.cash -= v.gross; syncYes(e);
     addTrade(e, { nick: profile.nick, own: true, side: b.side, kind: "sell", amt: v.net, price: (v.gross / b.shares) * 100, pnl: v.pnl });
     closed.push({ eid: b.eid, side: b.side, amt: b.amt, net: v.net, fee: v.fee, ts: Date.now() });
     store.set("bets", bets);
@@ -607,7 +608,8 @@
         <button class="btn yes" data-open="${e.id}" data-side="yes">${sideBtn(e, "yes")}</button>
         <button class="btn no" data-open="${e.id}" data-side="no">${sideBtn(e, "no")}</button>
       </div>`}
-      <div class="meta"><span class="vol">${e.noliq ? "Пул пуст" : "Пул " + short(e.vol) + " ₽"}</span><span>до ${fmtDate(e.closes)}${leftTxt(e) ? ` · <b>${leftTxt(e)}</b>` : ""}</span></div>
+      <div class="meta"><span class="vol">${e.noliq ? "Объём 0 ₽" : "Объём " + short(e.vol) + " ₽"}</span><span>до ${fmtDate(e.closes)}${leftTxt(e) ? ` · <b>${leftTxt(e)}</b>` : ""}</span></div>
+      <div class="meta cashrow"><span>Деньги в рынке</span><b class="cash">${rub(e.cash)}</b></div>
     </article>`;
 
   // ---------- страницы ----------
@@ -632,7 +634,7 @@
         </div>
         <div class="hero-card" data-open="${featured.id}" style="cursor:pointer">
           ${banner(featured, "in-hero", 460, 96)}
-          <div class="eyebrow">${typeof MAIN_MARKET !== "undefined" && byId(MAIN_MARKET) ? "Главный рынок" : "Самый большой пул"} · ${catName(featured.cat)}</div>
+          <div class="eyebrow">${typeof MAIN_MARKET !== "undefined" && byId(MAIN_MARKET) ? "Главный рынок" : "Самый большой объём"} · ${catName(featured.cat)}</div>
           <div class="q">${esc(featured.q)}</div>
           <div class="big"><span class="pct">${Math.round(featured.yes)}%</span> <small>вероятность «Да»</small></div>
           <div class="spark-host hero-spark">${spark(featured.hist)}</div>
@@ -656,7 +658,7 @@
     <div class="wrap">
       <div class="stats">
         <div class="stat"><b>${EVENTS.length}</b><span>открытых рынков</span></div>
-        <div class="stat"><b>${short(totalVol)} ₽</b><span>объём всех пулов</span></div>
+        <div class="stat"><b>${short(totalVol)} ₽</b><span>объём торгов на всех рынках</span></div>
         <div class="stat"><b>${nf.format(12480 + TRADERS.length)}</b><span>трейдеров (демо)</span></div>
         <div class="stat"><b>2%</b><span>комиссия при продаже</span></div>
       </div>
@@ -665,7 +667,7 @@
         <div class="block-head"><h2>Категории</h2></div>
         <div class="cats">${CATEGORIES.filter((c) => catOn(c.id)).map((c) => {
           const n = EVENTS.filter((e) => e.cat === c.id);
-          return `<a class="cat-tile" href="#markets" data-pick="${c.id}"><b>${c.name}</b><span>${n.length} рынков · пул ${short(n.reduce((s, e) => s + e.vol, 0))} ₽</span></a>`;
+          return `<a class="cat-tile" href="#markets" data-pick="${c.id}"><b>${c.name}</b><span>${n.length} рынков · объём ${short(n.reduce((s, e) => s + e.vol, 0))} ₽</span></a>`;
         }).join("")}</div>
       </section>
 
@@ -1940,6 +1942,7 @@
         </div>
         <aside class="fs-side">
           ${e.resolved ? `<div class="resolved-note">Рынок завершён. Итог: «${e.resolved === "yes" ? "Да" : "Нет"}». Выплаты по ставкам уже рассчитаны, комиссия платформы 2% удержана с выигрыша.</div>` : isExpired(e) ? `<div class="resolved-note">Срок рынка вышел (${fmtDate(e.closes)}). Новые ставки не принимаются, ждём итог.</div>` : ""}
+          <div class="m-money" id="m-money"></div>
           ${e.noliq ? `<div class="dry-box"><h3>Рынок без ликвидности</h3>
             <p>Пока нет ни одной заявки, у рынка нет цены, и торговать нельзя. Так же открываются рынки на Polymarket: первый маркет-мейкер вносит деньги и сам задаёт стартовую вероятность «Да».</p>
             <ol><li>Вы вносите от ₽1 000 и выбираете вероятность «Да».</li><li>Рынок открывается с этой цены, и на нём можно торговать.</li><li>Первому маркет-мейкеру платят ×3 награды за ликвидность.</li></ol>
@@ -1963,9 +1966,9 @@
     $("#fs-back").onclick = closeModal;
     chatBind($("#m-chat"), "m" + e.id);
     if (e.noliq) {
-      $("#m-now").textContent = "Цены нет"; $("#m-vol").textContent = "пул пуст"; $("#m-delta").textContent = "";
+      $("#m-now").textContent = "Цены нет"; $("#m-vol").textContent = "объём 0 ₽ · в рынке 0 ₽"; $("#m-delta").textContent = "";
       $("#m-chart").innerHTML = '<p class="acp-empty">Торги не начались: график появится после первой ликвидности.</p>';
-      $("#m-bar").innerHTML = ""; $("#m-range").style.display = "none";
+      $("#m-bar").innerHTML = ""; $("#m-range").style.display = "none"; paintMoney(e);
     }
     $(".seg").onclick = (ev) => { const b = ev.target.closest("button"); if (b) { chosenSide = b.dataset.side; paintModalLive(); } };
     $("#m-range").onclick = (ev) => {
@@ -2001,7 +2004,7 @@
       }, () => {
         if (amt > balance) return toast("Недостаточно средств");
         setBalance(balance - amt);
-        e.y = q.y; e.n = q.n; e.vol += amt; syncYes(e);
+        e.y = q.y; e.n = q.n; e.vol += amt; e.cash += amt; syncYes(e);
         addTrade(e, { nick: profile.nick, own: true, side, kind: "buy", amt, price: q.avg });
         bets.push({ id: Date.now() + "-" + Math.random().toString(36).slice(2, 6), eid: e.id, side, amt, shares: q.shares, price: q.avg, ts: Date.now() });
         store.set("bets", bets);
@@ -2030,11 +2033,19 @@
   }
 
   // обновляет цены, расчёты и позиции в открытом окне (без сброса поля суммы)
+  // «Деньги в рынке»: сколько рублей лежит в рынке прямо сейчас и насколько глубоко он держит цену
+  function paintMoney(e) {
+    const box = $("#m-money");
+    if (!box) return;
+    const q = e.noliq ? null : quoteBuy(e, "yes", 1000), move = q ? q.after - prob(e) : 0;
+    box.innerHTML = `<div><small>Деньги в рынке</small><b>${rub(e.cash)}</b></div><div><small>Объём торгов</small><b>${rub(e.vol)}</b></div><div><small>Ставка ₽1 000 на «Да» сдвинет цену</small><b>${e.noliq ? "—" : "+" + pct1(Math.abs(move)) + " п.п."}</b></div>`;
+  }
   function paintModalLive() {
     const e = modalEvent;
     if (!e || e.noliq || !$("#m-now")) return;
     $("#m-now").textContent = `${pct1(e.yes)}% «Да»`;
-    $("#m-vol").textContent = `пул ${short(e.vol)} ₽`;
+    $("#m-vol").textContent = `объём ${short(e.vol)} ₽ · в рынке ${rub(e.cash)}`;
+    paintMoney(e);
     $("#m-bar").innerHTML = `<div class="pbar"><div style="width:${e.yes}%"></div></div><div class="pleg"><span>Да ${pct1(e.yes)}% · ${coefTxt(e.yes)}</span><span>Нет ${pct1(100 - e.yes)}% · ${coefTxt(100 - e.yes)}</span></div>`;
     $("#m-poly").innerHTML = e.poly != null
       ? (polyFresh(e)
@@ -2417,7 +2428,9 @@
       if (y) y.innerHTML = sideBtn(e, "yes");
       if (n) n.innerHTML = sideBtn(e, "no");
       const v = $(".vol", c);
-      if (v) v.textContent = `Пул ${short(e.vol)} ₽`;
+      if (v) v.textContent = `Объём ${short(e.vol)} ₽`;
+      const cs = $(".cash", c);
+      if (cs) cs.textContent = rub(e.cash);
       const pm = $(".pm", c);
       if (pm) pm.textContent = `Polymarket ${polyFresh(e) ? Math.round(e.poly) + "%" : "…"}`;
       const s = $(".spark-host", c);
@@ -2438,7 +2451,7 @@
       const side = Math.random() < pYes ? "yes" : "no";
       const amt = 100 + Math.floor(Math.random() * 700);
       const q = quoteBuy(e, side, amt);
-      e.y = q.y; e.n = q.n; e.vol += amt; syncYes(e);
+      e.y = q.y; e.n = q.n; e.vol += amt; e.cash += amt; syncYes(e);
       addTrade(e, { nick: NICKS[Math.floor(Math.random() * NICKS.length)], side, kind: "buy", amt, price: q.avg });
     });
     refreshPrices();
