@@ -969,6 +969,20 @@
     box.onmouseover = (ev) => { if (ev.target.closest(".acp-chart")) acpHover = true; };
     box.onmouseout = (ev) => { if (ev.target.closest(".acp-chart")) acpHover = false; };
   }
+  function bindWallet() {
+    const box = $("#acc-wallet");
+    if (!box) return;
+    box.onclick = (ev) => {
+      const t = ev.target; let c;
+      if ((c = t.closest("[data-wnet]"))) { wsel = Number(c.dataset.wnet); return paintMyWallet(); }
+      if ((c = t.closest("[data-wcopy]"))) return copyText(c.dataset.wcopy).then((ok) => toast(ok ? "Скопировано" : "Не удалось скопировать, выделите вручную"));
+      if (t.closest("[data-wdep]")) {
+        const n = WALLET_NETS[wsel] || WALLET_NETS[0], coin = n.coins[0];
+        dep.method = "crypto"; dep.coin = coin; dep.net = COINS[coin].nets.findIndex((x) => x[0] === n.name);
+        openDeposit();
+      }
+    };
+  }
   // живая оценка позиций: цены в перпах и рынки меняются, обновляем портфель
   setInterval(() => {
     if (state.route !== "account" || document.hidden || acpHover || !$("#modal").hidden) return;
@@ -1219,6 +1233,7 @@
       <h1 class="page-title">Мой аккаунт</h1>
       <p class="page-sub">Данные профиля хранятся в вашем браузере и меняются в любой момент.</p>
       <div class="acp" id="acc-stats"><div id="acp-top"></div><div id="acp-tools"></div><div id="acp-list"></div></div>
+      <div class="panel wl" id="acc-wallet"></div>
       <div class="acc">
         <div class="panel">
           <h3>Профиль</h3>
@@ -1750,7 +1765,7 @@
     $("#view").innerHTML = routes[state.route]();
     document.querySelectorAll("#nav a").forEach((a) => a.classList.toggle("on", a.dataset.r === (isBonusRoute() ? "bonus" : state.route === "trader" ? "leaderboard" : state.route)));
     if (state.route === "markets") paintGrid();
-    if (state.route === "account") { bindAccount(); bindAcp(); paintAccountStats(); paintDeposits(); paintAccountTx(); }
+    if (state.route === "account") { bindAccount(); bindAcp(); bindWallet(); paintMyWallet(); paintAccountStats(); paintDeposits(); paintAccountTx(); }
     if (state.route === "community") bindCommunity();
     if (state.route === "trader") bindTrader();
     if (state.route === "trade") PERPS.bind();
@@ -2022,6 +2037,41 @@
     let s = ""; for (let i = 0; i < 28; i++) s += ch[Math.floor(rnd() * ch.length)];
     return `DEMO-${code}-${s}`;
   };
+  // Личный кошелёк: идентификатор создаётся один раз в этом браузере, адрес на каждую сеть постоянный и принадлежит только этому пользователю.
+  const wallet = (() => {
+    let w = store.get("wallet", null);
+    if (!w || !w.uid) { w = { uid: "RP" + Array.from({ length: 8 }, () => "0123456789ABCDEFGHJKLMNPQRSTUVWXYZ"[Math.floor(Math.random() * 34)]).join(""), t: Date.now() }; store.set("wallet", w); }
+    return w;
+  })();
+  const walletAddr = (netName, code) => fakeAddr(code, wallet.uid + "|" + netName);
+  const WALLET_NETS = (() => {
+    const m = new Map();
+    Object.entries(COINS).forEach(([coin, c]) => c.nets.forEach((n) => { if (!m.has(n[0])) m.set(n[0], { name: n[0], code: n[2], conf: n[1], coins: [] }); m.get(n[0]).coins.push(coin); }));
+    return [...m.values()];
+  })();
+  let wsel = 0;
+  function paintMyWallet() {
+    const box = $("#acc-wallet");
+    if (!box) return;
+    const n = WALLET_NETS[wsel] || WALLET_NETS[0], addr = walletAddr(n.name, n.code);
+    const got = deposits.filter((d) => d.method === "crypto" && String(d.via).endsWith(" · " + n.name)), sum = got.reduce((t, d) => t + d.rub, 0);
+    const created = new Date(wallet.t).toLocaleDateString("ru-RU", { day: "numeric", month: "long", year: "numeric" });
+    box.innerHTML = `
+      <div class="wl-head"><div><h3 style="margin:0">Мой кошелёк для пополнений</h3>
+        <p class="wl-sub">Личный адрес закреплён за вашим аккаунтом и не меняется. ID кошелька <b>${wallet.uid}</b> · создан ${created}</p></div></div>
+      <div class="chips wl-nets" role="tablist">${WALLET_NETS.map((x, i) => `<button type="button" role="tab" class="chip ${i === wsel ? "on" : ""}" data-wnet="${i}">${esc(x.name)}</button>`).join("")}</div>
+      <div class="wl-body">
+        ${fakeQR(addr)}
+        <div class="wl-info">
+          <div class="wl-coins">Принимает: ${n.coins.map((c) => `<span class="wl-coin">${payIcon(c, 20)}${c}</span>`).join("")}</div>
+          <div class="dp-addr"><span>Ваш адрес · ${esc(n.name)}</span><code id="wl-addr">${addr}</code><button class="chip" type="button" data-wcopy="${addr}">Копировать</button></div>
+          ${n.code === "TON" ? `<div class="dp-addr"><span>Комментарий (memo): обязателен, по нему мы находим вашу сумму</span><code>${wallet.uid}</code><button class="chip" type="button" data-wcopy="${wallet.uid}">Копировать</button></div>` : ""}
+          <div class="wl-stat"><span>Получено на этот адрес</span><b>${rub(sum)}</b><small>${got.length} ${got.length === 1 ? "пополнение" : "пополнений"} · сеть подтверждает за ${n.conf} ${n.conf === 1 ? "блок" : "блоков"}</small></div>
+          <div class="row-actions"><button type="button" class="pbtn" data-wdep>Пополнить в сети ${esc(n.name)}</button></div>
+        </div>
+      </div>
+      <p class="dp-warn">Демо: адрес вымышлен (начинается с DEMO) и настоящим кошельком не является. Не отправляйте на него реальные средства: пополнение имитируется кнопкой в окне «Депозит». Для боевого сервиса адреса выдаёт сервер, а зачисление подтверждает блокчейн.</p>`;
+  }
   const depTok = () => (dep.tok != null ? dep.tok : dep.amount / COINS[dep.coin].rate);
   const tokStr = (n) => Number(n).toFixed(COINS[dep.coin].dec).replace(".", ",");
   const tokInput = (n) => String(+Number(n).toFixed(COINS[dep.coin].dec));
@@ -2164,7 +2214,7 @@
     dep.sync = null;
     const total = m === "sbp" ? 15 * 60 : 30 * 60;
     let left = total;
-    const addr = m === "crypto" ? fakeAddr(net[2], ref + dep.coin) : "";
+    const addr = m === "crypto" ? walletAddr(net[0], net[2]) : "";
     root.innerHTML = payHero(m, m === "sbp" ? "Оплата по СБП" : `Перевод ${dep.coin}`, m === "sbp" ? `Платёж СБП-${ref} · ${esc(dep.bank)}` : `Сеть ${net[0]}`, dep.coin) + (m === "sbp"
       ? `<div class="dp-pay">
           ${fakeQR("sbp" + ref)}
@@ -2190,9 +2240,10 @@
             <div><span>Курс зафиксирован</span><b>1 ${dep.coin} = ${rateTxt({ rate: dep.q.rate })} ₽${dep.q.live ? "" : " (демо)"}</b></div>
           </div>
         </div>
-        <div class="dp-addr"><span>Демо-адрес для пополнения</span><code id="dp-addr">${addr}</code><button class="chip" id="dp-copy" type="button">Копировать</button></div>
-        ${net[2] === "TON" ? `<div class="dp-addr"><span>Комментарий (memo)</span><code>${ref}</code></div>` : ""}
-        <p class="dp-warn">Адрес вымышлен и настоящим кошельком не является. Не отправляйте реальные средства, достаточно нажать кнопку ниже.</p>`);
+        <div class="dp-addr"><span>Ваш личный адрес · ${esc(net[0])}</span><code id="dp-addr">${addr}</code><button class="chip" id="dp-copy" type="button">Копировать</button></div>
+        ${net[2] === "TON" ? `<div class="dp-addr"><span>Комментарий (memo): ваш ID кошелька</span><code>${wallet.uid}</code></div>` : ""}
+        <p class="dp-own">Это ваш постоянный адрес для сети ${esc(net[0])}: он закреплён за аккаунтом, и на него можно пополнять сколько угодно раз. Кошелёк со всеми сетями — в разделе «Аккаунт».</p>
+        <p class="dp-warn">Адрес вымышлен (начинается с DEMO) и настоящим кошельком не является. Не отправляйте реальные средства, достаточно нажать кнопку ниже.</p>`);
     root.insertAdjacentHTML("beforeend", `
       <div class="dp-status" id="dp-status"><span class="dp-dot"></span><span id="dp-stxt">${m === "sbp" ? "Ожидаем оплату" : "Ожидаем перевод"} · осталось <b id="dp-timer">${mmss(left)}</b></span></div>
       <div class="dp-bar" id="dp-barw" hidden><i id="dp-bar"></i></div>
@@ -2234,11 +2285,11 @@
   function depDone(ref) {
     if (!depAlive()) return;
     const v = dep.q.amount, m = dep.method, c = COINS[dep.coin], net = c.nets[dep.net];
-    const rec = { id: ref, t: Date.now(), status: "done", method: m, rub: v, via: m === "sbp" ? dep.bank : dep.coin + " · " + net[0], coin: m === "crypto" ? tokStr(dep.q.tok) + " " + dep.coin : "", rate: m === "crypto" ? dep.q.rate : 0, live: m === "crypto" ? dep.q.live : false };
+    const rec = { id: ref, t: Date.now(), status: "done", method: m, rub: v, via: m === "sbp" ? dep.bank : dep.coin + " · " + net[0], coin: m === "crypto" ? tokStr(dep.q.tok) + " " + dep.coin : "", rate: m === "crypto" ? dep.q.rate : 0, live: m === "crypto" ? dep.q.live : false, addr: m === "crypto" ? walletAddr(net[0], net[2]) : "" };
     deposits.push(rec);
     store.set("deposits", deposits.slice(-50));
     setBalance(balance + v);
-    if (state.route === "account") paintAccountRight();
+    if (state.route === "account") { paintAccountRight(); paintMyWallet(); }
     $("#dep-root").innerHTML = `
       <div class="dp-ok">
         <svg class="dp-conf" viewBox="0 0 220 90" aria-hidden="true"><g stroke-linecap="round"><path d="M20 70l8-14M44 22l10 6M70 10l2 12M150 12l-3 12M178 28l11-5M200 62l-12-8M110 6v10M16 38l12 2M204 36l-12 4" stroke="#f59e0b" stroke-width="4"/><circle cx="36" cy="80" r="4" fill="#1e48c8"/><circle cx="92" cy="20" r="3.5" fill="#16a34a"/><circle cx="130" cy="6" r="4" fill="#ef4444"/><circle cx="190" cy="80" r="4" fill="#6a3df0"/><rect x="160" y="40" width="9" height="5" rx="1" fill="#16a34a" transform="rotate(30 164 42)"/><rect x="52" y="48" width="9" height="5" rx="1" fill="#ef4444" transform="rotate(-25 56 50)"/></g></svg>
