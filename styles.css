@@ -1139,3 +1139,7 @@ a.cm-av:hover .avatar{box-shadow:0 0 0 2px var(--brand)}
 .m-money small{display:block;color:var(--muted);font-size:11.5px;line-height:1.3;min-height:30px}
 .m-money b{display:block;margin-top:2px;font:700 15px var(--display);font-variant-numeric:tabular-nums}
 @media(max-width:520px){.m-money{grid-template-columns:1fr}.m-money small{min-height:0}}
+.live-cnt{display:inline-block;vertical-align:middle;margin-left:10px;padding:4px 12px;border-radius:99px;font:700 13px var(--body);letter-spacing:0;background:var(--soft);color:var(--muted)}
+.live-cnt.ok{background:color-mix(in srgb,var(--yes) 16%,transparent);color:var(--yes)}
+.live-cnt.part{background:color-mix(in srgb,#f5b301 18%,transparent);color:#f5b301}
+:root[data-theme="light"] .live-cnt.part{color:#8a5a00}

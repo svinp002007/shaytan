@@ -174,7 +174,7 @@ const PERPS = (() => {
     };
     run();
   }
-  const BN_HOSTS = ["https://api.binance.com", "https://data-api.binance.vision"]; // второй адрес Binance отдаёт те же публичные данные
+  const BN_HOSTS = ["https://api.binance.com", "https://data-api.binance.vision", "https://api-gcp.binance.com", "https://api1.binance.com"]; // второй адрес Binance отдаёт те же публичные данные
   let bnHost = BN_HOSTS[0];
   // Настоящие свечи (открытие, максимум, минимум, закрытие) от Binance для режима «Свечи».
   function saveOhlc(a, key, k, len) {
@@ -245,6 +245,13 @@ const PERPS = (() => {
       } catch (e) { errs.push(`${host.replace("https://", "")}: ${errTxt(e)}`); }
     }
     let ok = 0;
+    try { // Coinbase отдаёт курсы всех монет одним запросом: цена = 1 / курс к доллару
+      const d = await getJSON("https://api.coinbase.com/v2/exchange-rates?currency=USD");
+      const rates = (d.data && d.data.rates) || {};
+      list.forEach((a) => { const r = Number(rates[a.sym]); if (r > 0) { setReal(a.sym, 1 / r, NaN, "cb"); ok++; } });
+      if (ok) return;
+      errs.push("Coinbase: нет курсов по нужным монетам");
+    } catch (e) { errs.push("Coinbase: " + errTxt(e)); }
     await Promise.all(list.filter((a) => SRC[a.sym].cb).slice(0, 12).map(async (a) => {
       try {
         const d = await getJSON(`https://api.coinbase.com/v2/prices/${SRC[a.sym].cb}/spot`);
@@ -333,7 +340,9 @@ const PERPS = (() => {
       if (o && Number(o.close) > 0) setReal(a.sym, Number(o.close), Number(o.percent_change), "td");
     });
   }
-  // Yahoo (через ваш воркер) опрашиваем только по нужным сейчас бумагам: до 60 за цикл, пачками по 20.
+  // Yahoo (через ваш воркер): каждый цикл берём нужные сейчас бумаги (выбранная, позиции, индексы, сырьё, избранное, видимый список)
+  // и добавляем следующие 20 бумаг по кругу, чтобы за ~40 секунд обновились все акции мира, а не только те, что на экране.
+  let yfCursor = 0;
   function wantedYahoo() {
     const out = new Set();
     const add = (a) => { if (a && SRC[a.sym] && SRC[a.sym].yf) out.add(a); };
@@ -343,7 +352,12 @@ const PERPS = (() => {
     ["AAPL", "NVDA", "TSLA"].forEach((s) => add(A[s]));
     [...FEATURED, ...NEW_LISTINGS].forEach((x) => add(A[x]));
     if (P.view === "list") currentRows().slice(0, P.listN).forEach(add);
-    return [...out].slice(0, 60);
+    const prio = [...out].slice(0, 40);
+    const all = ASSETS.filter((a) => SRC[a.sym] && SRC[a.sym].yf && !out.has(a));
+    const rot = [];
+    for (let i = 0; i < Math.min(20, all.length); i++) rot.push(all[(yfCursor + i) % all.length]);
+    yfCursor = all.length ? (yfCursor + 20) % all.length : 0;
+    return [...prio, ...rot];
   }
   async function pollYahoo(base) {
     const list = wantedYahoo();
@@ -371,7 +385,7 @@ const PERPS = (() => {
     schedule(pollMoex, 10000, "Мосбиржа (российские акции)");
     if (keys.finnhub) schedule(() => pollFinnhub(keys.finnhub), 15000, "Finnhub (акции США)");
     schedule(pollPolymarket, 3000, "Polymarket Perps (акции США, золото, серебро)");
-    if (typeof LIVE_PROXY !== "undefined" && LIVE_PROXY) schedule(() => pollYahoo(LIVE_PROXY), 15000, "Прокси Yahoo (акции США, золото, нефть…)");
+    if (typeof LIVE_PROXY !== "undefined" && LIVE_PROXY) schedule(() => pollYahoo(LIVE_PROXY), 8000, "Прокси Yahoo (акции США, золото, нефть…)");
     if (keys.twelvedata) schedule(() => pollTwelve(keys.twelvedata), 60000, "Twelve Data (золото, серебро)");
   }
   const errHint = (err) => {
@@ -394,7 +408,14 @@ const PERPS = (() => {
     <p class="muted" style="margin:0 0 10px">Страница открыта с: <b>${esc(where)}</b> · Live-цены: <b>${live} из ${ASSETS.length}</b> · Адрес прокси: ${proxy}</p>
       <div class="table-wrap" style="margin:0"><table class="ptable feeds"><thead><tr><th>Источник</th><th>Статус</th><th>Последний успех</th><th>Что не так</th></tr></thead><tbody>${rows || '<tr><td colspan="4">Запросы ещё не отправлялись.</td></tr>'}</tbody></table></div>`;
   }
-  function paintFeeds() { const el = $("#t-feedbody"); if (el && $("#t-feeds") && $("#t-feeds").open) el.innerHTML = feedsHTML(); }
+  function paintLiveCnt() {
+    const el = $("#t-livecnt");
+    if (!el) return;
+    const live = ASSETS.filter((x) => fresh(x)).length;
+    el.textContent = `Live ${live} из ${ASSETS.length}`;
+    el.className = "live-cnt " + (live > ASSETS.length * 0.8 ? "ok" : live > 0 ? "part" : "off");
+  }
+  function paintFeeds() { paintLiveCnt(); const el = $("#t-feedbody"); if (el && $("#t-feeds") && $("#t-feeds").open) el.innerHTML = feedsHTML(); }
   const liveBadge = (a) => (fresh(a) ? '<span class="lv on">Live</span>' : '<span class="lv">Демо</span>');
   // Откуда взят график за выбранный период: настоящие свечи или симуляция (честно помечаем).
   const histNote = (a) => {
@@ -1530,7 +1551,7 @@ const PERPS = (() => {
     P.view = P.openTerm ? "term" : "discover";
     P.openTerm = false;
     return `<div class="wrap">
-      <h1 class="page-title">Перпы</h1>
+      <h1 class="page-title">Перпы <span class="live-cnt" id="t-livecnt" title="Сколько активов сейчас получают настоящую цену. Остальные идут на симуляции"></span></h1>
       <div class="pf ${P.view === "term" ? "term" : ""}" id="pf">
         <aside class="pf-side" id="pf-side">${sideHTML()}</aside>
         <div class="pf-main">
