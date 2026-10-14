@@ -134,6 +134,8 @@ const PERPS = (() => {
     positions = RP.store.get("ppos", []);
     closed = RP.store.get("pclosed", []);
     plog = RP.store.get("plog", []);
+    const savedEq = RP.store.get("pmeq", null);
+    if (savedEq && Object.keys(savedEq).length >= 10) { pmEq = savedEq; syncWorld(); } // состав акций помним с прошлого раза, чтобы при недоступном Polymarket не показывать весь каталог
     ready = true;
     checkLiquidations();
     startFeeds();
@@ -367,8 +369,17 @@ const PERPS = (() => {
         const sym = pick(i, ["symbol"]), id = pick(i, ["id", "instrument_id", "instrumentId"]);
         if (sym === undefined) return;
         if (id !== undefined) pmIds[sym] = id;
-        if (/equity|stock/i.test(String(pick(i, ["category"]) || ""))) pmEq[normPm(sym)] = { sym, id: id !== undefined ? id : sym, name: pick(i, ["name", "display_name", "displayName", "description", "base_name", "baseName"]) };
+        const cat = String(pick(i, ["category", "asset_class", "assetClass", "type", "kind"]) || "");
+        if (/equit|stock|share|etf/i.test(cat)) pmEq[normPm(sym)] = { sym, id: id !== undefined ? id : sym, name: pick(i, ["name", "display_name", "displayName", "description", "base_name", "baseName"]) };
       });
+      if (!Object.keys(pmEq).length) { // категория названа иначе: берём всё, что не крипта, индекс и сырьё и выглядит как тикер акции
+        asList(inst).forEach((i) => {
+          const sym = pick(i, ["symbol"]), id = pick(i, ["id", "instrument_id", "instrumentId"]), cat = String(pick(i, ["category", "asset_class", "assetClass", "type", "kind"]) || "");
+          const t = sym === undefined ? "" : normPm(sym);
+          if (t && /^[A-Z]{1,5}(-[A-Z])?$/.test(t) && !/crypto|index|indic|commod|metal|fx|forex|currenc/i.test(cat) && !(A[t] && (A[t].cls === "crypto" || A[t].cls === "commodity" || A[t].cls === "index"))) pmEq[t] = { sym, id: id !== undefined ? id : sym, name: pick(i, ["name", "display_name", "displayName", "description"]) };
+        });
+      }
+      if (Object.keys(pmEq).length >= 10) RP.store.set("pmeq", pmEq);
       pmNote = Object.keys(pmEq).length ? `На Polymarket ${Object.keys(pmEq).length} акций. В RusPredict сейчас те же.` : "Polymarket не вернул акции: проверьте поле category у контрактов, список акций в RusPredict остаётся прежним.";
     }
     if (!pmIds) throw new Error("Polymarket: нет списка контрактов");
@@ -1561,7 +1572,9 @@ const PERPS = (() => {
         <span class="lt-sp">${areaSpark(a, 120, 40)}</span><span class="lt-pr">${price(a, a.price)}</span>
         <span class="lt-ch ${c === null ? "muted" : c >= 0 ? "pos" : "neg"}">${pctTxt(a)}</span><span class="lt-vol">${bigNum(stats24(a).vol, a)}</span><span class="lvp">${a.maxLev}x</span></div>`;
     }).join("");
-    return `<div class="pf-hr"><h2 class="pf-h">${catTitle()} <span class="pf-cnt">${rows.length}</span></h2></div>
+    const pmSync = Object.keys(pmEq).length >= 10;
+    const worldNote = P.cat === "world" ? `<p class="muted" style="margin:-4px 0 10px;font-size:13px">${pmSync ? `Состав акций и цены как на Polymarket Perps (${Object.keys(pmEq).length} акций).` : "Список Polymarket пока не получен: показан весь каталог. Причина в «Статусе источников цен» внизу страницы."}</p>` : "";
+    return `<div class="pf-hr"><h2 class="pf-h">${catTitle()} <span class="pf-cnt">${rows.length}</span></h2></div>${worldNote}
       <div class="lt"><div class="lt-head"><span></span><span>Актив</span><span>За сутки</span>${sh("price", "Цена")}${sh("chg", "Изм. 24 ч")}${sh("vol", "Объём 24 ч")}<span>Плечо</span></div>
       ${body || `<p class="muted" style="padding:24px 8px">${P.cat === "fav" ? "Избранное пусто: нажмите ★ на карточке актива." : "Ничего не найдено."}</p>`}</div>
       ${rows.length > shown.length ? `<button type="button" class="sbtn" style="margin-top:12px" data-more>Показать ещё ${Math.min(50, rows.length - shown.length)}</button>` : ""}`;
