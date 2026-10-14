@@ -66,8 +66,8 @@ const PERPS = (() => {
     NG: ["BRENT", "GAZP", "WHEAT", "LKOH"], WHEAT: ["NG", "BRENT", "XAU", "SBER"]
   };
   const YF_SCALE = { "ZW=F": 0.01 }; // пшеница на Yahoo в центах за бушель, у нас в долларах
-  const SRC_NAME = { bn: "Binance, обновление каждые 2 с", cb: "Coinbase, обновление каждые 2 с", kr: "Kraken, обновление каждые 2 с", pm: "Polymarket Perps (mark-цена контракта), обновление каждые 3 с", moex: "Мосбиржа (ISS), бесплатные данные с задержкой ~15 мин", fh: "Finnhub, обновление каждые 15 с", td: "Twelve Data, обновление раз в минуту", yf: "Yahoo Finance через ваш прокси, обновление каждые 15 с (у некоторых бирж задержка до 15 мин)" };
-  const SRC_TTL = { bn: 15000, cb: 15000, kr: 15000, pm: 20000, moex: 45000, fh: 60000, td: 180000, yf: 90000 }; // через сколько цена считается устаревшей
+  const SRC_NAME = { gt: "Gate.io, обновление каждые 10 с", cg: "CoinGecko, обновление каждые 30 с", bn: "Binance, обновление каждые 2 с", cb: "Coinbase, обновление каждые 2 с", kr: "Kraken, обновление каждые 2 с", pm: "Polymarket Perps (mark-цена контракта), обновление каждые 3 с", moex: "Мосбиржа (ISS), бесплатные данные с задержкой ~15 мин", fh: "Finnhub, обновление каждые 15 с", td: "Twelve Data, обновление раз в минуту", yf: "Yahoo Finance через ваш прокси, обновление каждые 15 с (у некоторых бирж задержка до 15 мин)" };
+  const SRC_TTL = { bn: 15000, cb: 30000, kr: 15000, gt: 30000, cg: 90000, pm: 20000, moex: 45000, fh: 60000, td: 180000, yf: 90000 }; // через сколько цена считается устаревшей
   const P = { sel: "BTC", cls: "crypto", view: "discover", cat: "all", sort: { key: "vol", dir: 1 }, prev: null, openTerm: false, q: "", listN: 50, ctype: "line", range: "LIVE", dir: "long", lev: 1, margin: 1000, tp: "", sl: "" };
   let positions = [], closed = [], plog = [], ticks = 0, chartHover = false, ready = false;
 
@@ -125,7 +125,7 @@ const PERPS = (() => {
   const savePrices = () => RP.store.set("prices2", Object.fromEntries(ASSETS.map((a) => [a.sym, a.price])));
 
   // ---------- живые цены ----------
-  const PRI = { pm: 4, bn: 3, moex: 3, fh: 3, td: 3, yf: 2, cb: 2, kr: 2 }; // при двух источниках побеждает более надёжный
+  const PRI = { pm: 4, bn: 3, moex: 3, fh: 3, td: 3, yf: 2, cb: 2, kr: 2, gt: 2, cg: 1 }; // при двух источниках побеждает более надёжный
   const fresh = (a) => a.isLive && Date.now() - a.lastReal < (SRC_TTL[a.srcKey] || 45000);
   function adopt(a, p) {
     // Первая настоящая цена: подгоняем симулированную историю и открытые позиции, чтобы PnL в процентах не менялся.
@@ -272,6 +272,48 @@ const PERPS = (() => {
     } catch (e) { errs.push("Kraken: " + errTxt(e)); }
     throw new Error(errs.join("; "));
   }
+  // Добор крипты: всё, что Binance не отдал (нет пары, источник недоступен), добирается из других бирж, чтобы живыми были все монеты.
+  // Порядок: Coinbase (курсы всех монет одним запросом), Gate.io (все пары одним запросом), CoinGecko (топ-250 по капитализации).
+  let cgAt = 0;
+  async function pollCryptoFill() {
+    const miss = () => ASSETS.filter((a) => a.cls === "crypto" && !fresh(a));
+    let list = miss();
+    if (!list.length) return;
+    const errs = [];
+    const t24 = (a, hi, lo, vol) => { if (hi > 0 && lo > 0) a.t24 = { hi, lo, vol: vol > 0 ? vol : 0, at: Date.now() }; };
+    try {
+      const d = await getJSON("https://api.coinbase.com/v2/exchange-rates?currency=USD");
+      const rates = (d.data && d.data.rates) || {};
+      list.forEach((a) => { const r = Number(rates[a.sym]); if (r > 0) setReal(a.sym, 1 / r, NaN, "cb"); });
+    } catch (e) { errs.push("Coinbase: " + errTxt(e)); }
+    list = miss();
+    if (!list.length) return;
+    try {
+      const d = await getJSON("https://api.gateio.ws/api/v4/spot/tickers");
+      const by = {};
+      (Array.isArray(d) ? d : []).forEach((t) => { by[t.currency_pair] = t; });
+      list.forEach((a) => {
+        const t = by[a.sym + "_USDT"], p = Number(t && t.last);
+        if (p > 0) { t24(a, Number(t.high_24h), Number(t.low_24h), Number(t.quote_volume)); setReal(a.sym, p, Number(t.change_percentage), "gt"); }
+      });
+    } catch (e) { errs.push("Gate.io: " + errTxt(e)); }
+    list = miss();
+    if (!list.length) return;
+    if (Date.now() - cgAt > 30000) {
+      cgAt = Date.now();
+      try {
+        const d = await getJSON("https://api.coingecko.com/api/v3/coins/markets?vs_currency=usd&order=market_cap_desc&per_page=250&page=1&price_change_percentage=24h", 9000);
+        const by = {};
+        (Array.isArray(d) ? d : []).forEach((c) => { const k = String(c.symbol).toUpperCase(); if (!by[k]) by[k] = c; });
+        list.forEach((a) => {
+          const c = by[a.sym];
+          if (c && c.current_price > 0) { t24(a, Number(c.high_24h), Number(c.low_24h), Number(c.total_volume)); setReal(a.sym, c.current_price, Number(c.price_change_percentage_24h), "cg"); }
+        });
+      } catch (e) { errs.push("CoinGecko: " + errTxt(e)); }
+    }
+    list = miss();
+    if (list.length) throw new Error(`Нет живой цены: ${list.map((a) => a.sym).slice(0, 12).join(", ")}${list.length > 12 ? "…" : ""}. ${errs.join("; ")}`);
+  }
   // Polymarket Perps: публичные данные без ключей. Если браузер не пускает напрямую, запрос идёт через ваш прокси (?pm=1).
   const PM_BASE = "https://api.perpetuals.polymarket.com";
   const pick = (o, keys) => { for (const k of keys) if (o && o[k] !== undefined && o[k] !== null && o[k] !== "") return o[k]; };
@@ -382,6 +424,7 @@ const PERPS = (() => {
     if (typeof fetch !== "function") return;
     const keys = typeof LIVE_KEYS !== "undefined" ? LIVE_KEYS : {};
     schedule(pollCrypto, 2000, "Крипта (Binance, Coinbase, Kraken)");
+    setTimeout(() => schedule(pollCryptoFill, 10000, "Крипта: добор недостающих (Coinbase, Gate.io, CoinGecko)"), 6000); // даём Binance шанс ответить первым
     schedule(pollMoex, 10000, "Мосбиржа (российские акции)");
     if (keys.finnhub) schedule(() => pollFinnhub(keys.finnhub), 15000, "Finnhub (акции США)");
     schedule(pollPolymarket, 3000, "Polymarket Perps (акции США, золото, серебро)");
