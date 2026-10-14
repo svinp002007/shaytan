@@ -1,4 +1,4 @@
-// Перпы: бессрочные контракты (perps) на крипту, индексы, акции и сырьё. Демо на игровые рубли.
+// Перпы: бессрочные контракты (perps) на крипту, индексы, акции и металлы. Демо на игровые рубли.
 // Цены живые, если открыт доступ к источнику (бейдж Live); иначе актив торгуется по симулированной цене (бейдж Демо).
 // Использует общие функции приложения через window.RP (баланс, подтверждение, уведомления, хранилище).
 const PERPS = (() => {
@@ -7,7 +7,7 @@ const PERPS = (() => {
   const mulberry = (a) => () => { a |= 0; a = (a + 0x6d2b79f5) | 0; let t = Math.imul(a ^ (a >>> 15), 1 | a); t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t; return ((t ^ (t >>> 14)) >>> 0) / 4294967296; };
   const seedOf = (s) => [...s].reduce((x, c) => (x * 31 + c.charCodeAt(0)) >>> 0, 11);
   // Классы активов: у каждого актива один класс.
-  const CLS = { crypto: "Крипто", index: "Индексы", ru: "Акции РФ", world: "Акции мира", commodity: "Сырьё" };
+  const CLS = { crypto: "Крипто", index: "Индексы", ru: "Акции РФ", world: "Акции мира", commodity: "Металлы" };
   const inClass = (a, c) => a.cls === c;
   // Активы строятся из каталога assets.js (индексы, крипта, акции РФ, акции мира, S&P 500) плюс сырьё ниже.
   // Волатильность и фандинг для разных классов разные; у нескольких старых активов значения подобраны вручную.
@@ -41,13 +41,13 @@ const PERPS = (() => {
   addList("crypto", L.crypto); addList("index", L.index); addList("ru", L.ru); addList("world", L.world);
   // сырьё: несколько контрактов, подобранных вручную
   [
-    { sym: "BRENT", name: "Нефть Brent",   base: 72,   sig: 0.00018, dec: 2, fund: 0.00004 },
+    { sym: "BRENT", name: "Нефть Brent",   base: 72,   sig: 0.00018, dec: 2, fund: 0.00004, legacy: true },
     { sym: "XAU",   name: "Золото",        base: 4150, sig: 0.0001,  dec: 1, fund: 0.00004 },
     { sym: "XAG",   name: "Серебро",       base: 66,   sig: 0.00018, dec: 2, fund: 0.00004 },
     { sym: "XPT",   name: "Платина",       base: 1725, sig: 0.00018, dec: 1, fund: 0.00004 },
-    { sym: "NG",    name: "Природный газ", base: 3.2,  sig: 0.0003,  dec: 3, fund: 0.00004 },
-    { sym: "WHEAT", name: "Пшеница",       base: 5.6,  sig: 0.00015, dec: 2, fund: 0.00004 }
-  ].forEach((c, rank) => ASSETS.push({ ...c, cls: "commodity", rank, maxLev: 50, ccy: "$" }));
+    { sym: "NG",    name: "Природный газ", base: 3.2,  sig: 0.0003,  dec: 3, fund: 0.00004, legacy: true },
+    { sym: "WHEAT", name: "Пшеница",       base: 5.6,  sig: 0.00015, dec: 2, fund: 0.00004, legacy: true }
+  ].forEach((c, rank) => ASSETS.push({ ...c, cls: "commodity", rank, maxLev: 50, ccy: "$", off: !!c.legacy })); // в классе «Металлы» остаются только металлы; нефть, газ и пшеница скрыты, пока нет открытых позиций
   // старые активы: дополнительные источники цен (резервные биржи, Finnhub, Polymarket, Twelve Data)
   Object.assign(SRC.BTC, { cb: "BTC-USD", kr: "XBT", yf: "BTC-USD" });
   Object.assign(SRC.ETH, { cb: "ETH-USD", kr: "ETH", yf: "ETH-USD" });
@@ -97,6 +97,7 @@ const PERPS = (() => {
     initAsset(a, {});
     dyn.push(d);
     RP.store.set("pdyn", dyn);
+    if (RP.route() === "trade" && $("#pf-side")) paintSide();
     return a;
   }
   function initAsset(a, saved) {
@@ -134,6 +135,7 @@ const PERPS = (() => {
     positions = RP.store.get("ppos", []);
     closed = RP.store.get("pclosed", []);
     plog = RP.store.get("plog", []);
+    ASSETS.forEach((a) => { if (a.legacy && positions.some((p) => p.sym === a.sym)) a.off = false; });
     const savedEq = RP.store.get("pmeq", null);
     if (savedEq && Object.keys(savedEq).length >= 10) { pmEq = savedEq; syncWorld(); } // состав акций помним с прошлого раза, чтобы при недоступном Polymarket не показывать весь каталог
     ready = true;
@@ -402,13 +404,14 @@ const PERPS = (() => {
   // У Kalshi нет биржевой котировки металла, есть рынки «цена выше уровня в заданное время». Цена берётся из них:
   // по лесенке уровней это точка, где вероятность «выше» равна 50%, а если уровень один (15-минутные рынки), то он сам.
   const KS_BASE = "https://api.elections.kalshi.com/trade-api/v2";
-  const KS_METALS = {
-    XAU: { name: "Золото", series: ["KXGOLD15M", "KXGOLDH", "KXGOLDD", "KXGOLD"] },
-    XAG: { name: "Серебро", series: ["KXSILVER15M", "KXSILVERH", "KXSILVERD", "KXSILVER"] },
-    XPT: { name: "Платина", series: ["KXPLATINUM15M", "KXPLATINUMH", "KXPLATINUMD", "KXPLATINUM"] },
-    XPD: { name: "Палладий", series: ["KXPALLADIUM15M", "KXPALLADIUMH", "KXPALLADIUMD", "KXPALLADIUM"] },
-    HG: { name: "Медь", series: ["KXCOPPER15M", "KXCOPPERH", "KXCOPPERD", "KXCOPPER"] }
+  // Все металлы, которые есть у Kalshi: тикер серии начинается с KX и названия металла. Для каждого создаётся контракт в «Металлах».
+  const KS_META = {
+    GOLD: ["XAU", "Золото"], SILVER: ["XAG", "Серебро"], PLATINUM: ["XPT", "Платина"], PALLADIUM: ["XPD", "Палладий"], COPPER: ["HG", "Медь"],
+    ALUMINUM: ["ALU", "Алюминий"], ALUMINIUM: ["ALU", "Алюминий"], ZINC: ["ZN", "Цинк"], NICKEL: ["NI", "Никель"], LITHIUM: ["LI", "Литий"],
+    STEEL: ["STEEL", "Сталь"], RHODIUM: ["RH", "Родий"], COBALT: ["CO", "Кобальт"], IRON: ["FE", "Железная руда"]
   };
+  const KS_RE = new RegExp("^KX(" + Object.keys(KS_META).join("|") + ")(\\d*[MHDWY]?|MAX|MIN|RANGE|PRICE)$");
+  const KS_TITLE = /gold|silver|platinum|palladium|copper|alumin|zinc|nickel|lithium|steel|rhodium|cobalt|iron|золот|серебр|платин|палладий|медь/i;
   const ksC = (m, k) => (m[k] !== undefined && m[k] !== null ? Number(m[k]) : m[k + "_dollars"] !== undefined && m[k + "_dollars"] !== null ? Number(m[k + "_dollars"]) * 100 : NaN);
   // вероятность «выше уровня» из котировок рынка, 0..1
   function ksProb(m) {
@@ -416,6 +419,7 @@ const PERPS = (() => {
     const mid = bid > 0 && ask > 0 ? (bid + ask) / 2 : bid > 0 ? bid : last > 0 ? last : NaN;
     return mid / 100;
   }
+  // { p: цена, ladder: true, если оценка по лесенке уровней, close: время закрытия } или null
   function ksEstimate(markets) {
     const now = Date.now();
     const live = markets.filter((m) => m && Number.isFinite(Number(m.floor_strike)) && Date.parse(m.close_time) > now && (!m.open_time || Date.parse(m.open_time) <= now + 60000));
@@ -424,15 +428,16 @@ const PERPS = (() => {
     let ev = live.filter((m) => Date.parse(m.close_time) === soon);
     const ups = ev.filter((m) => m.strike_type === undefined || /greater|above/i.test(String(m.strike_type))).map((m) => ({ k: Number(m.floor_strike), p: ksProb(m) })).filter((x) => Number.isFinite(x.p)).sort((x, y) => x.k - y.k);
     if (ups.length >= 2) {
-      if (ups[0].p <= 0.5) return ups[0].k;
-      for (let i = 1; i < ups.length; i++) {
-        if (ups[i].p <= 0.5) { const a = ups[i - 1], b = ups[i], t = (a.p - 0.5) / (a.p - b.p || 1); return a.k + (b.k - a.k) * t; }
+      let price = ups[ups.length - 1].k;
+      if (ups[0].p <= 0.5) price = ups[0].k;
+      else for (let i = 1; i < ups.length; i++) {
+        if (ups[i].p <= 0.5) { const a = ups[i - 1], b = ups[i], t = (a.p - 0.5) / (a.p - b.p || 1); price = a.k + (b.k - a.k) * t; break; }
       }
-      return ups[ups.length - 1].k;
+      return { p: price, ladder: true, close: soon };
     }
     // одиночный уровень: берём самый свежий открытый (цена на начало окна)
     ev = live.slice().sort((x, y) => Date.parse(y.open_time || 0) - Date.parse(x.open_time || 0));
-    return Number(ev[0].floor_strike);
+    return { p: Number(ev[0].floor_strike), ladder: false, close: soon };
   }
   async function ksGet(path) {
     try { return await getJSON(KS_BASE + path, 8000); }
@@ -442,25 +447,47 @@ const PERPS = (() => {
       return await getJSON(`${proxy}${proxy.includes("?") ? "&" : "?"}kalshi=${encodeURIComponent("/trade-api/v2" + path)}`, 8000);
     }
   }
-  let ksFound = {};
+  // Поиск серий металлов в каталоге Kalshi; если каталог недоступен, пробуем типовые названия серий.
+  async function ksDiscover() {
+    const found = {};
+    const add = (t, title) => {
+      const m = KS_RE.exec(String(t || "").toUpperCase());
+      if (!m || (title && !KS_TITLE.test(title))) return;
+      (found[m[1]] = found[m[1]] || new Set()).add(String(t).toUpperCase());
+    };
+    for (const q of ["?category=Financials", "?category=Commodities", "?category=Economics", ""]) {
+      try { const d = await ksGet("/series" + q); ((d && d.series) || []).forEach((x) => add(x.ticker, x.title)); } catch {}
+      if (Object.keys(found).length >= 3) break;
+    }
+    ["GOLD", "SILVER", "PLATINUM", "PALLADIUM", "COPPER"].forEach((mt) => ["15M", "H", "D", ""].forEach((sx) => add("KX" + mt + sx)));
+    return Object.fromEntries(Object.entries(found).map(([k, v]) => [k, [...v].slice(0, 6)]));
+  }
+  let ksOk = {}, ksCycle = 0;
   async function pollKalshi() {
     const errs = [];
+    const cand = ksCycle % 10 === 0 || !Object.keys(ksOk).length ? await ksDiscover() : ksOk;
+    ksCycle++;
     let n = 0;
-    await Promise.all(Object.entries(KS_METALS).map(async ([sym, m]) => {
-      for (const ser of (ksFound[sym] ? [ksFound[sym]] : m.series)) {
+    const next = {};
+    await Promise.all(Object.entries(cand).map(async ([metal, list]) => {
+      const res = [];
+      for (const ser of list) {
         try {
           const d = await ksGet(`/markets?series_ticker=${ser}&status=open&limit=200`);
           const est = ksEstimate((d && d.markets) || []);
-          if (!(est > 0)) { if (ksFound[sym]) delete ksFound[sym]; continue; }
-          ksFound[sym] = ser;
-          if (!A[sym]) addDyn({ cls: "commodity", sym, name: m.name, base: est, src: { ks: true } });
-          SRC[sym] = Object.assign(SRC[sym] || {}, { ks: true });
-          setReal(sym, est, NaN, "ks");
-          n++;
-          return;
+          if (est && est.p > 0) res.push({ ser, ...est });
         } catch (e) { if (errs.length < 3) errs.push(`${ser}: ${errTxt(e)}`); }
       }
+      if (!res.length) return;
+      const best = res.slice().sort((x, y) => (y.ladder - x.ladder) || (x.close - y.close))[0];
+      next[metal] = res.map((r) => r.ser);
+      const [sym, name] = KS_META[metal];
+      if (!A[sym]) addDyn({ cls: "commodity", sym, name, base: best.p, src: { ks: true } });
+      SRC[sym] = Object.assign(SRC[sym] || {}, { ks: true });
+      setReal(sym, best.p, NaN, "ks");
+      n++;
     }));
+    ksOk = next;
     if (!n) throw new Error("Kalshi: не найдено рынков металлов. " + errs.join("; "));
   }
   async function pollMoex() {
@@ -497,7 +524,7 @@ const PERPS = (() => {
   let yfCursor = 0;
   function wantedYahoo() {
     const out = new Set();
-    const add = (a) => { if (a && SRC[a.sym] && SRC[a.sym].yf) out.add(a); };
+    const add = (a) => { if (a && !a.off && SRC[a.sym] && SRC[a.sym].yf) out.add(a); };
     add(A[P.sel]);
     positions.forEach((pos) => add(A[pos.sym]));
     ASSETS.filter((a) => a.cls === "commodity" || a.cls === "index").forEach(add);
@@ -560,7 +587,7 @@ const PERPS = (() => {
     const rows = Object.entries(feedStatus).map(([name, s]) => `<tr><td>${esc(name)}</td><td class="${s.ok ? "pos" : "neg"}">${s.ok ? "работает" : "ошибка"}</td><td>${agoTxt(s.lastOk)}</td><td class="fe">${s.ok ? "" : esc(s.err) + (errHint(s.err) ? `<small>${esc(errHint(s.err))}</small>` : "")}</td></tr>`).join("");
     const proxy = typeof LIVE_PROXY !== "undefined" && LIVE_PROXY ? esc(LIVE_PROXY) : "не задан (акции США, золото, нефть, газ и пшеница останутся на симуляции)";
     const ACT = ASSETS.filter((x) => !x.off), live = ACT.filter((x) => fresh(x)).length;
-    const CLS_NAME = { crypto: "Крипта", index: "Индексы", ru: "Акции РФ", world: "Акции мира", commodity: "Сырьё" };
+    const CLS_NAME = { crypto: "Крипта", index: "Индексы", ru: "Акции РФ", world: "Акции мира", commodity: "Металлы" };
     const dead = Object.entries(CLS_NAME).map(([c, n]) => [n, ASSETS.filter((x) => x.cls === c && !x.off && !fresh(x))]).filter(([, l]) => l.length);
     const yfBad = Object.entries(yfErr).slice(0, 10).map(([k, v]) => esc(v)).join("; ");
     const deadHTML = dead.length
@@ -1834,7 +1861,7 @@ const PERPS = (() => {
     return `<div class="promo-trade">
       <div class="pt-text">
         <h2>Перпы с плечом и без</h2>
-        <p>Бессрочные контракты на крипту, индексы, акции и сырьё. Более 700 активов, Long и Short, плечо до 100x, комиссия 0,05%.</p>
+        <p>Бессрочные контракты на крипту, индексы, акции и металлы. Более 700 активов, Long и Short, плечо до 100x, комиссия 0,05%.</p>
         <a class="cta primary" href="#trade">Открыть терминал</a>
       </div>
       <div class="pt-tiles">${pick.map((a) => `<a class="pt-tile" href="#trade" data-goasset="${a.sym}">${badge(a)}<b>${a.sym}-PERP</b><span>${price(a, a.price)}</span><small>${chText(a)}</small></a>`).join("")}</div>
