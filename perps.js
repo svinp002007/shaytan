@@ -1,4 +1,4 @@
-// Перпы: бессрочные контракты (perps) на крипту, индексы, акции и металлы. Демо на игровые рубли.
+// Перпы: бессрочные контракты (perps) на крипту, акции и сырьё. Демо на игровые рубли.
 // Цены живые, если открыт доступ к источнику (бейдж Live); иначе актив торгуется по симулированной цене (бейдж Демо).
 // Использует общие функции приложения через window.RP (баланс, подтверждение, уведомления, хранилище).
 const PERPS = (() => {
@@ -7,7 +7,8 @@ const PERPS = (() => {
   const mulberry = (a) => () => { a |= 0; a = (a + 0x6d2b79f5) | 0; let t = Math.imul(a ^ (a >>> 15), 1 | a); t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t; return ((t ^ (t >>> 14)) >>> 0) / 4294967296; };
   const seedOf = (s) => [...s].reduce((x, c) => (x * 31 + c.charCodeAt(0)) >>> 0, 11);
   // Классы активов: у каждого актива один класс.
-  const CLS = { crypto: "Крипто", index: "Индексы", ru: "Акции РФ", world: "Акции мира", commodity: "Металлы" };
+  const CLS = { crypto: "Крипто", ru: "Акции РФ", world: "Акции мира", commodity: "Сырьё" };
+  const CLS_LBL = { ...CLS, index: "Индексы" }; // индексы убраны из каталога; подпись нужна только для старых позиций
   const inClass = (a, c) => a.cls === c;
   // Активы строятся из каталога assets.js (индексы, крипта, акции РФ, акции мира, S&P 500) плюс сырьё ниже.
   // Волатильность и фандинг для разных классов разные; у нескольких старых активов значения подобраны вручную.
@@ -39,25 +40,22 @@ const PERPS = (() => {
   }
   const L = ASSET_LISTS;
   addList("crypto", L.crypto); addList("index", L.index); addList("ru", L.ru); addList("world", L.world);
-  // сырьё: несколько контрактов, подобранных вручную
+  ASSETS.filter((a) => a.cls === "index").forEach((a) => { a.off = true; a.legacy = true; }); // класс «Индексы» удалён: скрыты, пока нет открытых позиций
+  // сырьё: стартовый набор на случай, пока Polymarket не ответил; после ответа остаются только контракты Polymarket
   [
-    { sym: "BRENT", name: "Нефть Brent",   base: 72,   sig: 0.00018, dec: 2, fund: 0.00004, legacy: true },
-    { sym: "XAU",   name: "Золото",        base: 4103.3, sig: 0.0001,  dec: 2, fund: 0.000348, maxLev: 15.8, label: "GLD" },
-    { sym: "XAG",   name: "Серебро",       base: 55.627, sig: 0.00018, dec: 3, fund: 0.000217, maxLev: 9, label: "SLV" },
-    { sym: "XPT",   name: "Платина",       base: 1604.1, sig: 0.00018, dec: 2, fund: 0.000933, maxLev: 7.3, label: "PLT" },
-    { sym: "XPD",   name: "Палладий",      base: 1096.7, sig: 0.00022, dec: 2, fund: 0.000125, maxLev: 4.6, label: "PALL" },
-    { sym: "HG",    name: "Медь",          base: 6.7016, sig: 0.00018, dec: 4, fund: -0.000204, maxLev: 9.1, label: "COPR" },
-    { sym: "ALU",   name: "Алюминий",      base: 2989.8, sig: 0.00015, dec: 2, fund: 0, maxLev: 8.5, label: "ALU" },
-    { sym: "NG",    name: "Природный газ", base: 3.2,  sig: 0.0003,  dec: 3, fund: 0.00004, legacy: true },
-    { sym: "WHEAT", name: "Пшеница",       base: 5.6,  sig: 0.00015, dec: 2, fund: 0.00004, legacy: true }
-  ].forEach((c, rank) => ASSETS.push({ ...c, cls: "commodity", rank, maxLev: c.maxLev || 50, ccy: "$", off: !!c.legacy })); // в классе «Металлы» остаются только металлы; нефть, газ и пшеница скрыты, пока нет открытых позиций
+    { sym: "BRENT", name: "Нефть Brent",   base: 72,   sig: 0.00018, dec: 2, fund: 0.00004 },
+    { sym: "XAU",   name: "Золото",        base: 4150, sig: 0.0001,  dec: 1, fund: 0.00004 },
+    { sym: "XAG",   name: "Серебро",       base: 48,   sig: 0.00018, dec: 2, fund: 0.00004 },
+    { sym: "NG",    name: "Природный газ", base: 3.2,  sig: 0.0003,  dec: 3, fund: 0.00004 },
+    { sym: "WHEAT", name: "Пшеница",       base: 5.6,  sig: 0.00015, dec: 2, fund: 0.00004 }
+  ].forEach((c, rank) => ASSETS.push({ ...c, cls: "commodity", rank, maxLev: 50, ccy: "$" }));
   // старые активы: дополнительные источники цен (резервные биржи, Finnhub, Polymarket, Twelve Data)
   Object.assign(SRC.BTC, { cb: "BTC-USD", kr: "XBT", yf: "BTC-USD" });
   Object.assign(SRC.ETH, { cb: "ETH-USD", kr: "ETH", yf: "ETH-USD" });
   Object.assign(SRC.SOL, { cb: "SOL-USD", kr: "SOL", yf: "SOL-USD" });
   Object.assign(SRC.AAPL, { fh: "AAPL", pm: "AAPL-USD" }); Object.assign(SRC.NVDA, { fh: "NVDA", pm: "NVDA-USD" }); Object.assign(SRC.TSLA, { fh: "TSLA", pm: "TSLA-USD" });
   Object.assign(SRC, {
-    XAU: { kp: true, ks: true }, XAG: { kp: true, ks: true }, XPT: { kp: true, ks: true }, XPD: { kp: true, ks: true }, HG: { kp: true, ks: true }, ALU: { kp: true, ks: true }, // металлы: цены только с Kalshi
+    XAU: { td: "XAU/USD", yf: "GC=F" }, XAG: { td: "XAG/USD", yf: "SI=F" },
     BRENT: { yf: "BZ=F" }, NG: { yf: "NG=F" }, WHEAT: { yf: "ZW=F" }
   });
   const A = Object.fromEntries(ASSETS.map((a) => [a.sym, a]));
@@ -70,8 +68,8 @@ const PERPS = (() => {
     NG: ["BRENT", "GAZP", "WHEAT", "LKOH"], WHEAT: ["NG", "BRENT", "XAU", "SBER"]
   };
   const YF_SCALE = { "ZW=F": 0.01 }; // пшеница на Yahoo в центах за бушель, у нас в долларах
-  const SRC_NAME = { kp: "Kalshi Perps, обновление каждые 10 с", ks: "Kalshi: оценка по рынкам цены металла, обновление раз в минуту", gt: "Gate.io, обновление каждые 10 с", cg: "CoinGecko, обновление каждые 30 с", bn: "Binance, обновление каждые 2 с", cb: "Coinbase, обновление каждые 2 с", kr: "Kraken, обновление каждые 2 с", pm: "Polymarket Perps (mark-цена контракта), обновление каждые 3 с", moex: "Мосбиржа (ISS), бесплатные данные с задержкой ~15 мин", fh: "Finnhub, обновление каждые 15 с", td: "Twelve Data, обновление раз в минуту", yf: "Yahoo Finance через ваш прокси, обновление каждые 15 с (у некоторых бирж задержка до 15 мин)" };
-  const SRC_TTL = { kp: 60000, ks: 1200000, bn: 15000, cb: 30000, kr: 15000, gt: 30000, cg: 90000, pm: 20000, moex: 45000, fh: 60000, td: 180000, yf: 90000 }; // через сколько цена считается устаревшей
+  const SRC_NAME = { gt: "Gate.io, обновление каждые 10 с", cg: "CoinGecko, обновление каждые 30 с", bn: "Binance, обновление каждые 2 с", cb: "Coinbase, обновление каждые 2 с", kr: "Kraken, обновление каждые 2 с", pm: "Polymarket Perps (mark-цена контракта), обновление каждые 3 с", moex: "Мосбиржа (ISS), бесплатные данные с задержкой ~15 мин", fh: "Finnhub, обновление каждые 15 с", td: "Twelve Data, обновление раз в минуту", yf: "Yahoo Finance через ваш прокси, обновление каждые 15 с (у некоторых бирж задержка до 15 мин)" };
+  const SRC_TTL = { bn: 15000, cb: 30000, kr: 15000, gt: 30000, cg: 90000, pm: 20000, moex: 45000, fh: 60000, td: 180000, yf: 90000 }; // через сколько цена считается устаревшей
   const P = { sel: "BTC", cls: "crypto", view: "discover", cat: "all", sort: { key: "vol", dir: 1 }, prev: null, openTerm: false, q: "", listN: 50, ctype: "line", range: "LIVE", dir: "long", lev: 1, margin: 1000, tp: "", sl: "" };
   let positions = [], closed = [], plog = [], ticks = 0, chartHover = false, ready = false;
 
@@ -92,6 +90,7 @@ const PERPS = (() => {
     const cp = CLASS_P[d.cls] || CLASS_P.world, r = mulberry(seedOf(d.sym) + 17);
     const a = { sym: d.sym, name: d.name, cls: d.cls, rank: 500 + ASSETS.length, base: d.base, sig: cp[0] * (0.8 + 0.4 * r()), fund: cp[1], maxLev: d.maxLev || 50, ccy: "$", dec: d.dec !== undefined ? d.dec : d.base >= 1000 ? 1 : d.base < 1 ? 3 : 2, dyn: true };
     if (d.label) a.label = d.label;
+    if (d.src && (d.src.kp || d.src.ks)) { a.legacy = true; a.off = true; } // металлы Kalshi из прошлой версии: скрыты, пока нет позиций
     if (d.fund !== undefined) a.fund = d.fund;
     ASSETS.push(a); A[a.sym] = a; SRC[a.sym] = d.src || {};
     return a;
@@ -142,7 +141,10 @@ const PERPS = (() => {
     plog = RP.store.get("plog", []);
     ASSETS.forEach((a) => { if (a.legacy && positions.some((p) => p.sym === a.sym)) a.off = false; });
     const savedEq = RP.store.get("pmeq", null);
-    if (savedEq && Object.keys(savedEq).length >= 10) { pmEq = savedEq; syncWorld(); } // состав акций помним с прошлого раза, чтобы при недоступном Polymarket не показывать весь каталог
+    const savedCom = RP.store.get("pmcom", null);
+    if (savedCom) pmCom = savedCom;
+    if (savedEq && Object.keys(savedEq).length >= 10) pmEq = savedEq;
+    if (Object.keys(pmEq).length || Object.keys(pmCom).length) syncWorld(); // состав акций помним с прошлого раза, чтобы при недоступном Polymarket не показывать весь каталог
     ready = true;
     checkLiquidations();
     startFeeds();
@@ -155,7 +157,7 @@ const PERPS = (() => {
   const savePrices = () => RP.store.set("prices2", Object.fromEntries(ASSETS.map((a) => [a.sym, a.price])));
 
   // ---------- живые цены ----------
-  const PRI = { kp: 6, ks: 5, pm: 4, bn: 3, moex: 3, fh: 3, td: 3, yf: 2, cb: 2, kr: 2, gt: 2, cg: 1 }; // при двух источниках побеждает более надёжный
+  const PRI = { pm: 4, bn: 3, moex: 3, fh: 3, td: 3, yf: 2, cb: 2, kr: 2, gt: 2, cg: 1 }; // при двух источниках побеждает более надёжный
   const fresh = (a) => a.isLive && Date.now() - a.lastReal < (SRC_TTL[a.srcKey] || 45000);
   function adopt(a, p) {
     // Первая настоящая цена: подгоняем симулированную историю и открытые позиции, чтобы PnL в процентах не менялся.
@@ -348,13 +350,23 @@ const PERPS = (() => {
   const PM_BASE = "https://api.perpetuals.polymarket.com";
   const pick = (o, keys) => { for (const k of keys) if (o && o[k] !== undefined && o[k] !== null && o[k] !== "") return o[k]; };
   const asList = (x) => (Array.isArray(x) ? x : (x && (x.data || x.instruments || x.tickers || x.result)) || []);
-  let pmIds = null, pmNote = "", pmEq = {};
+  let pmIds = null, pmNote = "", pmEq = {}, pmCom = {};
+  // Сырьё Polymarket: известные тикеры сопоставляются с нашими контрактами, неизвестные добавляются как есть.
+  const PM_COM = {
+    GOLD: ["XAU", "Золото"], XAU: ["XAU", "Золото"], SILVER: ["XAG", "Серебро"], XAG: ["XAG", "Серебро"], PLATINUM: ["XPT", "Платина"], XPT: ["XPT", "Платина"],
+    PALLADIUM: ["XPD", "Палладий"], XPD: ["XPD", "Палладий"], COPPER: ["HG", "Медь"], BRENT: ["BRENT", "Нефть Brent"], WTI: ["WTI", "Нефть WTI"], OIL: ["WTI", "Нефть WTI"],
+    CRUDE: ["WTI", "Нефть WTI"], CRUDEOIL: ["WTI", "Нефть WTI"], NATGAS: ["NG", "Природный газ"], NG: ["NG", "Природный газ"], GAS: ["NG", "Природный газ"], WHEAT: ["WHEAT", "Пшеница"],
+    CORN: ["CORN", "Кукуруза"], SOYBEANS: ["SOY", "Соя"], COFFEE: ["COFFEE", "Кофе"], SUGAR: ["SUGAR", "Сахар"], COCOA: ["COCOA", "Какао"]
+  };
   // Тикер без суффикса контракта: AAPL-PERP, AAPL-USD, AAPL_USDC -> AAPL
   const normPm = (sym) => String(sym).replace(/[-_/](PERP|USD|USDC|USDT)$/i, "").toUpperCase();
   // Состав акций в RusPredict повторяет Polymarket: лишние акции скрываются, недостающие добавляются с ценой Polymarket.
   function syncWorld() {
+    const cset = new Set(Object.keys(pmCom)); // сырьё: остаются только контракты Polymarket (если список получен)
+    const cbefore = ASSETS.filter((a) => !a.off).length;
+    if (cset.size) ASSETS.filter((a) => a.cls === "commodity" && !a.legacy).forEach((a) => { a.off = !cset.has(a.sym) && !positions.some((p) => p.sym === a.sym); });
     const set = new Set(Object.keys(pmEq));
-    if (set.size < 10) return; // список не похож на список акций: ничего не скрываем
+    if (set.size < 10) { if (ASSETS.filter((a) => !a.off).length !== cbefore && RP.route() === "trade" && $("#pf-side")) { paintSide(); paintBody(); } return; } // список не похож на список акций: акции не трогаем
     const before = ASSETS.filter((a) => !a.off).length;
     ASSETS.filter((a) => a.cls === "world").forEach((a) => { a.off = !set.has(a.sym) && !positions.some((p) => p.sym === a.sym); });
     if (ASSETS.filter((a) => !a.off).length !== before && RP.route() === "trade" && $("#pf-side")) { paintSide(); paintBody(); }
@@ -371,12 +383,14 @@ const PERPS = (() => {
       if (!tick) throw e;
     }
     if (inst) {
-      pmIds = {}; pmEq = {};
+      pmIds = {}; pmEq = {}; pmCom = {};
       asList(inst).forEach((i) => {
         const sym = pick(i, ["symbol"]), id = pick(i, ["id", "instrument_id", "instrumentId"]);
         if (sym === undefined) return;
         if (id !== undefined) pmIds[sym] = id;
         const cat = String(pick(i, ["category", "asset_class", "assetClass", "type", "kind"]) || "");
+        const tkr = normPm(sym).replace(/[^A-Z]/g, "");
+        if (/commodit|metal|energy|future/i.test(cat) || (!/equit|stock|share|etf|crypto|index|indic/i.test(cat) && PM_COM[tkr])) { const [cs, cn] = PM_COM[tkr] || [normPm(sym), pick(i, ["name", "display_name", "displayName", "description"]) || normPm(sym)]; pmCom[cs] = { sym, id: id !== undefined ? id : sym, name: cn }; return; }
         if (/equit|stock|share|etf/i.test(cat)) pmEq[normPm(sym)] = { sym, id: id !== undefined ? id : sym, name: pick(i, ["name", "display_name", "displayName", "description", "base_name", "baseName"]) };
       });
       if (!Object.keys(pmEq).length) { // категория названа иначе: берём всё, что не крипта, индекс и сырьё и выглядит как тикер акции
@@ -387,6 +401,7 @@ const PERPS = (() => {
         });
       }
       if (Object.keys(pmEq).length >= 10) RP.store.set("pmeq", pmEq);
+      if (Object.keys(pmCom).length) RP.store.set("pmcom", pmCom);
       pmNote = Object.keys(pmEq).length ? `На Polymarket ${Object.keys(pmEq).length} акций. В RusPredict сейчас те же.` : "Polymarket не вернул акции: проверьте поле category у контрактов, список акций в RusPredict остаётся прежним.";
     }
     if (!pmIds) throw new Error("Polymarket: нет списка контрактов");
@@ -402,153 +417,17 @@ const PERPS = (() => {
       setReal(tk, p, NaN, "pm");
       n++;
     });
-    syncWorld();
-    if (!n) throw new Error("Polymarket ответил, но цен по акциям нет");
-  }
-  // ---------- металлы: Kalshi ----------
-  // У Kalshi нет биржевой котировки металла, есть рынки «цена выше уровня в заданное время». Цена берётся из них:
-  // по лесенке уровней это точка, где вероятность «выше» равна 50%, а если уровень один (15-минутные рынки), то он сам.
-  const KS_BASE = "https://api.elections.kalshi.com/trade-api/v2";
-  // ---------- металлы: Kalshi Perps (настоящие бессрочные контракты Kalshi) ----------
-  // Тикеры вида KXGOLDPERP. Схему ответа мы не видели, поэтому поля читаем из нескольких возможных названий.
-  const KP_HOSTS = ["https://external-api.kalshi.com/trade-api/v2/margin", "https://api.elections.kalshi.com/trade-api/v2/margin"];
-  async function kpGet(path) {
-    const errs = [];
-    for (const h of KP_HOSTS) {
-      try { return await getJSON(h + path, 8000); } catch (e) { errs.push(h.replace("https://", "").split("/")[0] + ": " + errTxt(e)); }
-    }
-    const proxy = typeof LIVE_PROXY !== "undefined" && LIVE_PROXY;
-    if (proxy) {
-      try { return await getJSON(`${proxy}${proxy.includes("?") ? "&" : "?"}kalshi=${encodeURIComponent("/trade-api/v2/margin" + path)}`, 8000); } catch (e) { errs.push("прокси: " + errTxt(e)); }
-    }
-    throw new Error(errs.join("; "));
-  }
-  const kpNum = (m, keys) => { for (const k of keys) { const v = m[k]; if (v !== undefined && v !== null && v !== "" && Number.isFinite(Number(v))) return Number(v); } return NaN; };
-  const KP_WORDS = () => Object.keys(KS_META).join("|");
-  let kpNote = "";
-  async function pollKalshiPerps() {
-    const d = await kpGet("/markets?limit=300");
-    const list = Array.isArray(d) ? d : (d && (d.markets || d.data || d.result)) || [];
-    if (!list.length) throw new Error("Kalshi Perps: пустой список контрактов");
-    const re = new RegExp("^KX(" + KP_WORDS() + ")PERP$");
-    let n = 0;
-    const seen = [];
-    list.forEach((m) => {
-      const tk = String(pick(m, ["ticker", "market_ticker", "symbol"]) || "").toUpperCase();
-      if (!/^KX.+PERP$/.test(tk)) return;
-      const mm = re.exec(tk), word = tk.replace(/^KX/, "").replace(/PERP$/, "");
-      const cat = String(pick(m, ["category", "sector", "asset_class", "underlying_category"]) || ""), title = String(pick(m, ["title", "name", "description"]) || "");
-      const meta = mm ? KS_META[mm[1]] : (/metal/i.test(cat) || KS_TITLE.test(title)) ? [word.slice(0, 5), title || word] : null;
-      if (!meta) return;
-      seen.push(tk);
-      const [sym, name] = meta;
-      let p = kpNum(m, ["mark_price_dollars", "mark_price", "markPrice", "index_price", "last_price_dollars", "last_price", "price"]);
+    Object.entries(pmCom).forEach(([cs, e]) => {
+      const t = byKey[e.id] || byKey[e.sym];
+      const p = Number(pick(t, ["mark_price", "markPrice", "index_price", "indexPrice", "last_price", "lastPrice"]));
       if (!(p > 0)) return;
-      const a0 = A[sym];
-      if (a0 && a0.base > 0 && (p / a0.base > 5 || p / a0.base < 0.2) && p / 100 / a0.base > 0.2 && p / 100 / a0.base < 5) p /= 100; // цена пришла в центах
-      const ml = kpNum(m, ["max_leverage", "maxLeverage", "leverage_max"]);
-      let fr = kpNum(m, ["funding_rate", "current_funding_rate", "next_funding_rate", "predicted_funding_rate", "funding_rate_estimate"]);
-      if (Number.isFinite(fr) && Math.abs(fr) >= 0.01) fr /= 100; // 0,0348 означает проценты
-      const a = a0 || addDyn({ cls: "commodity", sym, name, base: p, maxLev: ml > 0 ? ml : 10, label: sym.slice(0, 4), src: { kp: true } });
-      SRC[sym] = Object.assign(SRC[sym] || {}, { kp: true });
-      if (ml > 0) a.maxLev = ml;
-      if (Number.isFinite(fr)) a.fund = fr;
-      const day = a.hh.slice(-24);
-      const hi = kpNum(m, ["high_24h", "high24h", "price_high_24h"]), lo = kpNum(m, ["low_24h", "low24h", "price_low_24h"]), vol = kpNum(m, ["volume_24h_dollars", "notional_volume_24h", "dollar_volume_24h", "volume_24h", "volume24h"]);
-      if (vol > 0) a.t24 = { hi: hi > 0 ? hi : Math.max(...day, p), lo: lo > 0 ? lo : Math.min(...day, p), vol, at: Date.now() };
-      let ch = kpNum(m, ["price_change_24h_pct", "change_24h_pct", "percent_change_24h", "price_change_percent_24h", "change_24h"]);
-      if (!Number.isFinite(ch)) { const o = kpNum(m, ["open_24h", "price_24h_ago", "previous_price_24h"]); ch = o > 0 ? (p / o - 1) * 100 : NaN; }
-      setReal(sym, p, ch, "kp");
+      if (!A[cs]) addDyn({ cls: "commodity", sym: cs, name: String(e.name), base: p, src: { pm: e.sym } });
+      SRC[cs] = Object.assign(SRC[cs] || {}, { pm: e.sym });
+      setReal(cs, p, NaN, "pm");
       n++;
     });
-    kpNote = seen.length ? `Контракты Kalshi Perps: ${seen.join(", ")}.` : "";
-    if (!n) throw new Error(`Kalshi Perps ответил (${list.length} контрактов), но металлов с ценой нет. Тикеры: ${list.slice(0, 8).map((m) => pick(m, ["ticker", "symbol"])).join(", ")}`);
-  }
-  // Все металлы, которые есть у Kalshi: тикер серии начинается с KX и названия металла. Для каждого создаётся контракт в «Металлах».
-  const KS_META = {
-    GOLD: ["XAU", "Золото"], SILVER: ["XAG", "Серебро"], PLATINUM: ["XPT", "Платина"], PALLADIUM: ["XPD", "Палладий"], COPPER: ["HG", "Медь"],
-    ALUMINUM: ["ALU", "Алюминий"], ALUMINIUM: ["ALU", "Алюминий"], ZINC: ["ZN", "Цинк"], NICKEL: ["NI", "Никель"], LITHIUM: ["LI", "Литий"],
-    STEEL: ["STEEL", "Сталь"], RHODIUM: ["RH", "Родий"], COBALT: ["CO", "Кобальт"], IRON: ["FE", "Железная руда"]
-  };
-  const KS_RE = new RegExp("^KX(" + Object.keys(KS_META).join("|") + ")(\\d*[MHDWY]?|MAX|MIN|RANGE|PRICE)$");
-  const KS_TITLE = /gold|silver|platinum|palladium|copper|alumin|zinc|nickel|lithium|steel|rhodium|cobalt|iron|золот|серебр|платин|палладий|медь/i;
-  const ksC = (m, k) => (m[k] !== undefined && m[k] !== null ? Number(m[k]) : m[k + "_dollars"] !== undefined && m[k + "_dollars"] !== null ? Number(m[k + "_dollars"]) * 100 : NaN);
-  // вероятность «выше уровня» из котировок рынка, 0..1
-  function ksProb(m) {
-    const bid = ksC(m, "yes_bid"), ask = ksC(m, "yes_ask"), last = ksC(m, "last_price");
-    const mid = bid > 0 && ask > 0 ? (bid + ask) / 2 : bid > 0 ? bid : last > 0 ? last : NaN;
-    return mid / 100;
-  }
-  // { p: цена, ladder: true, если оценка по лесенке уровней, close: время закрытия } или null
-  function ksEstimate(markets) {
-    const now = Date.now();
-    const live = markets.filter((m) => m && Number.isFinite(Number(m.floor_strike)) && Date.parse(m.close_time) > now && (!m.open_time || Date.parse(m.open_time) <= now + 60000));
-    if (!live.length) return null;
-    const soon = Math.min(...live.map((m) => Date.parse(m.close_time)));
-    let ev = live.filter((m) => Date.parse(m.close_time) === soon);
-    const ups = ev.filter((m) => m.strike_type === undefined || /greater|above/i.test(String(m.strike_type))).map((m) => ({ k: Number(m.floor_strike), p: ksProb(m) })).filter((x) => Number.isFinite(x.p)).sort((x, y) => x.k - y.k);
-    if (ups.length >= 2) {
-      let price = ups[ups.length - 1].k;
-      if (ups[0].p <= 0.5) price = ups[0].k;
-      else for (let i = 1; i < ups.length; i++) {
-        if (ups[i].p <= 0.5) { const a = ups[i - 1], b = ups[i], t = (a.p - 0.5) / (a.p - b.p || 1); price = a.k + (b.k - a.k) * t; break; }
-      }
-      return { p: price, ladder: true, close: soon };
-    }
-    // одиночный уровень: берём самый свежий открытый (цена на начало окна)
-    ev = live.slice().sort((x, y) => Date.parse(y.open_time || 0) - Date.parse(x.open_time || 0));
-    return { p: Number(ev[0].floor_strike), ladder: false, close: soon };
-  }
-  async function ksGet(path) {
-    try { return await getJSON(KS_BASE + path, 8000); }
-    catch (e) {
-      const proxy = typeof LIVE_PROXY !== "undefined" && LIVE_PROXY;
-      if (!proxy) throw e;
-      return await getJSON(`${proxy}${proxy.includes("?") ? "&" : "?"}kalshi=${encodeURIComponent("/trade-api/v2" + path)}`, 8000);
-    }
-  }
-  // Поиск серий металлов в каталоге Kalshi; если каталог недоступен, пробуем типовые названия серий.
-  async function ksDiscover() {
-    const found = {};
-    const add = (t, title) => {
-      const m = KS_RE.exec(String(t || "").toUpperCase());
-      if (!m || (title && !KS_TITLE.test(title))) return;
-      (found[m[1]] = found[m[1]] || new Set()).add(String(t).toUpperCase());
-    };
-    for (const q of ["?category=Financials", "?category=Commodities", "?category=Economics", ""]) {
-      try { const d = await ksGet("/series" + q); ((d && d.series) || []).forEach((x) => add(x.ticker, x.title)); } catch {}
-      if (Object.keys(found).length >= 3) break;
-    }
-    ["GOLD", "SILVER", "PLATINUM", "PALLADIUM", "COPPER"].forEach((mt) => ["15M", "H", "D", ""].forEach((sx) => add("KX" + mt + sx)));
-    return Object.fromEntries(Object.entries(found).map(([k, v]) => [k, [...v].slice(0, 6)]));
-  }
-  let ksOk = {}, ksCycle = 0;
-  async function pollKalshi() {
-    const errs = [];
-    const cand = ksCycle % 10 === 0 || !Object.keys(ksOk).length ? await ksDiscover() : ksOk;
-    ksCycle++;
-    let n = 0;
-    const next = {};
-    await Promise.all(Object.entries(cand).map(async ([metal, list]) => {
-      const res = [];
-      for (const ser of list) {
-        try {
-          const d = await ksGet(`/markets?series_ticker=${ser}&status=open&limit=200`);
-          const est = ksEstimate((d && d.markets) || []);
-          if (est && est.p > 0) res.push({ ser, ...est });
-        } catch (e) { if (errs.length < 3) errs.push(`${ser}: ${errTxt(e)}`); }
-      }
-      if (!res.length) return;
-      const best = res.slice().sort((x, y) => (y.ladder - x.ladder) || (x.close - y.close))[0];
-      next[metal] = res.map((r) => r.ser);
-      const [sym, name] = KS_META[metal];
-      if (!A[sym]) addDyn({ cls: "commodity", sym, name, base: best.p, src: { ks: true } });
-      SRC[sym] = Object.assign(SRC[sym] || {}, { ks: true });
-      setReal(sym, best.p, NaN, "ks");
-      n++;
-    }));
-    ksOk = next;
-    if (!n) throw new Error("Kalshi: не найдено рынков металлов. " + errs.join("; "));
+    syncWorld();
+    if (!n) throw new Error("Polymarket ответил, но цен по акциям и сырью нет");
   }
   async function pollMoex() {
     const bySecid = {};
@@ -623,8 +502,6 @@ const PERPS = (() => {
     if (typeof fetch !== "function") return;
     const keys = typeof LIVE_KEYS !== "undefined" ? LIVE_KEYS : {};
     schedule(pollCrypto, 2000, "Крипта (Binance, Coinbase, Kraken)");
-    schedule(pollKalshiPerps, 10000, "Kalshi Perps (металлы)");
-    schedule(pollKalshi, 60000, "Kalshi (металлы: золото, серебро, платина…)");
     setTimeout(() => schedule(pollCryptoFill, 10000, "Крипта: добор недостающих (Coinbase, Gate.io, CoinGecko)"), 6000); // даём Binance шанс ответить первым
     schedule(pollMoex, 10000, "Мосбиржа (российские акции)");
     if (keys.finnhub) schedule(() => pollFinnhub(keys.finnhub), 15000, "Finnhub (акции США)");
@@ -648,11 +525,11 @@ const PERPS = (() => {
     const rows = Object.entries(feedStatus).map(([name, s]) => `<tr><td>${esc(name)}</td><td class="${s.ok ? "pos" : "neg"}">${s.ok ? "работает" : "ошибка"}</td><td>${agoTxt(s.lastOk)}</td><td class="fe">${s.ok ? "" : esc(s.err) + (errHint(s.err) ? `<small>${esc(errHint(s.err))}</small>` : "")}</td></tr>`).join("");
     const proxy = typeof LIVE_PROXY !== "undefined" && LIVE_PROXY ? esc(LIVE_PROXY) : "не задан (акции США, золото, нефть, газ и пшеница останутся на симуляции)";
     const ACT = ASSETS.filter((x) => !x.off), live = ACT.filter((x) => fresh(x)).length;
-    const CLS_NAME = { crypto: "Крипта", index: "Индексы", ru: "Акции РФ", world: "Акции мира", commodity: "Металлы" };
+    const CLS_NAME = { crypto: "Крипта", ru: "Акции РФ", world: "Акции мира", commodity: "Сырьё" };
     const dead = Object.entries(CLS_NAME).map(([c, n]) => [n, ASSETS.filter((x) => x.cls === c && !x.off && !fresh(x))]).filter(([, l]) => l.length);
     const yfBad = Object.entries(yfErr).slice(0, 10).map(([k, v]) => esc(v)).join("; ");
     const deadHTML = dead.length
-      ? `<p class="muted" style="margin:10px 0 0"><b>Сейчас без живой цены:</b> ${dead.map(([n, l]) => `${n} (${l.length}): ${l.slice(0, 30).map((x) => x.sym).join(", ")}${l.length > 30 ? "…" : ""}`).join(" · ")}.<br>Акции мира и индексы обновляются по кругу, на первый полный обход уходит около минуты. Если символ остаётся в списке дольше, источник не вернул по нему цену.${yfBad ? `<br>Yahoo не вернул: ${yfBad}.` : ""}</p>`
+      ? `<p class="muted" style="margin:10px 0 0"><b>Сейчас без живой цены:</b> ${dead.map(([n, l]) => `${n} (${l.length}): ${l.slice(0, 30).map((x) => x.sym).join(", ")}${l.length > 30 ? "…" : ""}`).join(" · ")}.<br>Акции мира обновляются по кругу, на первый полный обход уходит около минуты. Если символ остаётся в списке дольше, источник не вернул по нему цену.${yfBad ? `<br>Yahoo не вернул: ${yfBad}.` : ""}</p>`
       : '<p class="muted" style="margin:10px 0 0">Все активы получают живую цену.</p>';
     return `${pmNote ? `<p class="neg" style="margin:0 0 10px">${esc(pmNote)}</p>` : ""}${kpNote ? `<p class="muted" style="margin:0 0 10px">${esc(kpNote)}</p>` : ""}
     <p class="muted" style="margin:0 0 10px">Страница открыта с: <b>${esc(where)}</b> · Live-цены: <b>${live} из ${ACT.length}</b> · Адрес прокси: ${proxy}</p>
@@ -1405,7 +1282,7 @@ const PERPS = (() => {
   const shiftOhlc = (a, key) => { const arr = a.ohlcReal && a.ohlcReal[key]; if (arr) { arr.push([a.price, a.price, a.price, a.price]); arr.shift(); } };
   // ---------- обзор: цена, изменение, объём, максимум и минимум за 24 ч, открытый интерес, фандинг ----------
   // Настоящие значения: максимум, минимум и объём у крипты с живой ценой Binance. Остальное считается из графика или смоделировано (помечено «демо»).
-  const DEMO_VOL = { BTC: 2.4e10, ETH: 1.1e10, SOL: 3.2e9, SBER: 4.5e9, GAZP: 3e9, YDEX: 1.6e9, LKOH: 1.8e9, AAPL: 6e9, NVDA: 2e10, TSLA: 1.5e10, BRENT: 1.2e10, XAU: 6.2351e7, XAG: 3.0617e7, XPT: 2.0094e6, XPD: 2.6454e6, HG: 9.7356e5, ALU: 1.2265e5, NG: 1.1e9, WHEAT: 5e8 };
+  const DEMO_VOL = { BTC: 2.4e10, ETH: 1.1e10, SOL: 3.2e9, SBER: 4.5e9, GAZP: 3e9, YDEX: 1.6e9, LKOH: 1.8e9, AAPL: 6e9, NVDA: 2e10, TSLA: 1.5e10, BRENT: 1.2e10, XAU: 2.8e10, XAG: 4e9, NG: 1.1e9, WHEAT: 5e8 };
   const demoVol = (a) => DEMO_VOL[a.sym] || ({ crypto: 6e9, index: 2e10, ru: 6e8, world: 4e9, commodity: 3e9 }[a.cls] || 1e9) / (1 + (a.rank || 0) * 0.12);
   const bigNum = (v, a) => {
     const t = v >= 1e9 ? num(v / 1e9, 2) + " млрд" : v >= 1e6 ? num(v / 1e6, 1) + " млн" : num(v, 0);
@@ -1456,7 +1333,7 @@ const PERPS = (() => {
     <div class="panel tchart">
       <div class="th">
         <div class="th-l">
-          <div class="th-sym">${badge(a)}<h2>${a.sym}-PERP</h2><span class="tag-cat">${CLS[a.cls]}</span><span id="t-lv">${liveBadge(a)}</span></div>
+          <div class="th-sym">${badge(a)}<h2>${a.sym}-PERP</h2><span class="tag-cat">${CLS_LBL[a.cls] || ""}</span><span id="t-lv">${liveBadge(a)}</span></div>
           <div class="th-name">${esc(a.name)} · бессрочный контракт</div>
         </div>
         <div class="th-r"><b id="t-price">${price(a, a.price)}</b><span id="t-ch">${chText(a)} за 24 ч</span></div>
@@ -1575,7 +1452,7 @@ const PERPS = (() => {
   }
 
   // ---------- «Обзор» перпов, списки по категориям и терминал ----------
-  const FEATURED = ["BTC", "SPX", "NVDA", "XAU"]; // «Избранные» карточки сверху
+  const FEATURED = ["BTC", "ETH", "NVDA", "XAU"]; // «Избранные» карточки сверху
   const NEW_LISTINGS = ["HYPE", "ONDO", "ARM", "PLTR"]; // «Новые листинги»
   let favs = [];
   const isFav = (sym) => favs.includes(sym);
@@ -1727,7 +1604,7 @@ const PERPS = (() => {
       if (!q) { res.hidden = true; return; }
       const hit = enabled().filter((a) => a.sym.toLowerCase().includes(q) || a.name.toLowerCase().includes(q))
         .sort((x, y) => (x.sym.toLowerCase().startsWith(q) ? 0 : 1) - (y.sym.toLowerCase().startsWith(q) ? 0 : 1)).slice(0, 8);
-      res.innerHTML = hit.length ? hit.map((a) => `<button type="button" class="pf-r" data-res="${a.sym}">${assetIcon(a, 28)}<span><b>${esc(a.sym)}</b><small>${esc(a.name)} · ${CLS[a.cls]}</small></span><em>${price(a, a.price)}</em></button>`).join("") : '<p class="muted" style="padding:10px 12px;margin:0">Ничего не найдено</p>';
+      res.innerHTML = hit.length ? hit.map((a) => `<button type="button" class="pf-r" data-res="${a.sym}">${assetIcon(a, 28)}<span><b>${esc(a.sym)}</b><small>${esc(a.name)} · ${CLS_LBL[a.cls] || ""}</small></span><em>${price(a, a.price)}</em></button>`).join("") : '<p class="muted" style="padding:10px 12px;margin:0">Ничего не найдено</p>';
       res.hidden = false;
     };
     inp.oninput = show;
@@ -1922,7 +1799,7 @@ const PERPS = (() => {
     return `<div class="promo-trade">
       <div class="pt-text">
         <h2>Перпы с плечом и без</h2>
-        <p>Бессрочные контракты на крипту, индексы, акции и металлы. Более 700 активов, Long и Short, плечо до 100x, комиссия 0,05%.</p>
+        <p>Бессрочные контракты на крипту, акции и сырьё. Более 700 активов, Long и Short, плечо до 100x, комиссия 0,05%.</p>
         <a class="cta primary" href="#trade">Открыть терминал</a>
       </div>
       <div class="pt-tiles">${pick.map((a) => `<a class="pt-tile" href="#trade" data-goasset="${a.sym}">${badge(a)}<b>${a.sym}-PERP</b><span>${price(a, a.price)}</span><small>${chText(a)}</small></a>`).join("")}</div>

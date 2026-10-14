@@ -25,13 +25,6 @@ export default {
       const [instruments, tickers] = await Promise.all([get("/v1/info/instruments"), get("/v1/info/tickers")]);
       return new Response(JSON.stringify({ instruments, tickers }), { headers: { ...cors, "content-type": "application/json", "cache-control": "public, max-age=2" } });
     }
-    // ?kalshi=/trade-api/v2/markets?...: публичные рынки Kalshi (металлы), если браузер не пускает напрямую
-    const ks = url.searchParams.get("kalshi");
-    if (ks) {
-      if (!/^\/trade-api\/v2\/(markets|series|margin\/markets)(\?|\/|$)/.test(ks)) return new Response(JSON.stringify({ error: "разрешены только рынки и серии Kalshi" }), { status: 400, headers: { ...cors, "content-type": "application/json" } });
-      const r = await fetch((ks.includes("/margin/") ? "https://external-api.kalshi.com" : "https://api.elections.kalshi.com") + ks, { headers: { accept: "application/json" }, cf: { cacheTtl: 20, cacheEverything: true } });
-      return new Response(await r.text(), { status: r.status, headers: { ...cors, "content-type": "application/json", "cache-control": "public, max-age=20" } });
-    }
     const symbols = (url.searchParams.get("symbols") || "")
       .split(",").map((s) => s.trim()).filter((s) => SYMBOL_RE.test(s)).slice(0, 20);
     if (!symbols.length) {
