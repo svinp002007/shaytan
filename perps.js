@@ -401,6 +401,7 @@ const PERPS = (() => {
     yfCursor = all.length ? (yfCursor + 20) % all.length : 0;
     return [...prio, ...rot];
   }
+  let yfErr = {}; // тикеры, по которым Yahoo в последнем ответе не вернул цену, и причина
   async function pollYahoo(base) {
     const list = wantedYahoo();
     const chunks = [];
@@ -408,6 +409,7 @@ const PERPS = (() => {
     const parts = await Promise.all(chunks.map((c) => getJSON(`${base}${base.includes("?") ? "&" : "?"}symbols=${encodeURIComponent(c.map((a) => SRC[a.sym].yf).join(","))}`)));
     const d = Object.assign({}, ...parts);
     d._errors = Object.assign({}, ...parts.map((x) => x._errors || {}));
+    yfErr = d._errors;
     let n = 0;
     list.forEach((a) => {
       const o = d[SRC[a.sym].yf];
@@ -447,9 +449,15 @@ const PERPS = (() => {
     const rows = Object.entries(feedStatus).map(([name, s]) => `<tr><td>${esc(name)}</td><td class="${s.ok ? "pos" : "neg"}">${s.ok ? "работает" : "ошибка"}</td><td>${agoTxt(s.lastOk)}</td><td class="fe">${s.ok ? "" : esc(s.err) + (errHint(s.err) ? `<small>${esc(errHint(s.err))}</small>` : "")}</td></tr>`).join("");
     const proxy = typeof LIVE_PROXY !== "undefined" && LIVE_PROXY ? esc(LIVE_PROXY) : "не задан (акции США, золото, нефть, газ и пшеница останутся на симуляции)";
     const live = ASSETS.filter((x) => fresh(x)).length;
+    const CLS_NAME = { crypto: "Крипта", index: "Индексы", ru: "Акции РФ", world: "Акции мира", commodity: "Сырьё" };
+    const dead = Object.entries(CLS_NAME).map(([c, n]) => [n, ASSETS.filter((x) => x.cls === c && !fresh(x))]).filter(([, l]) => l.length);
+    const yfBad = Object.entries(yfErr).slice(0, 10).map(([k, v]) => esc(v)).join("; ");
+    const deadHTML = dead.length
+      ? `<p class="muted" style="margin:10px 0 0"><b>Сейчас без живой цены:</b> ${dead.map(([n, l]) => `${n} (${l.length}): ${l.slice(0, 30).map((x) => x.sym).join(", ")}${l.length > 30 ? "…" : ""}`).join(" · ")}.<br>Акции мира и индексы обновляются по кругу, на первый полный обход уходит около минуты. Если символ остаётся в списке дольше, источник не вернул по нему цену.${yfBad ? `<br>Yahoo не вернул: ${yfBad}.` : ""}</p>`
+      : '<p class="muted" style="margin:10px 0 0">Все активы получают живую цену.</p>';
     return `${pmNote ? `<p class="neg" style="margin:0 0 10px">${esc(pmNote)}</p>` : ""}
     <p class="muted" style="margin:0 0 10px">Страница открыта с: <b>${esc(where)}</b> · Live-цены: <b>${live} из ${ASSETS.length}</b> · Адрес прокси: ${proxy}</p>
-      <div class="table-wrap" style="margin:0"><table class="ptable feeds"><thead><tr><th>Источник</th><th>Статус</th><th>Последний успех</th><th>Что не так</th></tr></thead><tbody>${rows || '<tr><td colspan="4">Запросы ещё не отправлялись.</td></tr>'}</tbody></table></div>`;
+      <div class="table-wrap" style="margin:0"><table class="ptable feeds"><thead><tr><th>Источник</th><th>Статус</th><th>Последний успех</th><th>Что не так</th></tr></thead><tbody>${rows || '<tr><td colspan="4">Запросы ещё не отправлялись.</td></tr>'}</tbody></table></div>${deadHTML}`;
   }
   function paintLiveCnt() {
     const el = $("#t-livecnt");
