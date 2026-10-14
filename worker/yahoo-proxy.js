@@ -28,8 +28,8 @@ export default {
     // ?kalshi=/trade-api/v2/markets?...: публичные рынки Kalshi (металлы), если браузер не пускает напрямую
     const ks = url.searchParams.get("kalshi");
     if (ks) {
-      if (!/^\/trade-api\/v2\/(markets|series)(\?|$)/.test(ks)) return new Response(JSON.stringify({ error: "разрешены только рынки и серии Kalshi" }), { status: 400, headers: { ...cors, "content-type": "application/json" } });
-      const r = await fetch("https://api.elections.kalshi.com" + ks, { headers: { accept: "application/json" }, cf: { cacheTtl: 20, cacheEverything: true } });
+      if (!/^\/trade-api\/v2\/(markets|series|margin\/markets)(\?|\/|$)/.test(ks)) return new Response(JSON.stringify({ error: "разрешены только рынки и серии Kalshi" }), { status: 400, headers: { ...cors, "content-type": "application/json" } });
+      const r = await fetch((ks.includes("/margin/") ? "https://external-api.kalshi.com" : "https://api.elections.kalshi.com") + ks, { headers: { accept: "application/json" }, cf: { cacheTtl: 20, cacheEverything: true } });
       return new Response(await r.text(), { status: r.status, headers: { ...cors, "content-type": "application/json", "cache-control": "public, max-age=20" } });
     }
     const symbols = (url.searchParams.get("symbols") || "")
