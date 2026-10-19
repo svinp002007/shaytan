@@ -17,7 +17,7 @@
   };
   let profile = { ...DEFAULT_PROFILE, ...store.get("profile", {}) };
   // Настройки: оформление (dark | light | system) и скрытые категории рынков и классов перпов
-  let settings = { theme: "dark", hiddenCats: [], hiddenCls: [], hiddenBonus: [], ...store.get("settings", {}) };
+  let settings = { theme: "dark", design: "classic", motion: true, hiddenCats: [], hiddenCls: [], hiddenBonus: [], ...store.get("settings", {}) };
   if (!Array.isArray(settings.hiddenBonus)) settings.hiddenBonus = [];
   settings.hiddenCats = []; settings.hiddenCls = []; // скрытие категорий и классов перпов убрано из настроек, прежние значения сбрасываются
   if (!["dark", "light", "system"].includes(settings.theme)) settings.theme = "dark";
@@ -26,7 +26,24 @@
   const bonusOn = (id) => !settings.hiddenBonus.includes(id);
   const syncBonusNav = () => { const n = document.querySelector("#nav [data-r=bonus]"); if (n) n.hidden = !bonusOn("ref") && !bonusOn("liq"); };
   const saveSettings = () => store.set("settings", settings);
-  const applyTheme = () => document.documentElement.setAttribute("data-theme", settings.theme);
+  const DESIGNS = [
+    ["classic", "Классика", "Текущий вид сайта"],
+    ["kalshi", "Kalshi", "Чёрный фон, мятный акцент, узкие заголовки, бегущая строка цен"],
+    ["polymarket", "Polymarket", "Синий акцент, мягкие карточки, шкалы вероятности"],
+    ["aurora", "Аврора", "Стекло и плывущие неоновые градиенты"],
+    ["terminal", "Терминал", "Моноширинный шрифт, янтарь на чёрном, мигающий курсор"]
+  ];
+  if (!DESIGNS.some(([k]) => k === settings.design)) settings.design = "classic";
+  settings.motion = settings.motion !== false;
+  const reducedMotion = () => window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  const motionOn = () => settings.motion && !reducedMotion();
+  const applyTheme = () => {
+    const r = document.documentElement;
+    r.setAttribute("data-theme", settings.theme);
+    r.setAttribute("data-design", settings.design);
+    r.setAttribute("data-motion", motionOn() ? "on" : "off");
+    if (typeof movePill === "function") requestAnimationFrame(movePill);
+  };
   applyTheme();
   let balance = Number(store.get("balance", 10000)) || 0;
   let bets = store.get("bets", []);
@@ -76,7 +93,7 @@
   function paintWallet() {
     const cash = $("#balance"), port = $("#portfolio");
     if (!cash) return;
-    cash.textContent = rub(balance);
+    setFlash(cash, rub(balance));
     let inPlay = 0;
     try { inPlay = bets.reduce((s, b) => s + b.amt, 0) + PERPS.locked(); } catch {}
     if (port) port.textContent = rub(inPlay);
@@ -598,6 +615,7 @@
       ${banner(e, "", 320, 64)}
       <div class="cat"><span>${catName(e.cat)}</span>${polyChip(e)}</div>
       <h3>${esc(e.q)}</h3>
+      ${e.noliq ? "" : `<div class="pbar-mini" aria-hidden="true"><i style="width:${clamp(e.yes, 1, 99)}%"></i></div>`}
       ${e.noliq ? `<div class="meter dry-meter"><div class="pct">—</div><span class="dry-tag">Нет ликвидности</span></div>` : `<div class="meter">
         <div class="pct">${Math.round(e.yes)}%</div>
         <div class="spark-host">${spark(e.hist)}</div>
@@ -1844,6 +1862,73 @@
 
   // ---------- роутер ----------
   const routes = { bonus: viewBonus, referrals: () => { bonusTab = "ref"; return viewBonus(); }, rewards: () => { bonusTab = "liq"; return viewBonus(); }, rules: viewRules, home: viewHome, markets: viewMarkets, trade: () => PERPS.view(), leaderboard: viewLeaderboard, trader: () => viewTrader(), community: viewCommunity, account: viewAccount };
+  // ---------- анимации: мигание цен, бегущая строка, скользящее меню, счётчики ----------
+  function flash(el, dir) {
+    if (!el || !dir || !motionOn()) return;
+    el.classList.remove("fl-up", "fl-dn");
+    void el.offsetWidth;
+    el.classList.add(dir > 0 ? "fl-up" : "fl-dn");
+  }
+  const numOf = (t) => parseFloat(String(t).replace(/\s/g, "").replace(",", ".").replace(/[^\d.\-−]/g, "").replace("−", "-"));
+  function setFlash(el, text) {
+    if (!el || el.textContent === text) return;
+    const a = numOf(el.textContent), b = numOf(text);
+    el.textContent = text;
+    if (Number.isFinite(a) && Number.isFinite(b) && a !== b) flash(el, b - a);
+  }
+  let tkKey = "";
+  function paintTicker() {
+    const tr = $("#tk-track");
+    if (!tr) return;
+    const perps = typeof PERPS.ticker === "function" ? PERPS.ticker() : [];
+    const mk = EVENTS.filter((e) => !e.noliq && isOpen(e)).sort((a, b) => b.vol - a.vol).slice(0, 8);
+    const items = [
+      ...perps.map((x) => ({ k: "p" + x.sym, h: `<b>${esc(x.sym)}</b> ${x.price} <em class="${x.up === null ? "" : x.up ? "pos" : "neg"}">${x.ch}</em>` })),
+      ...mk.map((e) => ({ k: "m" + e.id, h: `<b>${Math.round(e.yes)}%</b> ${esc(e.q.length > 48 ? e.q.slice(0, 47) + "…" : e.q)}` }))
+    ];
+    const key = items.map((x) => x.k).join();
+    if (key !== tkKey || tr.children.length !== items.length * 2) {
+      tkKey = key;
+      const h = items.map((x) => `<span class="tk-i">${x.h}</span>`).join("");
+      tr.innerHTML = h + h;
+    } else {
+      items.forEach((x, i) => { tr.children[i].innerHTML = x.h; tr.children[i + items.length].innerHTML = x.h; });
+    }
+  }
+  setInterval(() => { if (!document.hidden && settings.design !== "classic") paintTicker(); }, 3000);
+  function movePill() {
+    const nav = $("#nav");
+    if (!nav) return;
+    let pill = $("#nav-pill");
+    if (!pill) { pill = document.createElement("i"); pill.id = "nav-pill"; pill.className = "nav-pill"; nav.appendChild(pill); }
+    const on = $("a.on", nav);
+    if (!on) { pill.style.opacity = "0"; return; }
+    pill.style.opacity = "1";
+    pill.style.width = on.offsetWidth + "px"; pill.style.height = on.offsetHeight + "px";
+    pill.style.transform = `translate(${on.offsetLeft}px, ${on.offsetTop}px)`;
+  }
+  window.addEventListener("resize", movePill);
+  if (document.fonts && document.fonts.ready) document.fonts.ready.then(movePill);
+  // Числа в карточках статистики «набегают» от нуля при открытии страницы (не при периодическом обновлении).
+  function countUp(root) {
+    if (!motionOn() || !root) return;
+    const nfi = (d) => new Intl.NumberFormat("ru-RU", { minimumFractionDigits: d, maximumFractionDigits: d });
+    root.querySelectorAll(".stat b, .kpi b, .acp-big, .lq-bt > b, .rf-stat b").forEach((el) => {
+      if (el.children.length || el.dataset.cu) return;
+      const orig = el.textContent, m = /^(\D*?)(\d[\d\s  ]*)(?:,(\d+))?(\D*)$/.exec(orig.trim());
+      if (!m) return;
+      const d = m[3] ? m[3].length : 0, target = Number(m[2].replace(/\D/g, "") + (d ? "." + m[3] : ""));
+      if (!(target > 0) || target > 1e12) return;
+      el.dataset.cu = "1";
+      const f = nfi(d), t0 = performance.now(), dur = 750;
+      const step = (now) => {
+        const k = Math.min(1, (now - t0) / dur), v = target * (1 - Math.pow(1 - k, 3));
+        el.textContent = k >= 1 ? orig : m[1] + f.format(v) + m[4];
+        if (k < 1) requestAnimationFrame(step);
+      };
+      requestAnimationFrame(step);
+    });
+  }
   function render() {
     const raw = (location.hash || "#home").slice(1);
     const prevRoute = state.route;
@@ -1862,6 +1947,8 @@
     if (state.route === "trade") PERPS.bind();
     if (isBonusRoute()) bindBonus();
     window.scrollTo(0, 0);
+    movePill();
+    countUp($("#view"));
   }
   window.addEventListener("hashchange", render);
   setInterval(() => { if ((isBonusRoute() || bonusFs) && !document.hidden) { if ((bonusFs || bonusTab) === "ref") paintRefs(); else if (!liqOpen && !document.activeElement.matches("input")) paintLiq(); } }, 60000);
@@ -2043,7 +2130,7 @@
   function paintModalLive() {
     const e = modalEvent;
     if (!e || e.noliq || !$("#m-now")) return;
-    $("#m-now").textContent = `${pct1(e.yes)}% «Да»`;
+    setFlash($("#m-now"), `${pct1(e.yes)}% «Да»`);
     $("#m-vol").textContent = `объём ${short(e.vol)} ₽ · в рынке ${rub(e.cash)}`;
     paintMoney(e);
     $("#m-bar").innerHTML = `<div class="pbar"><div style="width:${e.yes}%"></div></div><div class="pleg"><span>Да ${pct1(e.yes)}% · ${coefTxt(e.yes)}</span><span>Нет ${pct1(100 - e.yes)}% · ${coefTxt(100 - e.yes)}</span></div>`;
@@ -2197,6 +2284,9 @@
       <h2>Настройки</h2>
       <h3 class="st-h">Оформление</h3>
       <div class="st-themes" id="st-themes">${[["dark", "Тёмное"], ["light", "Светлое"], ["system", "Как в системе"]].map(([k, n]) => `<button type="button" class="st-th ${settings.theme === k ? "on" : ""}" data-th="${k}"><span class="st-prev st-${k}"><i></i><i></i><i></i></span><b>${n}</b></button>`).join("")}</div>
+      <h3 class="st-h">Дизайн сайта</h3>
+      <div class="st-designs" id="st-designs">${DESIGNS.map(([k, n, d]) => `<button type="button" class="st-ds ${settings.design === k ? "on" : ""}" data-ds="${k}"><span class="dz-prev" data-pv="${k}" aria-hidden="true"><i></i><i></i><i></i><u></u></span><b>${n}</b><small>${d}</small></button>`).join("")}</div>
+      <label class="st-row st-mo"><span><b>Подвижные анимации</b><small>Бегущая строка, плавное появление, мигание цен, скользящее меню</small></span><span class="sw"><input type="checkbox" id="st-motion" ${settings.motion ? "checked" : ""}><i></i></span></label>
       <h3 class="st-h">Бонусы</h3>
       <p class="st-note">Нажмите на программу, чтобы открыть её на весь экран. Переключатель справа решает, показывать ли её в разделе «Бонус» в меню; если выключены обе, пункт меню пропадает.</p>
       <div class="st-list" id="st-bonus">${row("liq", "Награды за ликвидность", "Доход за заявки ликвидности в пулах рынков")}${row("ref", "Рефералы", "15% с прямых и 5% с непрямых рефералов")}</div>`);
@@ -2207,6 +2297,14 @@
       settings.theme = b.dataset.th; saveSettings(); applyTheme();
       sheet.querySelectorAll(".st-th").forEach((x) => x.classList.toggle("on", x === b));
     };
+    $("#st-designs").onclick = (ev) => {
+      const b = ev.target.closest("[data-ds]");
+      if (!b) return;
+      settings.design = b.dataset.ds; saveSettings(); applyTheme();
+      sheet.querySelectorAll(".st-ds").forEach((x) => x.classList.toggle("on", x === b));
+      paintTicker();
+    };
+    $("#st-motion").onchange = (ev) => { settings.motion = ev.target.checked; saveSettings(); applyTheme(); };
     $("#st-bonus").onchange = (ev) => {
       const id = ev.target.dataset.sb;
       if (!id) return;
@@ -2423,7 +2521,9 @@
       const e = byId(Number(c.dataset.open));
       if (e.noliq) return;
       const p = $(".pct", c);
-      if (p) p.textContent = Math.round(e.yes) + "%";
+      if (p) setFlash(p, Math.round(e.yes) + "%");
+      const pb = $(".pbar-mini i", c);
+      if (pb) pb.style.width = clamp(e.yes, 1, 99) + "%";
       const y = $(".btn.yes", c), n = $(".btn.no", c);
       if (y) y.innerHTML = sideBtn(e, "yes");
       if (n) n.innerHTML = sideBtn(e, "no");
@@ -2529,6 +2629,7 @@
   window.RP = {
     store, rub, toast, askConfirm, openSheet, closeModal, chatHTML, chatBind,
     route: () => state.route,
+    flash, setFlash,
     clsOn,
     openMarket: (id) => openBet(id),
     getBalance: () => balance,
@@ -2539,4 +2640,6 @@
   startPoly();
   setBalance(balance);
   render();
+  paintTicker();
+  applyTheme();
 })();

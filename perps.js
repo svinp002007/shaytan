@@ -1775,7 +1775,7 @@ const PERPS = (() => {
     $("#t-src").textContent = srcText(a);
     const rk = rangesFor(a).join();
     if ($("#t-range").dataset.k !== rk) { $("#t-range").dataset.k = rk; $("#t-range").innerHTML = rangeHTML(a); }
-    $("#t-price").textContent = price(a, a.price);
+    RP.setFlash($("#t-price"), price(a, a.price));
     $("#t-ch").innerHTML = chText(a) + " за 24 ч";
     paintOverview();
     if (ticks % 5 === 0) paintMore();
@@ -1832,7 +1832,14 @@ const PERPS = (() => {
     return { open, closed: hist };
   }
   const closeById = (id) => confirmClose(id);
+  // Для бегущей строки сайта: главные контракты с ценой и изменением за сутки.
+  function ticker() {
+    return ["BTC", "ETH", "SOL", "NVDA", "TSLA", "AAPL", "XAU", "SBER", "BRENT"].map((s) => A[s]).filter((a) => a && !a.off).map((a) => {
+      const c = change24(a);
+      return { sym: a.sym, price: price(a, a.price), ch: c === null ? "" : sg(c) + "%", up: c === null ? null : c >= 0 };
+    });
+  }
   // Для демо-профилей других трейдеров: список контрактов и оформление цен.
   const sim = { syms: () => ASSETS.filter((a) => RP.clsOn(a.cls) && !a.off).map((a) => a.sym), info: (sym) => { const a = A[sym]; return a ? { sym, name: a.name, badge: badge(a), cur: a.price, fmt: (v) => price(a, v) } : null; } };
-  return { init, view, bind, tick, promo, select, account, closeById, sim, realized, closedMargin, count, locked, reset, rows, classes: CLS };
+  return { init, view, bind, tick, promo, select, account, closeById, ticker, sim, realized, closedMargin, count, locked, reset, rows, classes: CLS };
 })();
