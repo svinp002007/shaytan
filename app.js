@@ -761,7 +761,7 @@
     const list = visibleEvents();
     const n = list.length;
     const word = n % 10 === 1 && n % 100 !== 11 ? "событие" : [2, 3, 4].includes(n % 10) && ![12, 13, 14].includes(n % 100) ? "события" : "событий";
-    $("#count").textContent = `${n} ${word}`;
+    $("#count").textContent = `${n} ${word}` + (state.cat === "live" ? ` · ${liveNote()}` : "");
     $("#empty").hidden = n > 0;
     $("#grid").innerHTML = list.map(cardHTML).join("");
   }
@@ -2520,7 +2520,7 @@
   function refreshPrices() {
     document.querySelectorAll(".card[data-open], .hero-card[data-open]").forEach((c) => {
       const e = byId(Number(c.dataset.open));
-      if (e.noliq) return;
+      if (!e || e.noliq) return;
       if (e.live) { const lb = $(".lv-board", c); if (lb) lb.outerHTML = liveBoardHTML(e); }
       const p = $(".pct", c);
       if (p) setFlash(p, Math.round(e.yes) + "%");
@@ -2682,7 +2682,7 @@
     LIVE_KINDS.forEach(([kind, q, rule, win]) => {
       const id = old && old[kind + "Id"] ? old[kind + "Id"] : liveId(m.key, kind);
       mm[kind + "Id"] = id;
-      const r = clamp(ref[kind] * 100, 1.5, 98.5), e = addLiveMarket({ id, key: m.key, kind, q: q(mm), closes: isoDay(mm.ts), ts: mm.ts, rule: rule(mm), yes: r });
+      const pr2 = mm.pmRef && mm.pmRef[kind] != null ? mm.pmRef[kind] : ref[kind], r = clamp(pr2 * 100, 1.5, 98.5), e = addLiveMarket({ id, key: m.key, kind, q: q(mm), closes: isoDay(mm.ts), ts: mm.ts, rule: rule(mm), yes: r });
       e.live.ref = r; e.p0 = r;
       if (mm.state === "post" && !e.resolved && mm.final) {
         const mine = bets.some((b) => b.eid === e.id);
@@ -2740,6 +2740,7 @@
     if (liveBusy) return;
     const anyLive = [...LIVE.values()].some((m) => m.state === "in");
     if (!force && Date.now() - liveLast < (anyLive ? 15000 : 60000)) return;
+    if (pmGames().length) { liveLast = Date.now(); liveSrc = "pm"; return; } // результаты приходят по WebSocket Polymarket
     liveBusy = true; liveLast = Date.now();
     let matches = [];
     try {
@@ -2778,7 +2779,7 @@
     const m = e.live && LIVE.get(e.live.key);
     if (!m) return '<div class="lv-board"></div>';
     const chip = m.state === "in" ? `<span class="lv-chip live"><i></i>LIVE ${m.minute}'</span>` : m.state === "post" ? '<span class="lv-chip">Завершён</span>' : `<span class="lv-chip pre">${kickTxt(m.ts)}</span>`;
-    const src = m.src === "sim" ? '<span class="lv-demo" title="Реальная лента недоступна: матч смоделирован в ускоренном времени">демо</span>' : "";
+    const src = m.src === "sim" ? '<span class="lv-demo" title="Реальная лента недоступна: матч смоделирован в ускоренном времени">демо</span>' : m.src === "pm" ? '<span class="lv-src" title="Результат матча и цена: Polymarket Sports">Polymarket</span>' : "";
     const goals = big && m.goals.length ? `<div class="lv-goals">${m.goals.map((g) => `<span class="${g.side}">${esc(String(g.min))} ${g.who ? esc(g.who) + " " : ""}<small>${esc(g.side === "home" ? m.home.name : m.away.name)}</small></span>`).join("")}</div>` : "";
     return `<div class="lv-board ${big ? "big" : ""}"><div class="lv-row"><span class="lv-t">${esc(m.home.name)}</span><b class="lv-sc">${m.state === "pre" ? "– : –" : m.hg + " : " + m.ag}</b><span class="lv-t">${esc(m.away.name)}</span></div><div class="lv-meta">${chip}${src}<small>${esc(m.league || "")}</small></div>${goals}</div>`;
   }
@@ -2787,7 +2788,125 @@
     if (!list.length) return '<div id="live-home"></div>';
     return `<div id="live-home" class="wrap"><section class="block"><div class="block-head"><h2><span class="lv-dot"></span> Сейчас в эфире</h2><a href="#markets" data-pick="live">Все матчи →</a></div><div class="grid" style="padding-bottom:0">${list.map(cardHTML).join("")}</div></section></div>`;
   }
-  function startLive() { livePoll(true); setInterval(() => { if (!document.hidden) livePoll(false); }, 5000); }
+  // ---- Polymarket Sports: результаты матчей по WebSocket (wss://sports-api.polymarket.com/ws), названия и цены через Gamma API ----
+  // Сообщения sport_result: gameId, slug (лига-команда-команда-дата), статус, live/ended, score «хозяева-гости», period, elapsed.
+  // Схему мы не видели, поэтому поля читаются из нескольких возможных названий. Если сообщений нет, работает лента ESPN, затем демо.
+  const PMG = new Map(); // slug -> игра
+  let pmWs = null, pmTry = 0, pmStatus = "нет соединения", pmMsgs = 0, pmTimer = 0;
+  const SOCCER = new Set(["epl", "lal", "bun", "sea", "fl1", "ucl", "uel", "uecl", "mls", "ere", "por", "bra", "arg", "tur", "mex", "col", "efl", "sco", "spl", "rus", "j1", "kor", "aus", "cdr", "fif", "wc", "euro", "itc", "fa", "lig", "cof", "cde", "bl1", "sa", "pl", "laliga", "mex1"]);
+  const SOCCER_PERIOD = /^(1H|2H|HT|FT|ET|AET|PEN|NS)/i;
+  const pickF = (o, keys) => { for (const k of keys) if (o && o[k] !== undefined && o[k] !== null && o[k] !== "") return o[k]; };
+  const cleanTeam = (t) => String(t).replace(/\b(FC|CF|AFC|SC|AC|FK|CD|RC)\b\.?/g, "").replace(/\s+/g, " ").trim();
+  function pmMsg(d) {
+    const g = (d && (d.payload || d.data)) || d;
+    if (!g || typeof g !== "object") return;
+    const slug = pickF(g, ["slug", "gameSlug"]);
+    if (!slug) return;
+    const sm = /^([a-z0-9]+)-([a-z0-9]+)-([a-z0-9]+)-(\d{4}-\d{2}-\d{2})/i.exec(String(slug)), league = String(pickF(g, ["leagueAbbreviation", "league"]) || (sm ? sm[1] : "")).toLowerCase();
+    const period = String(pickF(g, ["period"]) || ""), isSoccer = SOCCER.has(league) || SOCCER_PERIOD.test(period);
+    if (!isSoccer) return;
+    pmMsgs++;
+    const old = PMG.get(slug) || {};
+    const sc = /(\d+)\s*[-:]\s*(\d+)/.exec(String(pickF(g, ["score"]) || ""));
+    const ended = pickF(g, ["ended"]) === true || /^(FT|AET|PEN)/i.test(period) || /final|ended|finished/i.test(String(pickF(g, ["status"]) || ""));
+    const live = pickF(g, ["live"]) === true || /inprogress|in_progress|live/i.test(String(pickF(g, ["status"]) || ""));
+    let minute = Number(pickF(g, ["elapsed", "minute"]));
+    if (minute > 130) minute /= 60;
+    if (!Number.isFinite(minute)) minute = /^HT/i.test(period) ? 45 : old.minute || 0;
+    const homeAb = String(pickF(g, ["homeTeam", "home", "homeAbbreviation"]) || (sm ? sm[2] : old.homeAb || "")).toUpperCase(), awayAb = String(pickF(g, ["awayTeam", "away", "awayAbbreviation"]) || (sm ? sm[3] : old.awayAb || "")).toUpperCase();
+    const ng = { ...old, slug, league, homeAb, awayAb, date: sm ? sm[4] : old.date, state: ended ? "post" : live ? "in" : old.state || "pre", minute: ended ? 90 : minute, hg: sc ? Number(sc[1]) : old.hg || 0, ag: sc ? Number(sc[2]) : old.ag || 0, final: ended && !!sc, seen: Date.now() };
+    if (ng.state === "in" && !ng.liveSince) ng.liveSince = Date.now() - ng.minute * 60000;
+    PMG.set(slug, ng);
+    if (!old.info && !ng.infoBusy) pmEnrich(ng);
+    clearTimeout(pmTimer); pmTimer = setTimeout(pmApply, 400);
+  }
+  // Названия команд и цены Polymarket по слагу игры (Gamma API).
+  async function pmEnrich(g) {
+    g.infoBusy = true;
+    try {
+      const r = await fetch(`https://gamma-api.polymarket.com/events?slug=${encodeURIComponent(g.slug)}`, { cache: "no-store" });
+      if (!r.ok) throw new Error("HTTP " + r.status);
+      const arr = await r.json(), ev = Array.isArray(arr) ? arr[0] : arr;
+      if (ev) {
+        g.info = true;
+        const parts = String(ev.title || "").split(/\s+vs\.?\s+/i);
+        if (parts.length === 2) { g.homeName = cleanTeam(parts[0]); g.awayName = cleanTeam(parts[1]); }
+        const st = Date.parse(ev.startTime || ev.gameStartTime || ev.startDate || "");
+        if (Number.isFinite(st)) g.ts = st;
+        g.markets = ev.markets || [];
+      }
+    } catch {}
+    g.infoBusy = false; g.infoAt = Date.now();
+    pmApply();
+  }
+  const jsonArr = (v) => { try { return typeof v === "string" ? JSON.parse(v) : v || []; } catch { return []; } };
+  // Цена «Да» из рынков Polymarket по игре: победа хозяев, победа гостей, тотал больше 2,5.
+  function pmRefs(g) {
+    const out = {};
+    const price = (mk, re) => { const o = jsonArr(mk.outcomes), pr = jsonArr(mk.outcomePrices), i = o.findIndex((x) => re.test(String(x))); const v = Number(pr[i]); return v > 0 && v < 1 ? v : null; };
+    (g.markets || []).forEach((mk) => {
+      const q = String(mk.question || "") + " " + String(mk.groupItemTitle || ""), type = String(mk.sportsMarketType || ""), low = q.toLowerCase();
+      if (/moneyline|winner/i.test(type) || /\bwin\b/i.test(low)) {
+        if (/draw/i.test(low)) return;
+        const hn = (g.homeName || g.homeAb || "").toLowerCase(), an = (g.awayName || g.awayAb || "").toLowerCase();
+        const v = price(mk, /^yes$/i);
+        if (v != null && hn && low.includes(hn) && out.home == null) out.home = v;
+        else if (v != null && an && low.includes(an) && out.away == null) out.away = v;
+      } else if (/total|over/i.test(type + low) && /2\.5/.test(q + String(mk.line || ""))) {
+        const v = price(mk, /^over$/i) ?? price(mk, /^yes$/i);
+        if (v != null) out.over = v;
+      }
+    });
+    return out;
+  }
+  const pmGames = () => [...PMG.values()].filter((g) => Date.now() - g.seen < 6 * 3600e3);
+  function pmMatches() {
+    return pmGames().map((g) => {
+      const m = { key: "pm:" + g.slug, src: "pm", league: String(g.league || "").toUpperCase(), ts: g.ts || (g.liveSince || Date.parse(g.date + "T12:00:00") || Date.now()), state: g.state, minute: g.minute, home: { name: g.homeName || g.homeAb, abbr: g.homeAb }, away: { name: g.awayName || g.awayAb, abbr: g.awayAb }, hg: g.hg, ag: g.ag, final: g.final, goals: [] };
+      const refs = pmRefs(g);
+      m.pmRef = refs;
+      const ph = refs.home != null ? refs.home : 0.42, pa = refs.away != null ? refs.away : 0.3;
+      setStrength(m, ph, pa, 2.6);
+      return m;
+    });
+  }
+  function pmApply() {
+    const ms = pmMatches();
+    if (!ms.length) return;
+    if (liveSrc !== "pm") { // Polymarket стал источником: демо и ESPN-рынки без ставок убираем
+      for (let i = EVENTS.length - 1; i >= 0; i--) { const e = EVENTS[i]; if (e.live && !String(e.live.key).startsWith("pm:") && !bets.some((b) => b.eid === e.id)) EVENTS.splice(i, 1); }
+      [...LIVE.keys()].forEach((k) => { if (!k.startsWith("pm:")) LIVE.delete(k); });
+    }
+    liveSrc = "pm";
+    ms.forEach(upsertMatch);
+    pruneLive(); saveLive(); refreshPrices();
+    if (modalEvent && modalEvent.live) paintModalLive();
+    if (state.route === "markets" && state.cat === "live") paintGrid();
+    if (state.route === "home") { const h = $("#live-home"); if (h) h.outerHTML = liveHomeHTML(); }
+  }
+  function startPM() {
+    if (typeof WebSocket !== "function") return;
+    const retry = () => { pmStatus = "нет соединения"; pmTry++; setTimeout(startPM, Math.min(60000, 3000 * 2 ** Math.min(pmTry, 4))); };
+    try { pmWs = new WebSocket("wss://sports-api.polymarket.com/ws"); } catch { return retry(); }
+    let dead = false;
+    pmWs.onopen = () => { pmTry = 0; pmStatus = "подключено"; };
+    pmWs.onmessage = (ev) => {
+      const t = typeof ev.data === "string" ? ev.data : "";
+      if (/^\s*ping\s*$/i.test(t)) { try { pmWs.send("pong"); } catch {} return; }
+      let d; try { d = JSON.parse(t); } catch { return; }
+      if (d && (d.type === "ping" || d.event === "ping")) { try { pmWs.send(JSON.stringify({ type: "pong" })); } catch {} return; }
+      (Array.isArray(d) ? d : [d]).forEach(pmMsg);
+    };
+    pmWs.onclose = () => { if (!dead) { dead = true; retry(); } };
+    pmWs.onerror = () => { try { pmWs.close(); } catch {} };
+  }
+  // обновление цен Polymarket по играм (раз в 30 секунд) и подсказка об источнике в Live
+  setInterval(() => { pmGames().forEach((g) => { if (!g.infoBusy && (!g.infoAt || Date.now() - g.infoAt > (g.state === "in" ? 30000 : 120000))) pmEnrich(g); }); }, 10000);
+  const liveNote = () => {
+    const src = liveSrc === "pm" ? `Результаты и цены: Polymarket Sports (WebSocket ${pmStatus}), ${pmGames().length} матчей.` : liveSrc === "espn" ? "Результаты: лента ESPN (реальные матчи)." : liveSrc === "sim" ? "Реальные ленты недоступны: показаны демо-матчи в ускоренном времени." : "Загружаем матчи…";
+    return src + (liveSrc !== "pm" ? ` Polymarket Sports: ${pmStatus}.` : "");
+  };
+  function startLive() { startPM(); livePoll(true); setInterval(() => { if (!document.hidden) livePoll(false); }, 5000); }
 
   restoreLive();
   EVENTS.forEach((e) => { // итоги, заданные заранее (в events.js) или сохранённые в браузере

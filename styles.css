@@ -1387,3 +1387,4 @@ a.cm-av:hover .avatar{box-shadow:0 0 0 2px var(--brand)}
 [data-motion="on"] .lv-dot{animation:lvpulse 1.2s infinite}
 #live-home{padding-top:34px}
 #live-home + .wrap .stats{margin-top:34px}
+.lv-src{padding:1px 7px;border-radius:99px;border:1px solid color-mix(in srgb,var(--brand) 55%,transparent);font-size:10.5px;color:var(--brand);letter-spacing:.03em}
