@@ -28,11 +28,13 @@
   const saveSettings = () => store.set("settings", settings);
   const DESIGNS = [
     ["classic", "Классика", "Текущий вид сайта"],
-    ["kalshi", "Kalshi", "Чёрный фон, мятный акцент, узкие заголовки, бегущая строка цен"],
-    ["polymarket", "Polymarket", "Синий акцент, мягкие карточки, шкалы вероятности"],
+    ["malachite", "Малахит", "Глубокий чёрный фон, зелёный акцент, узкие заголовки, бегущая строка цен"],
+    ["azure", "Лазурь", "Синий акцент, мягкие карточки, шкалы вероятности"],
     ["aurora", "Аврора", "Стекло и плывущие неоновые градиенты"],
     ["terminal", "Терминал", "Моноширинный шрифт, янтарь на чёрном, мигающий курсор"]
   ];
+  if (settings.design === "kalshi") settings.design = "malachite"; // прежние названия вариантов
+  if (settings.design === "polymarket") settings.design = "azure";
   if (!DESIGNS.some(([k]) => k === settings.design)) settings.design = "classic";
   settings.motion = settings.motion !== false;
   const reducedMotion = () => window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
