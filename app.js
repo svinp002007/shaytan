@@ -728,7 +728,7 @@
       chance: (a, b) => b.yes - a.yes
     };
     if (state.cat !== "all" && state.cat !== "soon" && state.cat !== "dry" && state.cat !== "live" && !catOn(state.cat)) state.cat = "all";
-    const inCat = (e) => catOn(e.cat) && (state.cat === "all" || (state.cat === "soon" ? isOpen(e) && daysLeft(e) <= 14 : state.cat === "dry" ? !!e.noliq : state.cat === "live" ? !!e.live : e.cat === state.cat));
+    const inCat = (e) => catOn(e.cat) && (state.cat === "all" || (state.cat === "soon" ? isOpen(e) && daysLeft(e) <= 14 : state.cat === "dry" ? !!e.noliq : state.cat === "live" ? !!e.live && (!state.lsport || e.live.sport === state.lsport) : e.cat === state.cat));
     const liveRank = (e) => { const m = e.live && LIVE.get(e.live.key); return m ? { in: 0, pre: 1, post: 2 }[m.state] : 3; };
     const cmp = state.cat === "live" ? (a, b) => liveRank(a) - liveRank(b) || a.live.ts - b.live.ts || a.id - b.id : state.cat === "soon" && state.sort === "volume" ? sorts.closing : sorts[state.sort];
     return EVENTS.filter((e) => inCat(e) && (!q || e.q.toLowerCase().includes(q))).sort(cmp);
@@ -752,6 +752,7 @@
           </select>
         </div>
       </div>
+      <div id="lv-tools"></div>
       <div id="grid" class="grid"></div>
       <p id="empty" class="empty" hidden>Ничего не найдено.</p>
     </div>`;
@@ -765,6 +766,7 @@
     $("#count").title = state.cat === "live" ? liveNoteTitle() : "";
     $("#empty").hidden = n > 0;
     $("#grid").innerHTML = list.map(cardHTML).join("");
+    paintLvTools();
   }
 
   function leaderTable(rows, withMe) {
@@ -2637,27 +2639,29 @@
   // Из всех матчей отбираются самые интересные: топ-лиги, большой объём торгов, равные шансы, матчи в эфире.
   // Цена рынка тянется к вероятности по модели от счёта и времени, итог начисляется по финальному счёту.
   const SPORTS = {
-    soccer: { name: "Футбол", img: "football", total: 2.5 },
-    hockey: { name: "Хоккей", img: "hockey", total: 5.5 },
-    basketball: { name: "Баскетбол", img: "basketball", total: 224.5 }
+    soccer: { name: "Футбол", img: "football", total: 2.5, model: true },
+    hockey: { name: "Хоккей", img: "hockey", total: 5.5, model: true },
+    basketball: { name: "Баскетбол", img: "basketball", total: 224.5, model: true },
+    football: { name: "Американский футбол", img: "amfootball" },
+    baseball: { name: "Бейсбол", img: "baseball" },
+    tennis: { name: "Теннис", img: "tennis" },
+    mma: { name: "ММА и бокс", img: "trophy" },
+    esports: { name: "Киберспорт", img: "gamepad" },
+    cricket: { name: "Крикет", img: "trophy" },
+    other: { name: "Другой спорт", img: "medal" }
   };
-  const ovTxt = (m) => (m.sport === "basketball" ? "очков" : "гола");
-  const lineTxt = (m) => String(m.line || SPORTS[m.sport].total).replace(".", ",");
-  const LIVE_KINDS = {
-    soccer: [
-      ["home", (m) => `${m.home.name} победит в основное время?`, (m) => `Основное время матча «${m.home.name} — ${m.away.name}» (90 минут плюс компенсированное время) закончится победой «${m.home.name}».`, (m) => m.hg > m.ag],
-      ["away", (m) => `${m.away.name} победит в основное время?`, (m) => `Основное время матча «${m.home.name} — ${m.away.name}» (90 минут плюс компенсированное время) закончится победой «${m.away.name}».`, (m) => m.ag > m.hg],
-      ["over", (m) => `В матче ${m.home.name} — ${m.away.name} будет забито больше 2,5 гола?`, (m) => `В основное время матча «${m.home.name} — ${m.away.name}» суммарно будет забито три гола или больше.`, (m) => m.hg + m.ag >= 3]
-    ],
-    hockey: [
-      ["home", (m) => `${m.home.name} победит в матче (с овертаймом)?`, (m) => `Матч «${m.home.name} — ${m.away.name}» завершится победой «${m.home.name}» с учётом овертайма и буллитов.`, (m) => m.hg > m.ag],
-      ["over", (m) => `В матче ${m.home.name} — ${m.away.name} будет больше ${lineTxt(m)} шайб?`, (m) => `В матче «${m.home.name} — ${m.away.name}» с учётом овертайма суммарно будет заброшено больше ${lineTxt(m)} шайб.`, (m, e) => m.hg + m.ag > ((e && e.live.line) || m.line || SPORTS.hockey.total)]
-    ],
-    basketball: [
-      ["home", (m) => `${m.home.name} победит в матче (с овертаймом)?`, (m) => `Матч «${m.home.name} — ${m.away.name}» завершится победой «${m.home.name}» с учётом овертайма.`, (m) => m.hg > m.ag],
-      ["over", (m) => `В матче ${m.home.name} — ${m.away.name} будет набрано больше ${lineTxt(m)} очков?`, (m) => `В матче «${m.home.name} — ${m.away.name}» с учётом овертайма суммарно будет набрано больше ${lineTxt(m)} очков.`, (m, e) => m.hg + m.ag > ((e && e.live.line) || m.line || SPORTS.basketball.total)]
-    ]
-  };
+  const UNIT = { soccer: "гола", hockey: "шайб", basketball: "очков" };
+  const lineOf = (m, e) => (e && e.live && e.live.line) || m.line || (SPORTS[m.sport] || {}).total;
+  const lineTxt = (m) => String(lineOf(m) || "").replace(".", ",");
+  const WIN_WHERE = { soccer: " в основное время", hockey: " в матче (с овертаймом)", basketball: " в матче (с овертаймом)" };
+  const WIN_RULE = (sp) => (sp === "soccer" ? " в основное время (90 минут плюс компенсированное время)" : sp === "hockey" || sp === "basketball" ? " с учётом овертайма" : "");
+  // Рынки на матч: победа хозяев, победа гостей, у футбола ещё ничья, и тотал (если известна линия).
+  const kindsFor = (sp) => [
+    ["home", (m) => `${m.home.name} победит${WIN_WHERE[sp] || " в матче"}?`, (m) => `Матч «${m.home.name} — ${m.away.name}» завершится победой «${m.home.name}»${WIN_RULE(sp)}.`, (m) => m.hg > m.ag, () => true],
+    ["away", (m) => `${m.away.name} победит${WIN_WHERE[sp] || " в матче"}?`, (m) => `Матч «${m.home.name} — ${m.away.name}» завершится победой «${m.away.name}»${WIN_RULE(sp)}.`, (m) => m.ag > m.hg, () => true],
+    ...(sp === "soccer" ? [["draw", (m) => `Ничья в основное время: ${m.home.name} — ${m.away.name}?`, (m) => `Основное время матча «${m.home.name} — ${m.away.name}» закончится вничью.`, (m) => m.hg === m.ag, () => true]] : []),
+    ["over", (m) => `В матче ${m.home.name} — ${m.away.name} будет больше ${lineTxt(m)} ${UNIT[sp] || "очков"}?`, (m) => `В матче «${m.home.name} — ${m.away.name}»${WIN_RULE(sp)} суммарно будет больше ${lineTxt(m)} ${UNIT[sp] || "очков"}.`, (m, e) => m.hg + m.ag > lineOf(m, e), (m) => !!(SPORTS[sp].model || m.line)]
+  ];
   const LIVE = new Map(); // ключ матча -> состояние
   let liveSrc = "", liveLast = 0, liveBusy = false, liveDefs = store.get("livemk", []);
   const poisson = (l, k) => { let p = Math.exp(-l); for (let i = 1; i <= k; i++) p *= l / i; return p; };
@@ -2667,6 +2671,7 @@
   const PhiInv = (p) => { let lo = -6, hi = 6; for (let i = 0; i < 40; i++) { const mid = (lo + hi) / 2; if (Phi(mid) < p) lo = mid; else hi = mid; } return (lo + hi) / 2; };
   // Вероятности по оставшемуся времени. Футбол и хоккей: пуассоновские голы, баскетбол: нормальное приближение разницы очков.
   function liveProbs(m) {
+    if (!(SPORTS[m.sport] && SPORTS[m.sport].model)) return { home: 0.5, away: 0.5, draw: 0, over: 0.5 }; // для остальных видов спорта цена только с ленты
     const post = m.state === "post", prog = post ? 1 : clamp(m.prog != null ? m.prog : m.minute / 90, 0, 1);
     if (m.sport === "basketball") {
       const r = post ? 0 : clamp(1 - prog, 0.004, 1), diff = m.hg - m.ag, cur = m.hg + m.ag, line = m.line || SPORTS.basketball.total;
@@ -2711,7 +2716,9 @@
     const old = LIVE.get(m.key);
     LIVE.set(m.key, { ...(old || {}), ...m });
     const mm = LIVE.get(m.key), pr = liveProbs(mm);
-    (LIVE_KINDS[mm.sport] || LIVE_KINDS.soccer).forEach(([kind, q, rule, win]) => {
+    kindsFor(mm.sport).forEach(([kind, q, rule, win, cond]) => {
+      if (!cond(mm)) return;
+      if (!(SPORTS[mm.sport] && SPORTS[mm.sport].model) && !(mm.pmRef && mm.pmRef[kind] != null) && !(old && old[kind + "Id"])) return; // без цены ленты рынок не создаём
       const id = old && old[kind + "Id"] ? old[kind + "Id"] : liveId(m.key, kind);
       mm[kind + "Id"] = id;
       const refV = mm.pmRef && mm.pmRef[kind] != null ? mm.pmRef[kind] : pr[kind], r = clamp(refV * 100, 1.5, 98.5);
@@ -2719,7 +2726,7 @@
       e.live.ref = r; e.p0 = r;
       const qq = q(mm); // названия команд и линия могут уточниться позже
       if (e.q !== qq) { e.q = qq; if (RULES[id]) RULES[id][0] = rule(mm); }
-      if (mm.state === "post" && !e.resolved && mm.final) {
+      if (mm.state === "post" && !e.resolved && mm.final && (mm.sport === "soccer" || kind === "over" || mm.hg !== mm.ag)) {
         const mine = bets.some((b) => b.eid === e.id);
         settleMarket(e, win(mm, e) ? "yes" : "no", !mine);
       }
@@ -2829,9 +2836,10 @@
     Object.keys(SPORTS).forEach((sp) => {
       const of = list.filter((m) => m.sport === sp), top = of.filter((m) => !hasBets(m)).sort((a, b) => score(b) - score(a));
       const forced = of.filter(hasBets);
-      out.push(...forced, ...top.slice(0, Math.max(0, 4 - forced.length)));
+      out.push(...forced, ...top.slice(0, Math.max(0, 10 - forced.length)));
     });
-    return out;
+    const all = out.filter((m) => !hasBets(m)).sort((a, b) => score(b) - score(a)).slice(0, 48);
+    return [...out.filter(hasBets), ...all];
   }
   // Рынки матчей, которые перестали входить в число лучших (и без ставок), убираем.
   function dropUnchosen(chosen) {
@@ -2868,17 +2876,25 @@
   // Схему сообщений мы не видели, поэтому поля читаются из нескольких возможных названий.
   const PMG = new Map(); // слаг игры -> игра
   let pmWs = null, pmTry = 0, pmStatus = "нет соединения", pmTimer = 0;
+  const PMDIAG = { msgs: 0, lastAt: 0, samples: [], err: "", gammaAt: 0, gammaCount: 0, gammaErr: "" };
   const HOCKEY_L = new Set(["nhl", "khl", "ahl", "shl", "liiga", "del", "cehl", "iihf"]), BASKET_L = new Set(["nba", "wnba", "euroleague", "el", "ncaab", "cbb", "nbl", "vtb", "bbl", "acb"]);
   const SOCCER_L = new Set(["epl", "lal", "bun", "sea", "fl1", "ucl", "uel", "uecl", "mls", "ere", "por", "bra", "arg", "tur", "mex", "col", "efl", "sco", "spl", "rus", "j1", "kor", "aus", "cdr", "fif", "wc", "euro", "itc", "fa", "lig", "cof", "cde", "bl1", "sa", "pl", "laliga", "mex1"]);
+  const FOOT_L = new Set(["nfl", "cfb", "ncaaf", "ufl", "cfl"]), BASE_L = new Set(["mlb", "npb", "kbo", "ncaabb", "wbc"]), TENNIS_L = new Set(["atp", "wta", "tennis", "itf", "usopen", "wimbledon"]), MMA_L = new Set(["ufc", "mma", "box", "boxing", "pfl", "bellator"]), ESPORT_L = new Set(["cs2", "csgo", "lol", "dota2", "dota", "val", "valorant", "ow", "r6", "rl", "esports", "cod", "sc2"]), CRIC_L = new Set(["ipl", "cricket", "t20", "odi", "bbl", "psl", "test", "cric", "crint"]);
   function sportOf(league, period) {
     const per = String(period || "");
     if (/^(1H|2H|HT|ET|AET|PEN)/i.test(per)) return "soccer";
-    if (/^Q\d/i.test(per)) return "basketball";
+    if (/^Q\d/i.test(per) && !FOOT_L.has(league)) return "basketball";
     if (/^(P\d|SO|\d(st|nd|rd)? ?P)/i.test(per)) return "hockey";
     if (HOCKEY_L.has(league)) return "hockey";
     if (BASKET_L.has(league)) return "basketball";
     if (SOCCER_L.has(league)) return "soccer";
-    return null;
+    if (FOOT_L.has(league)) return "football";
+    if (BASE_L.has(league)) return "baseball";
+    if (TENNIS_L.has(league)) return "tennis";
+    if (MMA_L.has(league)) return "mma";
+    if (ESPORT_L.has(league)) return "esports";
+    if (CRIC_L.has(league)) return "cricket";
+    return "other";
   }
   const pickF = (o, keys) => { for (const k of keys) if (o && o[k] !== undefined && o[k] !== null && o[k] !== "") return o[k]; };
   const cleanTeam = (t) => String(t).replace(/\b(FC|CF|AFC|SC|AC|FK|CD|RC)\b\.?/g, "").replace(/\s+/g, " ").trim();
@@ -2893,19 +2909,19 @@
       if (/^HT/i.test(per)) min = 45;
       return { prog: clamp(min / 90, 0, 1), clockTxt: Math.round(min) + "'", minute: Math.round(min) };
     }
+    if (!(SPORTS[sport] && SPORTS[sport].model)) return { prog: 0.5, clockTxt: per, minute: 0 }; // табло: период или счёт по сетам, как прислала лента
     const n = sport === "hockey" ? 3 : 4, len = sport === "hockey" ? 20 : 12, pi = Number((/\d/.exec(per) || [0])[0]);
     if (/OT|SO/i.test(per) || pi > n) return { prog: 1, clockTxt: /SO/i.test(per) ? "БУЛ" : "OT", minute: 0 };
     const inPer = Number.isFinite(el) ? clamp(el / (el > len ? 60 * len : len), 0, 1) : 0.5;
     return { prog: clamp((Math.max(1, pi) - 1 + inPer) / n, 0, 1), clockTxt: (sport === "hockey" ? "П" : "Q") + Math.max(1, pi), minute: 0 };
   }
-  function pmMsg(d) {
+  function pmMsg(d, quiet) {
     const g = (d && (d.payload || d.data)) || d;
     if (!g || typeof g !== "object") return;
     const slug = pickF(g, ["slug", "gameSlug"]);
     if (!slug) return;
     const sm = /^([a-z0-9]+)-([a-z0-9]+)-([a-z0-9]+)-(\d{4}-\d{2}-\d{2})/i.exec(String(slug)), league = String(pickF(g, ["leagueAbbreviation", "league"]) || (sm ? sm[1] : "")).toLowerCase();
-    const period = String(pickF(g, ["period"]) || ""), sport = sportOf(league, period) || (PMG.get(slug) || {}).sport;
-    if (!sport) return;
+    const period = String(pickF(g, ["period"]) || ""), sport = (PMG.get(slug) || {}).sport && !/^(1H|2H|HT|ET|Q\d|P\d)/i.test(period) ? PMG.get(slug).sport : sportOf(league, period);
     const old = PMG.get(slug) || {};
     const sc = /(\d+)\s*[-:]\s*(\d+)/.exec(String(pickF(g, ["score"]) || ""));
     const status = String(pickF(g, ["status"]) || "");
@@ -2913,13 +2929,24 @@
     const live = pickF(g, ["live"]) === true || /inprogress|in_progress|live/i.test(status);
     const pg = pmProgress(sport, period, pickF(g, ["elapsed", "minute", "clock"]));
     // порядок команд: у футбола первая в слаге — хозяева, у хоккея и баскетбола в слаге сначала гости (если поля homeTeam/awayTeam не заданы)
-    const a1 = sm ? sm[2].toUpperCase() : "", a2 = sm ? sm[3].toUpperCase() : "", usStyle = sport !== "soccer";
+    const a1 = sm ? sm[2].toUpperCase() : "", a2 = sm ? sm[3].toUpperCase() : "", usStyle = ["hockey", "basketball", "football", "baseball"].includes(sport);
     const homeAb = String(pickF(g, ["homeTeam", "home", "homeAbbreviation"]) || (usStyle ? a2 : a1) || old.homeAb || "").toUpperCase(), awayAb = String(pickF(g, ["awayTeam", "away", "awayAbbreviation"]) || (usStyle ? a1 : a2) || old.awayAb || "").toUpperCase();
     const ng = { ...old, slug, sport, league, homeAb, awayAb, date: sm ? sm[4] : old.date, state: ended ? "post" : live ? "in" : old.state || "pre", prog: ended ? 1 : pg.prog, clockTxt: ended ? "" : pg.clockTxt, minute: ended ? 90 : pg.minute, hg: sc ? Number(sc[1]) : old.hg || 0, ag: sc ? Number(sc[2]) : old.ag || 0, final: ended && !!sc, seen: Date.now(), usStyle };
     if (ng.state === "in" && !ng.liveSince) ng.liveSince = Date.now() - ng.prog * (sport === "soccer" ? 95 : sport === "hockey" ? 150 : 140) * 60000;
     PMG.set(slug, ng);
-    if (!old.info && !ng.infoBusy) pmEnrich(ng);
+    if (!quiet && !old.info && !ng.infoBusy) pmEnrich(ng);
     clearTimeout(pmTimer); pmTimer = setTimeout(pmApply, 400);
+  }
+  // Название игры, время начала, объём и рынки из события Gamma.
+  function pmFill(g, ev) {
+    g.info = true;
+    const parts = String(ev.title || "").split(/\s+(?:vs\.?|@)\s+/i);
+    if (parts.length === 2) { const a = cleanTeam(parts[0]), b = cleanTeam(parts[1]); if (g.usStyle) { g.awayName = a; g.homeName = b; } else { g.homeName = a; g.awayName = b; } }
+    const st = Date.parse(ev.startTime || ev.gameStartTime || ev.startDate || "");
+    if (Number.isFinite(st)) g.ts = st;
+    const vol = Number(ev.volume || ev.volume24hr || ev.liquidity || 0);
+    if (vol > 0) g.vol = vol;
+    g.markets = ev.markets || [];
   }
   async function pmEnrich(g) {
     g.infoBusy = true;
@@ -2928,18 +2955,33 @@
       if (!r.ok) throw new Error("HTTP " + r.status);
       const arr = await r.json(), ev = Array.isArray(arr) ? arr[0] : arr;
       if (ev) {
-        g.info = true;
-        const parts = String(ev.title || "").split(/\s+(?:vs\.?|@)\s+/i);
-        if (parts.length === 2) { const a = cleanTeam(parts[0]), b = cleanTeam(parts[1]); if (g.usStyle) { g.awayName = a; g.homeName = b; } else { g.homeName = a; g.awayName = b; } }
-        const st = Date.parse(ev.startTime || ev.gameStartTime || ev.startDate || "");
-        if (Number.isFinite(st)) g.ts = st;
-        const vol = Number(ev.volume || ev.volume24hr || ev.liquidity || 0);
-        if (vol > 0) g.vol = vol;
-        g.markets = ev.markets || [];
+        pmFill(g, ev);
+        if (ev.ended === true && ev.score && g.state !== "post") pmMsg({ slug: g.slug, ended: true, live: false, score: ev.score, period: ev.period || "FT", elapsed: ev.elapsed }); // событие уже завершено
       }
-    } catch {}
+    } catch (e) { PMDIAG.err = "Gamma: " + (e && e.message || e); }
     g.infoBusy = false; g.infoAt = Date.now();
     pmApply();
+  }
+  // Список спортивных событий Polymarket (в эфире и ближайшие сутки): основа каталога, если по WebSocket пришло не всё.
+  async function pmDiscover() {
+    try {
+      const iso = (t) => new Date(t).toISOString(), base = "https://gamma-api.polymarket.com/events?tag_id=1&active=true&closed=false&order=volume24hr&ascending=false";
+      const got = await Promise.allSettled([`${base}&limit=150`, `${base}&limit=200&end_date_min=${iso(Date.now() - 6 * 3600e3)}&end_date_max=${iso(Date.now() + 30 * 3600e3)}`].map((u) => fetch(u, { cache: "no-store" }).then((r) => { if (!r.ok) throw new Error("HTTP " + r.status); return r.json(); })));
+      const okr = got.filter((x) => x.status === "fulfilled");
+      if (!okr.length) throw got[0].reason;
+      const seenS = new Set(), arr = okr.flatMap((x) => (Array.isArray(x.value) ? x.value : [])).filter((ev) => ev && ev.slug && !seenS.has(ev.slug) && seenS.add(ev.slug));
+      PMDIAG.gammaAt = Date.now(); PMDIAG.gammaCount = arr.length; PMDIAG.gammaErr = "";
+      arr.forEach((ev) => {
+        const slug = ev.slug;
+        if (!slug || !/^[a-z0-9]+-[a-z0-9]+-[a-z0-9]+-\d{4}-\d{2}-\d{2}/i.test(slug)) return;
+        const st = Date.parse(ev.startTime || ev.gameStartTime || ev.startDate || ""), live = ev.live === true, ended = ev.ended === true;
+        if (!live && !ended && !(st > Date.now() - 3600e3 && st < Date.now() + 24 * 3600e3)) return;
+        pmMsg({ slug, leagueAbbreviation: slug.split("-")[0], status: ev.gameStatus || "", live, ended, score: ev.score, period: ev.period, elapsed: ev.elapsed }, true);
+        const g = PMG.get(slug);
+        if (g) { pmFill(g, ev); g.infoAt = Date.now(); }
+      });
+      pmApply();
+    } catch (e) { PMDIAG.gammaErr = String(e && e.message || e); }
   }
   const jsonArr = (v) => { try { return typeof v === "string" ? JSON.parse(v) : v || []; } catch { return []; } };
   // Цены рынков Polymarket по игре: победа хозяев, победа гостей, тотал; линия тотала берётся оттуда же.
@@ -2951,9 +2993,9 @@
       if (/total/i.test(type) || /o\/u|over\/under|total/i.test(low)) {
         const line = Number(mk.line) || Number((/(\d{1,3}(?:\.\d)?)/.exec(String(mk.question || "").replace(/\d{4}-\d{2}-\d{2}/g, "")) || [])[1]);
         const v = price(mk, /^over$/i) ?? price(mk, /^yes$/i);
-        if (v != null && line > 0 && (out.over == null || Math.abs(line - SPORTS[g.sport].total) < Math.abs(out.line - SPORTS[g.sport].total))) { out.over = v; out.line = line; }
+        if (v != null && line > 0 && (out.over == null || Math.abs(line - (SPORTS[g.sport].total || out.line)) < Math.abs(out.line - (SPORTS[g.sport].total || out.line)))) { out.over = v; out.line = line; }
       } else if (/moneyline|winner/i.test(type) || /\bwin\b/i.test(low) || / vs\.? /i.test(low)) {
-        if (/draw/i.test(low)) return;
+        if (/draw/i.test(low)) { const dv = price(mk, /^yes$/i); if (dv != null) out.draw = dv; return; }
         const hn = (g.homeName || g.homeAb || "").toLowerCase(), an = (g.awayName || g.awayAb || "").toLowerCase();
         const o = jsonArr(mk.outcomes), pr = jsonArr(mk.outcomePrices);
         let v = price(mk, /^yes$/i);
@@ -2998,9 +3040,10 @@
     pmWs.onmessage = (ev) => {
       const t = typeof ev.data === "string" ? ev.data : "";
       if (/^\s*ping\s*$/i.test(t)) { try { pmWs.send("pong"); } catch {} return; }
+      PMDIAG.msgs++; PMDIAG.lastAt = Date.now(); PMDIAG.samples.unshift(t.slice(0, 420)); PMDIAG.samples.length = Math.min(PMDIAG.samples.length, 3);
       let d; try { d = JSON.parse(t); } catch { return; }
       if (d && (d.type === "ping" || d.event === "ping")) { try { pmWs.send(JSON.stringify({ type: "pong" })); } catch {} return; }
-      (Array.isArray(d) ? d : [d]).forEach(pmMsg);
+      (Array.isArray(d) ? d : [d]).forEach((x) => pmMsg(x));
     };
     pmWs.onclose = () => { if (!dead) { dead = true; retry(); } };
     pmWs.onerror = () => { try { pmWs.close(); } catch {} };
@@ -3009,7 +3052,24 @@
   setInterval(() => { pmGames().forEach((g) => { if (!g.infoBusy && (!g.infoAt || Date.now() - g.infoAt > (g.state === "in" ? 30000 : 120000))) pmEnrich(g); }); }, 10000);
   const liveNote = () => (liveSrc === "pm" ? `Счёт обновляется в реальном времени, матчей: ${pmGames().length}.` : liveSrc === "espn" ? "Счёт обновляется каждые 15 секунд." : liveSrc === "sim" ? "Реальные данные недоступны: показаны демо-матчи в ускоренном времени." : "Загружаем матчи…");
   const liveNoteTitle = () => `Источник: ${liveSrc === "pm" ? "WebSocket спортивной ленты, соединение " + pmStatus : liveSrc === "espn" ? "лента ESPN" : liveSrc === "sim" ? "демо-симуляция (реальные ленты недоступны, соединение с WebSocket: " + pmStatus + ")" : "—"}`;
-  function startLive() { startPM(); livePoll(true); setInterval(() => { if (!document.hidden) livePoll(false); }, 5000); }
+  // Фильтр по видам спорта и панель диагностики на вкладке Live.
+  const ago = (t) => (t ? Math.max(0, Math.round((Date.now() - t) / 1000)) + " с назад" : "нет");
+  function lvDiagText() {
+    const cnt = {}; [...PMG.values()].forEach((g) => { cnt[g.sport] = (cnt[g.sport] || 0) + 1; });
+    return [`Источник: ${liveSrc === "pm" ? "реальная лента" : liveSrc === "espn" ? "ESPN" : liveSrc === "sim" ? "демо" : "—"}`, `WebSocket: ${pmStatus}, сообщений: ${PMDIAG.msgs}, последнее: ${ago(PMDIAG.lastAt)}`, `Каталог: событий ${PMDIAG.gammaCount}, обновлён: ${ago(PMDIAG.gammaAt)}${PMDIAG.gammaErr ? ", ошибка: " + PMDIAG.gammaErr : ""}${PMDIAG.err ? " · " + PMDIAG.err : ""}`, `Игр в памяти: ${PMG.size} (${Object.keys(cnt).map((k) => ((SPORTS[k] || {}).name || k) + " " + cnt[k]).join(", ") || "—"})`, `Рынков на вкладке: ${EVENTS.filter((e) => e.live).length}`, "Последние сообщения ленты:", ...(PMDIAG.samples.length ? PMDIAG.samples : ["—"])].join("\n");
+  }
+  function paintLvTools() {
+    const box = $("#lv-tools");
+    if (!box) return;
+    if (state.cat !== "live") { box.innerHTML = ""; return; }
+    const have = {}; EVENTS.forEach((e) => { if (e.live) have[e.live.sport] = (have[e.live.sport] || 0) + 1; });
+    const keys = Object.keys(SPORTS).filter((k) => have[k]);
+    if (state.lsport && !have[state.lsport]) state.lsport = "";
+    const open = box.querySelector("details") && box.querySelector("details").open;
+    box.innerHTML = `<div class="lv-sports">${[["", "Все виды", EVENTS.filter((e) => e.live).length], ...keys.map((k) => [k, SPORTS[k].name, have[k]])].map(([k, n, c]) => `<button class="lv-sp ${state.lsport === k ? "active" : ""}" data-sp="${k}">${n} <small>${c}</small></button>`).join("")}</div><details class="lv-diag" ${open ? "open" : ""}><summary>Состояние ленты</summary><pre id="lv-diag-t">${esc(lvDiagText())}</pre></details>`;
+    box.querySelectorAll(".lv-sp").forEach((b) => b.addEventListener("click", () => { state.lsport = b.dataset.sp; paintGrid(); }));
+  }
+  function startLive() { startPM(); pmDiscover(); setInterval(() => { if (!document.hidden) pmDiscover(); }, 45000); livePoll(true); setInterval(() => { if (!document.hidden) livePoll(false); }, 5000); setInterval(() => { const t = $("#lv-diag-t"); if (t && !document.hidden) t.textContent = lvDiagText(); }, 2000); }
 
   restoreLive();
   EVENTS.forEach((e) => { // итоги, заданные заранее (в events.js) или сохранённые в браузере

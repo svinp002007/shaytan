@@ -97,12 +97,14 @@
   const crosshair = (K) => `<circle r="34" fill="${K.rad("cr", "#7f1d1d", "#1a0505")}"/><g stroke="#f43f5e" stroke-width="3" fill="none"><circle r="34"/><circle r="22"/><circle r="9" fill="#f43f5e"/><path d="M0 -44V-12M0 12V44M-44 0H-12M12 0H44" stroke="#fff" stroke-width="2.5"/></g>`;
   const bolt = (K) => `<circle r="34" fill="#fde047" opacity=".16"/><path d="M12 -44-22 4h18L-8 44 26 -8H8z" fill="${K.lin("bo", "#fef08a", "#f59e0b")}" stroke="#fff7c2" stroke-width="2" stroke-linejoin="round"/>`;
   const globe = (K) => `${shadow(46, 34)}<circle r="34" fill="${K.rad("gl", "#7dd3fc", "#1e40af")}"/><g stroke="#fff" fill="none" opacity=".6" stroke-width="2"><ellipse rx="14" ry="34"/><path d="M-34 0h68M-30 -16h60M-30 16h60"/></g><path d="M-18 -14c8-6 14-2 12 4s-10 8-14 4zM8 6c8-4 16 0 14 8s-12 8-16 2z" fill="#34d399" opacity=".85"/>`;
+  const baseball = (K) => `${shadow(46, 44)}<ellipse cy="40" rx="50" ry="9" fill="${K.lin("bg", "#a16207", "#713f12")}"/><path d="M-30 30 18 -34l6 5-48 64z" fill="${K.lin("bt", "#d6a15c", "#7c4a1a")}"/><circle cx="14" cy="4" r="26" fill="${K.rad("bl", "#ffffff", "#cbd5e1")}"/><g stroke="#dc2626" stroke-width="2.4" fill="none" stroke-linecap="round"><path d="M0 -14C8 -6 8 14 0 22M28 -14C20 -6 20 14 28 22"/></g>`;
+  const amfootball = (K) => `${shadow(46, 44)}<ellipse cy="40" rx="50" ry="9" fill="${K.lin("ag", "#16a34a", "#14532d")}"/><g stroke="#fff" opacity=".5" stroke-width="2"><path d="M-44 40h88M-20 33v14M20 33v14"/></g><g transform="rotate(-24)"><ellipse cy="2" rx="40" ry="24" fill="${K.rad("ab", "#b45309", "#5b2a0a")}"/><path d="M-14 2h28M-8 -4v12M0 -4v12M8 -4v12" stroke="#fff" stroke-width="3" stroke-linecap="round"/><path d="M-30 -14C-34 -4-34 8-30 18M30 -14C34 -4 34 8 30 18" stroke="#fff" stroke-width="3" fill="none" opacity=".8"/></g>`;
   const ruble = (K) => coin(K, "#fb7185", "#7f1d1d", "ruble");
   const SCENE = {
     btc: (K) => coin(K, "#fbbf24", "#c2410c", "btc"), eth: (K) => coin(K, "#a5b4fc", "#3730a3", "eth"), sol: (K) => coin(K, "#c084fc", "#0f766e", "sol"), tether: (K) => coin(K, "#4ade80", "#047857", "tether"),
     euro: (K) => coin(K, "#60a5fa", "#1e3a8a", "euro"), yuan: (K) => coin(K, "#f87171", "#7f1d1d", "yuan"), ruble,
     gold: bars, oil: barrel, stocks: (K) => candles(K, true), growth: (K) => candles(K, true), down: (K) => candles(K, false), pie, percent, bank, building: bank, city, doc, briefcase, basket, chip, wheat,
-    football, hockey, basketball, tennis, trophy, rings: medal, medal, mic, person, peace, talk, shield, ballot, snow, thermo, cloud, sun, rocket, phone, plane, film, gamepad, crosshair, bolt, globe
+    football, hockey, basketball, baseball, amfootball, tennis, trophy, rings: medal, medal, mic, person, peace, talk, shield, ballot, snow, thermo, cloud, sun, rocket, phone, plane, film, gamepad, crosshair, bolt, globe
   };
   const TINT = { world: "#38bdf8", russia: "#f43f5e", crypto: "#f59e0b", sport: "#34d399", politics: "#a855f7", tech: "#22d3ee", esports: "#fb7185", weather: "#7dd3fc", internet: "#818cf8" };
 
