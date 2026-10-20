@@ -73,7 +73,7 @@
   const nf = new Intl.NumberFormat("ru-RU");
   const rub = (n) => "₽ " + nf.format(Math.round(n));
   const signed = (n) => (n > 0 ? "+" : n < 0 ? "−" : "") + nf.format(Math.abs(Math.round(n)));
-  const short = (n) => (n >= 1e6 ? (n / 1e6).toFixed(1).replace(".", ",") + " млн" : Math.round(n / 1e3) + " тыс.");
+  const short = (n) => (n >= 1e6 ? (n / 1e6).toFixed(1).replace(".", ",") + " млн" : n >= 1e3 ? Math.round(n / 1e3) + " тыс." : String(Math.round(n)));
   const catName = (id) => CATEGORIES.find((c) => c.id === id).name;
   const fmtDate = (d) => new Date(d + "T00:00:00").toLocaleDateString("ru-RU", { day: "numeric", month: "short", year: "numeric" });
   const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
@@ -238,7 +238,7 @@
   }
   // сроки: рынок принимает ставки до конца дня закрытия
   const todayISO = () => new Date().toLocaleDateString("sv");
-  const isExpired = (e) => !e.resolved && e.closes < todayISO();
+  const isExpired = (e) => !e.resolved && (e.live ? Date.now() > e.live.endTs : e.closes < todayISO());
   const daysLeft = (e) => Math.round((new Date(e.closes + "T00:00:00") - new Date(todayISO() + "T00:00:00")) / 86400000);
   const isOpen = (e) => !e.resolved && !isExpired(e);
   const leftTxt = (e) => {
@@ -617,6 +617,7 @@
       ${banner(e, "", 320, 92)}
       <div class="cat"><span>${catName(e.cat)}</span>${polyChip(e)}</div>
       <h3>${esc(e.q)}</h3>
+      ${e.live ? liveBoardHTML(e) : ""}
       ${e.noliq ? "" : `<div class="pbar-mini" aria-hidden="true"><i style="width:${clamp(e.yes, 1, 99)}%"></i></div>`}
       ${e.noliq ? `<div class="meter dry-meter"><div class="pct">—</div><span class="dry-tag">Нет ликвидности</span></div>` : `<div class="meter">
         <div class="pct">${Math.round(e.yes)}%</div>
@@ -667,7 +668,7 @@
         </div>
       </div>
     </section>
-
+    ${liveHomeHTML()}
     <div class="wrap">
       <div class="stats">
         <div class="stat"><b>${EVENTS.length}</b><span>открытых рынков</span></div>
@@ -726,13 +727,15 @@
       closing: (a, b) => (isOpen(b) - isOpen(a)) || a.closes.localeCompare(b.closes), // сначала открытые, ближайший срок первым
       chance: (a, b) => b.yes - a.yes
     };
-    if (state.cat !== "all" && state.cat !== "soon" && state.cat !== "dry" && !catOn(state.cat)) state.cat = "all";
-    const inCat = (e) => catOn(e.cat) && (state.cat === "all" || (state.cat === "soon" ? isOpen(e) && daysLeft(e) <= 14 : state.cat === "dry" ? !!e.noliq : e.cat === state.cat));
-    return EVENTS.filter((e) => inCat(e) && (!q || e.q.toLowerCase().includes(q))).sort(state.cat === "soon" && state.sort === "volume" ? sorts.closing : sorts[state.sort]);
+    if (state.cat !== "all" && state.cat !== "soon" && state.cat !== "dry" && state.cat !== "live" && !catOn(state.cat)) state.cat = "all";
+    const inCat = (e) => catOn(e.cat) && (state.cat === "all" || (state.cat === "soon" ? isOpen(e) && daysLeft(e) <= 14 : state.cat === "dry" ? !!e.noliq : state.cat === "live" ? !!e.live : e.cat === state.cat));
+    const liveRank = (e) => { const m = e.live && LIVE.get(e.live.key); return m ? { in: 0, pre: 1, post: 2 }[m.state] : 3; };
+    const cmp = state.cat === "live" ? (a, b) => liveRank(a) - liveRank(b) || a.live.ts - b.live.ts || a.id - b.id : state.cat === "soon" && state.sort === "volume" ? sorts.closing : sorts[state.sort];
+    return EVENTS.filter((e) => inCat(e) && (!q || e.q.toLowerCase().includes(q))).sort(cmp);
   }
 
   function viewMarkets() {
-    const tabs = [{ id: "all", name: "Все" }, { id: "soon", name: "Скоро закроются" }, { id: "dry", name: "Без ликвидности" }, ...CATEGORIES.filter((c) => catOn(c.id))];
+    const tabs = [{ id: "all", name: "Все" }, { id: "live", name: "Live" }, { id: "soon", name: "Скоро закроются" }, { id: "dry", name: "Без ликвидности" }, ...CATEGORIES.filter((c) => catOn(c.id))];
     return `
     <div class="wrap">
       <h1 class="page-title">Рынки</h1>
@@ -1027,7 +1030,7 @@
   function trSpec(t) {
     if (trCache[t.nick]) return trCache[t.nick];
     const rnd = mulberry(hash(t.nick) ^ 0x5bd1), now = Date.now(), N = Math.min(t.trades, 400);
-    const POOL_EV = EVENTS.filter((x) => !x.newm), predShare = 0.45 + rnd() * 0.35, syms = PERPS.sim.syms(), winRate = t.win / 100;
+    const POOL_EV = EVENTS.filter((x) => !x.newm && !x.live), predShare = 0.45 + rnd() * 0.35, syms = PERPS.sim.syms(), winRate = t.win / 100;
     const LEV = [1, 2, 3, 5, 5, 10, 10, 20];
     const hist = [];
     for (let i = 0; i < N; i++) {
@@ -1502,7 +1505,7 @@
   const lqEarned = (eid) => liq.orders.filter((o) => o.eid === eid).reduce((s, o) => s + o.acc, 0);
   const lqRows = () => {
     const q = liqQ.trim().toLowerCase();
-    const list = EVENTS.filter((e) => !e.noliq && isOpen(e) && catOn(e.cat) && (liqCat === "all" || e.cat === liqCat) && (!q || e.q.toLowerCase().includes(q))
+    const list = EVENTS.filter((e) => !e.noliq && !e.live && isOpen(e) && catOn(e.cat) && (liqCat === "all" || e.cat === liqCat) && (!q || e.q.toLowerCase().includes(q))
       && (!liqMine || liq.orders.some((o) => o.eid === e.id)) && (!liqFav || liq.favs.includes(e.id))).map(lqMeta);
     const f = LQ_SORT[liqSort.k];
     return list.sort((a, b) => (f(b) - f(a)) * liqSort.dir || b.pool - a.pool);
@@ -2008,6 +2011,7 @@
         <h2>${esc(e.q)}</h2>
         <p>Закрытие ${fmtDate(e.closes)}${leftTxt(e) ? ` (${leftTxt(e)})` : ""} · <span id="m-vol"></span></p>
       </div>
+      ${e.live ? `<div id="m-live">${liveBoardHTML(e, true)}</div>` : ""}
       <div class="fs-grid">
         <div class="fs-main">
           <div class="chart-head">
@@ -2104,7 +2108,8 @@
 
   function paintChart() {
     if (!modalEvent || modalEvent.noliq) return;
-    const vals = modalRange === "1Ч" ? minuteSeries(modalEvent) : modalEvent.hist.slice(-RANGES[modalRange]);
+    const lv = modalEvent.live && modalEvent.live.samples && modalEvent.live.samples.length >= 3 ? modalEvent.live.samples : null; // для матча: цена за время, пока открыта страница
+    const vals = lv ? lv.slice(-RANGES[modalRange === "1Ч" ? "1Ч" : modalRange]) : modalRange === "1Ч" ? minuteSeries(modalEvent) : modalEvent.hist.slice(-RANGES[modalRange]);
     const host = $("#m-chart");
     host.innerHTML = chartMarkup(vals, modalRange);
     bindChart(host, vals, modalRange);
@@ -2125,6 +2130,7 @@
   function paintModalLive() {
     const e = modalEvent;
     if (!e || e.noliq || !$("#m-now")) return;
+    if (e.live && $("#m-live")) $("#m-live").innerHTML = liveBoardHTML(e, true);
     setFlash($("#m-now"), `${pct1(e.yes)}% «Да»`);
     $("#m-vol").textContent = `объём ${short(e.vol)} ₽ · в рынке ${rub(e.cash)}`;
     paintMoney(e);
@@ -2515,6 +2521,7 @@
     document.querySelectorAll(".card[data-open], .hero-card[data-open]").forEach((c) => {
       const e = byId(Number(c.dataset.open));
       if (e.noliq) return;
+      if (e.live) { const lb = $(".lv-board", c); if (lb) lb.outerHTML = liveBoardHTML(e); }
       const p = $(".pct", c);
       if (p) setFlash(p, Math.round(e.yes) + "%");
       const pb = $(".pbar-mini i", c);
@@ -2540,6 +2547,12 @@
       if (polyFresh(e)) { // мягко возвращаем цену к Polymarket: после ставки отклонение гаснет примерно за пару минут
         const S = e.y + e.n, next = prob(e) + (e.poly - prob(e)) * 0.03;
         e.n = (S * next) / 100; e.y = S - e.n; syncYes(e);
+      }
+      if (e.live) { // цена быстро подтягивается к вероятности по счёту и минуте матча
+        const S = e.y + e.n, next = prob(e) + (e.live.ref - prob(e)) * 0.3;
+        e.n = (S * next) / 100; e.y = S - e.n; syncYes(e);
+        const sm = e.live.samples || (e.live.samples = []);
+        sm.push(e.yes); if (sm.length > 720) sm.shift();
       }
       if (Math.random() > 0.15) return;
       const pYes = clamp(0.5 + (e.p0 - e.yes) / 40, 0.1, 0.9); // лёгкая тяга к исходной цене
@@ -2617,6 +2630,166 @@
   $("#modal").onclick = (ev) => { if (ev.target.id === "modal") closeModal(); };
   document.addEventListener("keydown", (ev) => { if (ev.key === "Escape") { if (!$("#confirm").hidden) closeConfirm(); else closeModal(); } });
 
+  // ---------- Live-события: футбольные матчи с результатом в реальном времени ----------
+  // Источник: открытая лента ESPN (без ключа). Если она недоступна (например, внутри claude.ai), включаются демо-матчи
+  // в ускоренном времени, они честно помечены. По каждому матчу три рынка: победа хозяев, победа гостей, тотал больше 2,5.
+  // Цена рынка тянется к вероятности по модели Пуассона от счёта и минуты, итог начисляется по финальному счёту.
+  const LIVE_LEAGUES = [["rus.1", "Россия · РПЛ"], ["eng.1", "Англия · Премьер-лига"], ["esp.1", "Испания · Ла Лига"], ["ita.1", "Италия · Серия A"], ["ger.1", "Германия · Бундеслига"], ["fra.1", "Франция · Лига 1"], ["uefa.champions", "Лига чемпионов"], ["uefa.europa", "Лига Европы"]];
+  const LIVE_KINDS = [
+    ["home", (m) => `${m.home.name} победит в основное время?`, (m) => `Основное время матча «${m.home.name} — ${m.away.name}» (90 минут плюс компенсированное время) закончится победой «${m.home.name}».`, (m) => m.hg > m.ag],
+    ["away", (m) => `${m.away.name} победит в основное время?`, (m) => `Основное время матча «${m.home.name} — ${m.away.name}» (90 минут плюс компенсированное время) закончится победой «${m.away.name}».`, (m) => m.ag > m.hg],
+    ["over", (m) => `В матче ${m.home.name} — ${m.away.name} будет забито больше 2,5 гола?`, (m) => `В основное время матча «${m.home.name} — ${m.away.name}» суммарно будет забито три гола или больше.`, (m) => m.hg + m.ag >= 3]
+  ];
+  const LIVE = new Map(); // ключ матча -> состояние
+  let liveSrc = "", liveLast = 0, liveBusy = false, liveDefs = store.get("livemk", []);
+  const poisson = (l, k) => { let p = Math.exp(-l); for (let i = 1; i <= k; i++) p *= l / i; return p; };
+  const impl = (ml) => (ml > 0 ? 100 / (ml + 100) : -ml / (-ml + 100));
+  // Вероятности исходов по оставшемуся времени: голы хозяев и гостей независимы, интенсивность зависит от силы команд.
+  function liveProbs(m) {
+    const rem = m.state === "post" ? 0 : clamp((90 - m.minute) / 90, 0.02, 1), lh = m.lh * rem, la = m.la * rem, N = 9;
+    let home = 0, draw = 0, away = 0, over = 0;
+    for (let i = 0; i <= N; i++) for (let j = 0; j <= N; j++) {
+      const p = (m.state === "post" ? (i === 0 && j === 0 ? 1 : 0) : poisson(lh, i) * poisson(la, j)), fh = m.hg + i, fa = m.ag + j;
+      if (fh > fa) home += p; else if (fh === fa) draw += p; else away += p;
+      if (fh + fa >= 3) over += p;
+    }
+    return { home, draw, away, over };
+  }
+  const setStrength = (m, pH, pA, total) => { const d = clamp(pH - pA, -0.7, 0.7), T = clamp(total || 2.6, 1.8, 3.8); m.lh = Math.max(0.35, T / 2 + d * 1.0); m.la = Math.max(0.35, T / 2 - d * 1.0); };
+  const isoDay = (t) => new Date(t).toLocaleDateString("sv");
+  const liveId = (key, kind) => { let id = 500000 + (hash(key + kind) % 400000); while (EVENTS.some((x) => x.id === id && !(x.live && x.live.key === key && x.live.kind === kind))) id++; return id; };
+  function addLiveMarket(def) {
+    let e = EVENTS.find((x) => x.id === def.id);
+    if (e) return e;
+    const yes = clamp(def.yes != null ? def.yes : 50, 2, 98), S = 40000;
+    e = { id: def.id, cat: "sport", q: def.q, yes, vol: 0, closes: def.closes, img: "football", newm: false, live: { key: def.key, kind: def.kind, ref: yes, endTs: def.ts + 6 * 3600e3, ts: def.ts, sim: String(def.key).startsWith("sim:") }, hist: Array(HOURS).fill(yes), n: (S * yes) / 100, y: S - (S * yes) / 100, p0: yes, cash: S, trades: [] };
+    EVENTS.push(e);
+    RULES[def.id] = [def.rule, "Официальный протокол матча (лента ESPN или организатор турнира)", "Серия пенальти и дополнительное время не учитываются. Если матч перенесён или отменён, рынок аннулируется, а ставки возвращаются."];
+    return e;
+  }
+  function saveLive() {
+    const keep = EVENTS.filter((e) => e.live && (!e.resolved || bets.some((b) => b.eid === e.id))).map((e) => ({ id: e.id, key: e.live.key, kind: e.live.kind, q: e.q, closes: e.closes, ts: e.live.ts, rule: (RULES[e.id] || [])[0], yes: e.yes }));
+    liveDefs = keep; store.set("livemk", keep);
+  }
+  // Матчи из сохранённых рынков появляются сразу при загрузке, чтобы ставки на них не терялись до ответа ленты.
+  function restoreLive() {
+    liveDefs.forEach((d) => { if (!d || !d.id || !d.key) return; addLiveMarket(d); });
+  }
+  function upsertMatch(m) {
+    const old = LIVE.get(m.key);
+    LIVE.set(m.key, { ...(old || {}), ...m });
+    const mm = LIVE.get(m.key), pr = liveProbs(mm), ref = { home: pr.home, away: pr.away, over: pr.over };
+    LIVE_KINDS.forEach(([kind, q, rule, win]) => {
+      const id = old && old[kind + "Id"] ? old[kind + "Id"] : liveId(m.key, kind);
+      mm[kind + "Id"] = id;
+      const r = clamp(ref[kind] * 100, 1.5, 98.5), e = addLiveMarket({ id, key: m.key, kind, q: q(mm), closes: isoDay(mm.ts), ts: mm.ts, rule: rule(mm), yes: r });
+      e.live.ref = r; e.p0 = r;
+      if (mm.state === "post" && !e.resolved && mm.final) {
+        const mine = bets.some((b) => b.eid === e.id);
+        settleMarket(e, win(mm) ? "yes" : "no", !mine);
+      }
+    });
+  }
+  const teamOf = (c) => ({ name: (c.team && (c.team.shortDisplayName || c.team.displayName)) || "—", abbr: (c.team && c.team.abbreviation) || "" });
+  function parseEspn(d, league) {
+    const out = [];
+    ((d && d.events) || []).forEach((ev) => {
+      const c = ev.competitions && ev.competitions[0];
+      if (!c) return;
+      const ho = (c.competitors || []).find((x) => x.homeAway === "home"), aw = (c.competitors || []).find((x) => x.homeAway === "away");
+      if (!ho || !aw) return;
+      const t = (ev.status && ev.status.type) || {}, state = t.state || "pre";
+      if (/POSTPONED|CANCEL|SUSPEND|ABANDON/i.test(t.name || "")) return;
+      let minute = 0;
+      if (state === "post") minute = 90;
+      else if (state === "in") {
+        const clk = Number(ev.status.clock), mm = /(\d+)/.exec(ev.status.displayClock || "");
+        minute = /HALFTIME/i.test(t.name || "") ? 45 : clk > 0 ? Math.floor(clk / 60) : mm ? Number(mm[1]) : 45;
+      }
+      const m = { key: "espn:" + ev.id, src: "espn", league, ts: Date.parse(ev.date), state, minute: clamp(minute, 0, 130), home: teamOf(ho), away: teamOf(aw), hg: Number(ho.score) || 0, ag: Number(aw.score) || 0, final: state === "post" && !!t.completed, goals: [] };
+      (c.details || []).filter((x) => x.scoringPlay).forEach((x) => { const home = x.team && ho.team && String(x.team.id) === String(ho.team.id); m.goals.push({ min: (x.clock && x.clock.displayValue) || "", side: home ? "home" : "away", who: (x.athletesInvolved && x.athletesInvolved[0] && x.athletesInvolved[0].displayName) || "" }); });
+      const od = c.odds && c.odds[0];
+      let pH = 0.44, pA = 0.29;
+      if (od && od.homeTeamOdds && od.awayTeamOdds && od.homeTeamOdds.moneyLine && od.awayTeamOdds.moneyLine) {
+        const h = impl(Number(od.homeTeamOdds.moneyLine)), a = impl(Number(od.awayTeamOdds.moneyLine)), dr = od.drawOdds && od.drawOdds.moneyLine ? impl(Number(od.drawOdds.moneyLine)) : 0.27, z = h + a + dr;
+        pH = h / z; pA = a / z;
+      }
+      setStrength(m, pH, pA, od && Number(od.overUnder));
+      if (Number.isFinite(m.ts)) out.push(m);
+    });
+    return out;
+  }
+  // Демо-матчи: в 30-минутном цикле матч идёт 20 минут реального времени (минуты матча ускорены в 4,5 раза).
+  const SIM_PAIRS = [["Спартак", "Зенит", "SPA", "ZEN"], ["ЦСКА", "Динамо", "CSK", "DIN"], ["Краснодар", "Локомотив", "KRA", "LOK"]];
+  function simMatches(now) {
+    const CYC = 30 * 60000, LEN = 20 * 60000, c = Math.floor(now / CYC), out = [];
+    [c - 1, c].forEach((cy) => SIM_PAIRS.forEach((pr, k) => {
+      const rnd = mulberry(cy * 31 + k * 977 + 5), ko = cy * CYC + (4 + k * 2) * 60000, el = now - ko;
+      const state = el < 0 ? "pre" : el < LEN ? "in" : "post", minute = state === "pre" ? 0 : state === "post" ? 90 : Math.floor((el / LEN) * 90);
+      const d = (rnd() - 0.5) * 0.6, goals = [], gm = Math.floor(rnd() * 5) + (rnd() < 0.5 ? 1 : 0);
+      for (let i = 0; i < gm; i++) goals.push({ min: 3 + Math.floor(rnd() * 86), side: rnd() < 0.5 + d / 2 ? "home" : "away", who: "" });
+      goals.sort((a, b) => a.min - b.min);
+      const shown = goals.filter((g) => g.min <= minute);
+      const m = { key: `sim:${cy}:${k}`, src: "sim", league: "Демо-лига", ts: ko, state, minute, home: { name: pr[0], abbr: pr[2] }, away: { name: pr[1], abbr: pr[3] }, hg: shown.filter((g) => g.side === "home").length, ag: shown.filter((g) => g.side === "away").length, final: state === "post", goals: shown.map((g) => ({ ...g, min: g.min + "'" })) };
+      setStrength(m, 0.4 + d * 0.5, 0.3 - d * 0.5, 2.6);
+      out.push(m);
+    }));
+    return out;
+  }
+  async function livePoll(force) {
+    if (liveBusy) return;
+    const anyLive = [...LIVE.values()].some((m) => m.state === "in");
+    if (!force && Date.now() - liveLast < (anyLive ? 15000 : 60000)) return;
+    liveBusy = true; liveLast = Date.now();
+    let matches = [];
+    try {
+      const d0 = new Date(), d1 = new Date(Date.now() + 2 * 864e5), ymd = (d) => d.toLocaleDateString("sv").replace(/-/g, "");
+      const res = await Promise.allSettled(LIVE_LEAGUES.map(([lg, name]) => fetch(`https://site.api.espn.com/apis/site/v2/sports/soccer/${lg}/scoreboard?dates=${ymd(d0)}-${ymd(d1)}`, { cache: "no-store" }).then((r) => { if (!r.ok) throw new Error("HTTP " + r.status); return r.json(); }).then((d) => parseEspn(d, name))));
+      const ok = res.filter((r) => r.status === "fulfilled");
+      matches = ok.flatMap((r) => r.value);
+      liveSrc = ok.length ? "espn" : "sim";
+    } catch { liveSrc = "sim"; }
+    if (liveSrc === "sim") matches = simMatches(Date.now());
+    else {
+      const now = Date.now();
+      matches = matches.filter((m) => m.state === "in" || (m.state === "pre" && m.ts - now < 36 * 3600e3) || (m.state === "post" && now - m.ts < 6 * 3600e3 + 2 * 3600e3 && m.final))
+        .sort((a, b) => ({ in: 0, pre: 1, post: 2 }[a.state] - { in: 0, pre: 1, post: 2 }[b.state]) || a.ts - b.ts).slice(0, 14);
+    }
+    matches.forEach(upsertMatch);
+    pruneLive();
+    saveLive();
+    liveBusy = false;
+    refreshPrices();
+    if (modalEvent && modalEvent.live) paintModalLive();
+    if (state.route === "markets" && state.cat === "live") paintGrid();
+    if (state.route === "home") { const h = $("#live-home"); if (h) h.outerHTML = liveHomeHTML(); }
+  }
+  // Старые завершённые матчи без ставок убираем, чтобы список не рос.
+  function pruneLive() {
+    const now = Date.now();
+    for (let i = EVENTS.length - 1; i >= 0; i--) {
+      const e = EVENTS[i];
+      if (e.live && e.resolved && now - e.live.ts > (e.live.sim ? 45 * 60000 : 8 * 3600e3) && !bets.some((b) => b.eid === e.id)) EVENTS.splice(i, 1);
+    }
+    [...LIVE.entries()].forEach(([k, m]) => { if (now - m.ts > 12 * 3600e3 && !EVENTS.some((e) => e.live && e.live.key === k)) LIVE.delete(k); });
+  }
+  const kickTxt = (ts) => new Date(ts).toLocaleString("ru-RU", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
+  function liveBoardHTML(e, big) {
+    const m = e.live && LIVE.get(e.live.key);
+    if (!m) return '<div class="lv-board"></div>';
+    const chip = m.state === "in" ? `<span class="lv-chip live"><i></i>LIVE ${m.minute}'</span>` : m.state === "post" ? '<span class="lv-chip">Завершён</span>' : `<span class="lv-chip pre">${kickTxt(m.ts)}</span>`;
+    const src = m.src === "sim" ? '<span class="lv-demo" title="Реальная лента недоступна: матч смоделирован в ускоренном времени">демо</span>' : "";
+    const goals = big && m.goals.length ? `<div class="lv-goals">${m.goals.map((g) => `<span class="${g.side}">${esc(String(g.min))} ${g.who ? esc(g.who) + " " : ""}<small>${esc(g.side === "home" ? m.home.name : m.away.name)}</small></span>`).join("")}</div>` : "";
+    return `<div class="lv-board ${big ? "big" : ""}"><div class="lv-row"><span class="lv-t">${esc(m.home.name)}</span><b class="lv-sc">${m.state === "pre" ? "– : –" : m.hg + " : " + m.ag}</b><span class="lv-t">${esc(m.away.name)}</span></div><div class="lv-meta">${chip}${src}<small>${esc(m.league || "")}</small></div>${goals}</div>`;
+  }
+  function liveHomeHTML() {
+    const list = EVENTS.filter((e) => e.live && e.live.kind === "home" && isOpen(e)).sort((a, b) => { const A = LIVE.get(a.live.key), B = LIVE.get(b.live.key); return ({ in: 0, pre: 1, post: 2 }[A && A.state] || 0) - ({ in: 0, pre: 1, post: 2 }[B && B.state] || 0) || a.live.ts - b.live.ts; }).slice(0, 3);
+    if (!list.length) return '<div id="live-home"></div>';
+    return `<div id="live-home" class="wrap"><section class="block"><div class="block-head"><h2><span class="lv-dot"></span> Сейчас в эфире</h2><a href="#markets" data-pick="live">Все матчи →</a></div><div class="grid" style="padding-bottom:0">${list.map(cardHTML).join("")}</div></section></div>`;
+  }
+  function startLive() { livePoll(true); setInterval(() => { if (!document.hidden) livePoll(false); }, 5000); }
+
+  restoreLive();
   EVENTS.forEach((e) => { // итоги, заданные заранее (в events.js) или сохранённые в браузере
     const out = resolved[e.id] || (typeof RESOLUTIONS !== "undefined" ? RESOLUTIONS[e.id] : null);
     if (out === "yes" || out === "no") settleMarket(e, out, true);
@@ -2637,4 +2810,5 @@
   render();
   paintTicker();
   applyTheme();
+  startLive();
 })();

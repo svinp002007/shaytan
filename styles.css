@@ -1364,3 +1364,26 @@ a.cm-av:hover .avatar{box-shadow:0 0 0 2px var(--brand)}
 /* тезис на главной */
 .hero h1.hero-thesis{font-size:clamp(32px,4.4vw,54px);line-height:1.08;margin:0;max-width:620px;letter-spacing:-.01em}
 @media(max-width:760px){.hero h1.hero-thesis{font-size:clamp(30px,9vw,44px);margin-bottom:22px}}
+
+/* Live-матчи */
+.lv-board{display:flex;flex-direction:column;gap:6px;padding:10px 12px;border-radius:12px;background:var(--soft);border:1px solid var(--line)}
+.lv-row{display:grid;grid-template-columns:1fr auto 1fr;align-items:center;gap:10px}
+.lv-t{font:700 14px var(--body);min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.lv-t:last-child{text-align:right}
+.lv-sc{font:800 22px var(--display);font-variant-numeric:tabular-nums;letter-spacing:.02em;padding:0 4px}
+.lv-meta{display:flex;align-items:center;gap:8px;flex-wrap:wrap;font-size:12px;color:var(--muted)}
+.lv-chip{display:inline-flex;align-items:center;gap:6px;padding:2px 9px;border-radius:99px;background:var(--line);color:var(--ink);font:700 11.5px var(--body)}
+.lv-chip.live{background:color-mix(in srgb,var(--no) 22%,transparent);color:var(--no)}
+.lv-chip.live i{display:inline-block;width:7px;height:7px;border-radius:50%;background:var(--no)}
+[data-motion="on"] .lv-chip.live i{animation:lvpulse 1.2s infinite}
+@keyframes lvpulse{0%{box-shadow:0 0 0 0 color-mix(in srgb,var(--no) 70%,transparent)}100%{box-shadow:0 0 0 8px transparent}}
+.lv-chip.pre{background:var(--soft);border:1px solid var(--line);color:var(--muted)}
+.lv-demo{padding:1px 7px;border-radius:99px;border:1px dashed var(--muted);font-size:10.5px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em}
+.lv-board.big{padding:16px 18px;margin:0 0 16px}
+.lv-board.big .lv-t{font-size:20px}.lv-board.big .lv-sc{font-size:40px}
+.lv-goals{display:flex;flex-wrap:wrap;gap:6px 14px;margin-top:4px;font-size:12.5px}
+.lv-goals span{color:var(--ink)}.lv-goals small{color:var(--muted)}.lv-goals .away{color:var(--muted)}
+.lv-dot{display:inline-block;width:10px;height:10px;border-radius:50%;background:var(--no);margin-right:6px;vertical-align:1px}
+[data-motion="on"] .lv-dot{animation:lvpulse 1.2s infinite}
+#live-home{padding-top:34px}
+#live-home + .wrap .stats{margin-top:34px}
