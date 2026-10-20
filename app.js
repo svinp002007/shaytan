@@ -644,10 +644,6 @@
       <div class="wrap">
         <div>
           <h1 class="hero-thesis">Торгуй не только акциями, но&nbsp;и&nbsp;<em>любыми событиями планеты</em></h1>
-          <div class="cta-row">
-            <button class="cta primary" data-deposit>Пополнить пул</button>
-            <a class="cta ghost" href="#markets">Смотреть рынки</a>
-          </div>
         </div>
         <div class="hero-card" data-open="${featured.id}" style="cursor:pointer">
           ${banner(featured, "in-hero", 460, 96)}

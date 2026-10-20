@@ -1362,5 +1362,5 @@ a.cm-av:hover .avatar{box-shadow:0 0 0 2px var(--brand)}
 [data-design="aurora"] .page-title .live-cnt.part{color:#ffd166}
 
 /* тезис на главной */
-.hero h1.hero-thesis{font-size:clamp(32px,4.4vw,54px);line-height:1.08;margin:0 0 30px;max-width:620px;letter-spacing:-.01em}
+.hero h1.hero-thesis{font-size:clamp(32px,4.4vw,54px);line-height:1.08;margin:0;max-width:620px;letter-spacing:-.01em}
 @media(max-width:760px){.hero h1.hero-thesis{font-size:clamp(30px,9vw,44px);margin-bottom:22px}}
