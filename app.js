@@ -614,7 +614,7 @@
   // ---------- карточка рынка ----------
   const cardHTML = (e) => `
     <article class="card" data-open="${e.id}">
-      ${banner(e, "", 320, 64)}
+      ${banner(e, "", 320, 92)}
       <div class="cat"><span>${catName(e.cat)}</span>${polyChip(e)}</div>
       <h3>${esc(e.q)}</h3>
       ${e.noliq ? "" : `<div class="pbar-mini" aria-hidden="true"><i style="width:${clamp(e.yes, 1, 99)}%"></i></div>`}

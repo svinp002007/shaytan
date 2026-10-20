@@ -407,7 +407,7 @@ footer{border-top:1px solid var(--line);padding:22px 0;color:var(--muted);font-s
 /* компактные карточки рынков */
 .grid{grid-template-columns:repeat(auto-fill,minmax(250px,1fr));gap:12px}
 .card{padding:12px;gap:8px;border-radius:12px}
-.card .banner{margin:-12px -12px 0;width:calc(100% + 24px);height:64px}
+.card .banner{margin:-12px -12px 0;width:calc(100% + 24px);height:92px}
 .card h3{font-size:13.5px;line-height:1.3}
 .card .cat{font-size:10px}
 .card .pct{font-size:19px;min-width:60px}

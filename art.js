@@ -64,7 +64,9 @@ const BANNER_ICONS = [
   "crosshair", "trophy", "gamepad",
   "snow", "thermo", "snow", "cloud", "snow",
   "plane", "shield", "phone", "mic",
-  "gamepad", "growth", "talk"
+  "gamepad", "growth", "talk",
+  // рынки без ликвидности (номера 90–97)
+  "bank", "ruble", "sol", "football", "phone", "gamepad", "snow", "phone"
 ];
 EVENTS.forEach((e, i) => { e.img = BANNER_ICONS[i] || "globe"; });
 
