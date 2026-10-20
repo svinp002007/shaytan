@@ -643,14 +643,11 @@
     <section class="hero">
       <div class="wrap">
         <div>
-          <div class="eyebrow">Рынок прогнозов России</div>
-          <h1>Знаешь, что будет дальше? <em>Вложи в пул</em> и забери разницу.</h1>
-          <p class="lead">Ставь на курс рубля, решения ЦБ, нефть, крипту, спорт и политику. Рядом с каждым исходом видны вероятность и коэффициент: 62% это ×1,61, а 20% это ×5,00. Угадал — выплата равна ставке, умноженной на коэффициент, платформа берёт 2% от выигрыша. Передумал — продай в любой момент.</p>
+          <h1 class="hero-thesis">Торгуй не только акциями, но&nbsp;и&nbsp;<em>любыми событиями планеты</em></h1>
           <div class="cta-row">
             <button class="cta primary" data-deposit>Пополнить пул</button>
             <a class="cta ghost" href="#markets">Смотреть рынки</a>
           </div>
-          <div class="demo-note">Демо-режим: игровые рубли, реальные деньги не принимаются.</div>
         </div>
         <div class="hero-card" data-open="${featured.id}" style="cursor:pointer">
           ${banner(featured, "in-hero", 460, 96)}
