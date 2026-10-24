@@ -1395,3 +1395,4 @@ a.cm-av:hover .avatar{box-shadow:0 0 0 2px var(--brand)}
 .lv-diag{margin:0 0 12px;font-size:12px;color:var(--muted)}
 .lv-diag summary{cursor:pointer;width:max-content}
 .lv-diag pre{margin:8px 0 0;padding:10px 12px;border-radius:10px;background:var(--soft);border:1px solid var(--line);white-space:pre-wrap;word-break:break-all;font:11.5px/1.5 ui-monospace,monospace;color:var(--ink);max-height:240px;overflow:auto;user-select:text}
+.lv-chip.stale{opacity:.7}
